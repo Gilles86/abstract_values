@@ -1,0 +1,32 @@
+name: abstract_values
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  # Scientific stack
+  - numpy<2.0
+  - scipy
+  - pandas
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - jupyterlab
+  - ipykernel
+  - ipywidgets
+  - pingouin
+  # Neuroimaging
+  - nibabel
+  - nilearn
+  - nipype
+  # Install via pip for better Apple Silicon compatibility
+  - pip:
+      - tensorflow-macos==2.14.0
+      - tensorflow-metal==1.1.0
+      - tensorflow-probability==0.22.0
+      - protobuf==3.20.3
+      - tqdm
+      - pybids
+      - pymc
+      - -e ./libs/braincoder
+      # - -e .

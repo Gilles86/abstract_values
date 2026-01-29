@@ -1,0 +1,10 @@
+name: abstract_values_psychopy
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10  # Recommended version
+  - pip
+  - pip:
+    - psychopy
+    - -e ./libs/exptools2  # Install local package in editable mode

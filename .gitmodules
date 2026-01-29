@@ -1,0 +1,6 @@
+[submodule "libs/braincoder"]
+	path = libs/braincoder
+	url = git@github.com:Gilles86/braincoder.git
+[submodule "libs/exptools2"]
+	path = libs/exptools2
+	url = git@github.com:Gilles86/exptools2.git
