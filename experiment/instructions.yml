@@ -1,0 +1,73 @@
+---
+# Phase 1: Learning
+phase_1:
+  title: "Phase 1: Learn the Gabor-Value Mappings"
+  instructions: |
+    Learn the monetary value associated with each gabor angle.
+
+    - You will see all possible gabors with their values.
+
+    - Use the **RIGHT ARROW** key to proceed.
+
+    - Use the **LEFT ARROW** key to go back.
+
+    - Press the **SPACE BAR** when you are ready to move on to Phase 2.
+
+    - Take your time—this phase is self-paced!
+
+  screen_text: |
+    Learn the value of each gabor.
+    Press **RIGHT ARROW** to proceed.
+    Press **LEFT ARROW** to go back.
+    Press **SPACE BAR** when ready.
+
+# Phase 2: Estimation
+phase_2:
+  title: "Phase 2: Estimate Gabor Values"
+  instructions: |
+    Estimate the monetary value of each gabor.
+
+    - A gabor will appear in the center of the screen.
+
+    - After 1.5 seconds, a slider will appear.
+
+    - Use your mouse to adjust the slider to match the gabor’s value.
+
+    - Click to confirm your estimate.
+
+    - You have 5 seconds per trial.
+
+    - Feedback will be given after each estimate (green = correct, red = incorrect).
+
+  screen_text: |
+    Estimate the value of the gabor.
+    Adjust the slider and click to confirm.
+    You have **5 seconds**.
+
+# Phase 3: Auction
+phase_3:
+  title: "Phase 3: Bid in the Auction"
+  instructions: |
+
+    This is block {block_nr} of {n_blocks}.
+
+    Bid for gabors in an auction.
+
+    - A gabor will appear with low contrast.
+    
+    - Use your mouse to adjust the slider to your bid.
+
+    - Click to confirm your bid.
+
+    - You have 4 seconds per trial.
+
+    - Bid your true value to maximize earnings!
+
+    - No feedback will be given.
+
+
+  screen_text: |
+    Bid for the gabor.
+    Adjust the slider and click to confirm.
+    You have **4.5 seconds**.
+    Bid your true value!
