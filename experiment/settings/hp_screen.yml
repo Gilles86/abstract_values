@@ -100,7 +100,6 @@ main_task:
   isis: [4.0, 4.5, 5.0, 5.5]
   n_blocks: 8
   reward_scaling: 184.0
-  n_blocks = 8
 
 various:
   text_height: .75
