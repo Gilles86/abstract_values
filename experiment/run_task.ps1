@@ -39,4 +39,14 @@ python examples.py $subject_id $session_id $mapping --settings sns_multisubject
 
 python training.py $subject_id $session_id $mapping --settings sns_multisubject
 
+# Run the main task for 10 runs
+for ($run = 1; $run -le 10; $run++) {
+    Write-Host ("Running main task - Run {0} of 10" -f $run)
+    python task.py $subject_id $session_id $run $mapping --settings sns_multisubject
+}
+
+# Display total earnings
+Write-Host "Displaying total earnings..."
+python earnings.py $subject_id $session_id --settings sns_multisubject
+
 Read-Host

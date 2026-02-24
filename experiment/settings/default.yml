@@ -72,7 +72,7 @@ durations_training:
   gabor: 1.5
   response_bar: 5
   feedback: 1.5
-  iti: .5
+  iti: 1.0
 
 
 slider:
@@ -90,13 +90,13 @@ interface:
   mouse_multiplier: 2.
 
 training:
-  n_repeats: 5
-  n_blocks: 5
+  n_repeats: 6
+  n_blocks: 6
 
 main_task:
   n_repeats: 1
-  isis: [4, 5, 6]
-  n_blocks: 8
+  isis: [4.0, 4.5, 5.0, 5.5]
+  n_blocks: 10
   reward_scaling: 184.0
 
 various:

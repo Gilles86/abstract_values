@@ -1,0 +1,94 @@
+# Experiment
+
+## How to run
+`run_task1.ps1` should run all the scripts in order.
+
+
+## Phases
+
+  * **Training**: This is self-paced, shouldn't take much more than a few minutes
+  * **Feedback**: ..
+  * **Task**: 
+
+## Duration
+
+### Feedback
+
+We have *23* unique orientations that are all between 0 and 180 degrees.
+
+The feedback trials consist of the following phases:
+
+1. Green fixation (300 ms)
+    - Green fixation cross signals trial start.
+
+2. White fixation (700 ms)
+    - White fixation cross to center attention.
+
+3. Stimulus presentation (1500 ms)  
+    - Oriented gabor stimulus drawn from the 23 orientations (0–180°).
+
+4. Response window (up to 5000 ms)  
+    - Participant reports perceived orientation using the slider.
+    - Trial advances immediately after response (not fixed duration).
+
+5. Feedback (1500 ms)  
+    - Display actual orientation value with the participant's response highlighted.
+
+6. Inter-trial interval (1000 ms)  
+    - Blank screen before next trial begins.
+
+**Single trial duration:** 5-10 seconds depending on response speed
+- Minimum (instant response): 5.0 seconds (300 + 700 + 1500 + 0 + 1500 + 1000 ms)
+- Maximum (full timeout): 10.0 seconds (300 + 700 + 1500 + 5000 + 1500 + 1000 ms)
+- **Average: ~7 seconds per trial**
+
+**23 trials per block:** ~2.5-4 minutes (depending on response speed)
+
+**6 blocks (138 trials total):** ~16 minutes of trials + breaks = **~20 minutes total**
+
+### Main Task
+
+The main task consists of 23 orientations per run, repeated across 10 runs (230 trials total).
+
+Trial phases:
+
+1. Green fixation (300 ms)
+    - Green fixation cross signals trial start.
+
+2. White fixation (700 ms)
+    - White fixation cross to center attention.
+
+3. Stimulus presentation (1500 ms)  
+    - Oriented gabor stimulus drawn from the 23 orientations (0–180°).
+
+4. ISI (4000-5500 ms, randomly 4.0/4.5/5.0/5.5 seconds, equally distributed)
+    - Inter-stimulus interval before response.
+
+5. Response window (3000 ms, fixed)  
+    - Participant places bid using the slider.
+    - Trial duration is fixed (early responses extend the ITI).
+
+6. Feedback (1000 ms)  
+    - Display outcome and reward earned (if feedback enabled).
+
+7. Inter-trial interval (1500 ms, variable to maintain fixed trial duration)  
+    - Blank screen before next trial begins.
+
+**Single trial duration:** 11.0-13.5 seconds (fixed per-trial despite variable ISI)
+- With ISI=4.0s: 12.0 seconds (300 + 700 + 1500 + 4000 + 3000 + 1000 + 1500 ms)
+- With ISI=4.5s: 12.5 seconds 
+- With ISI=5.0s: 13.0 seconds
+- With ISI=5.5s: 13.5 seconds
+- **Mean: 12.75 seconds per trial**
+
+**Per run:** 23 trials × 12.75s = 293 seconds (~4.9 minutes)
+
+**10 runs total:** ~49 minutes of trials + instructions/breaks = **~60 minutes total**
+
+---
+
+**Complete experiment duration:**
+- Instructions/setup: ~10 minutes
+- Feedback training (6 blocks): ~20 minutes  
+- Main task (10 runs): ~60 minutes
+- **Total: ~90 minutes (1.5 hours)**

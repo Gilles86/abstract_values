@@ -206,9 +206,6 @@ class TrainingTrial(Trial):
                     self.parameters['response'] = response_slider.marker_position
                     print(f"Recorded response: {self.parameters['response']:.2f}")
 
-                    time_so_far = self.session.clock.getTime() - self.start_trial
-                    self.phase_durations[self.phase_names.index('iti')] = self.total_duration - time_so_far - self.phase_durations[self.phase_names.index('feedback')]
-
                     if response_slider.marker_position == self.parameters['value']:
                         self.feedback_text.color = ( -1, 1, -1)  # green
                     else:

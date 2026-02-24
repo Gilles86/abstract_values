@@ -108,11 +108,11 @@ class TaskSession(Session):
         np.random.shuffle(self.orientations)
 
         for i, (isi, ori) in enumerate(zip(isis[:n_trials], self.orientations)):
-            self.trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials + i + 1, orientation=ori))
+            self.trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials + i + 1, orientation=ori, isi=isi))
 
 
 class TaskTrial(Trial):
-    def __init__(self, session, trial_nr, orientation=0):
+    def __init__(self, session, trial_nr, orientation=0, isi=4.0):
         phase_names = ['green_fixation',
                        'white_fixation','gabor',
                        'isi', 'response_bar', 'feedback',
@@ -123,7 +123,7 @@ class TaskTrial(Trial):
         phase_durations = [self.session.settings['durations']['green_fixation'],
                             self.session.settings['durations']['white_fixation'],
                             self.session.settings['durations']['gabor'],
-                            self.session.settings['durations']['isi'],
+                            isi,
                             self.session.settings['durations']['response_bar'],
                             self.session.settings['durations']['feedback'],
                             self.session.settings['durations']['iti']]
