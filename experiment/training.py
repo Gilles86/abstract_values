@@ -12,6 +12,11 @@ import argparse
 class TrainingSession(Session):
     def __init__(self, subject, run, mapping, output_str, output_dir=None, settings_file=None):
         super().__init__(output_str, output_dir=output_dir, settings_file=settings_file)
+
+        self.instructions_file = Path(__file__).parent / 'instructions.yml'
+        with open(self.instructions_file, 'r') as f:
+            self.instructions = yaml.safe_load(f)['phase_2']
+
         self.mouse = event.Mouse(visible=False)
         self.settings['subject'] = subject
         self.settings['run'] = run
@@ -45,13 +50,22 @@ class TrainingSession(Session):
                                          precision=0.5)
     def run(self):
         self.start_experiment()
-        self.create_trials()
         for trial in self.trials:
             trial.run()
 
         self.close()
 
-    def create_trials(self):
+    def create_trials(self, n_trials=None):
+
+
+        self.trials = []
+
+        self.trials.append(InstructionTrial(self, trial_nr=0,
+                                             txt=self.instructions['instructions'],
+                                             bottom_txt='Press SPACE BAR to continue.',
+                                             keys=['space'],
+                                             phase_durations=[np.inf],
+                                             phase_names=['instruction']))
 
         # Randomly sample orientations:
         # possible orientations
@@ -65,7 +79,9 @@ class TrainingSession(Session):
         n_blocks = self.settings['training']['n_blocks']
         block_size = len(self.orientations) // n_blocks  # Integer division
 
-        self.trials = [] 
+        if n_trials is not None:
+            n_blocks = 1
+            self.orientations = self.orientations[:n_trials]
 
         # Add InstructionTrial at the start of each block
         for i in range(n_blocks):
@@ -208,6 +224,7 @@ if __name__ == '__main__':
     argparser.add_argument('session', type=int, help='Session number')
     argparser.add_argument('mapping', type=str, choices=['linear', 'cdf', 'inverse_cdf'], help='Mapping type')
     argparser.add_argument('--settings', type=str, default='default', help='Name of settings file (default by default)')
+    argparser.add_argument('--n_trials', type=int, default=None, help='Number of trials')
     args = argparser.parse_args()
 
     session = TrainingSession(subject=args.subject,
@@ -216,4 +233,6 @@ if __name__ == '__main__':
                               output_str=f'sub-{args.subject}_ses-{args.session:02d}_task-training.{args.mapping}',
                               output_dir=Path(__file__).parent / 'logs' / f'sub-{args.subject}' / f'session-{args.session:02d}',
                               settings_file=Path(__file__).parent / 'settings' / f'{args.settings}.yml')
+    
+    session.create_trials(n_trials=args.n_trials)
     session.run()
