@@ -39,9 +39,9 @@ python examples.py $subject_id $session_id $mapping --settings sns_multisubject
 
 python training.py $subject_id $session_id $mapping --settings sns_multisubject
 
-# Run the main task for 10 runs
-for ($run = 1; $run -le 10; $run++) {
-    Write-Host ("Running main task - Run {0} of 10" -f $run)
+# Run the main task for 8 runs
+for ($run = 1; $run -le 8; $run++) {
+    Write-Host ("Running main task - Run {0} of 8" -f $run)
     python task.py $subject_id $session_id $run $mapping --settings sns_multisubject
 }
 

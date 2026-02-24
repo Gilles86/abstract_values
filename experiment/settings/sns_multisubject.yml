@@ -90,13 +90,13 @@ interface:
   mouse_multiplier: 2.
 
 training:
-  n_repeats: 6
-  n_blocks: 6
+  n_repeats: 10
+  n_blocks: 10
 
 main_task:
   n_repeats: 1
   isis: [4.0, 4.5, 5.0, 5.5]
-  n_blocks: 10
+  n_blocks: 8
   reward_scaling: 184.0
 
 various:

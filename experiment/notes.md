@@ -44,11 +44,11 @@ The feedback trials consist of the following phases:
 
 **23 trials per block:** ~2.5-4 minutes (depending on response speed)
 
-**6 blocks (138 trials total):** ~16 minutes of trials + breaks = **~20 minutes total**
+**10 blocks (230 trials total):** ~27 minutes of trials + breaks = **~32 minutes total**
 
 ### Main Task
 
-The main task consists of 23 orientations per run, repeated across 10 runs (230 trials total).
+The main task consists of 23 orientations per run, repeated across 8 runs (184 trials total).
 
 Trial phases:
 
@@ -83,12 +83,24 @@ Trial phases:
 
 **Per run:** 23 trials × 12.75s = 293 seconds (~4.9 minutes)
 
-**10 runs total:** ~49 minutes of trials + instructions/breaks = **~60 minutes total**
+**8 runs total:** ~39 minutes of trials + instructions/breaks = **~45 minutes total**
 
 ---
 
 **Complete experiment duration:**
 - Instructions/setup: ~10 minutes
-- Feedback training (6 blocks): ~20 minutes  
-- Main task (10 runs): ~60 minutes
-- **Total: ~90 minutes (1.5 hours)**
+- Feedback training (10 blocks): ~32 minutes  
+- Main task (8 runs): ~45 minutes
+- **Total: ~87 minutes (1.5 hours)**
+
+---
+
+**Payment calculation (for optimal play):**
+- Starting fee: 10 CHF
+- Budget per trial: 42 CHF (kept if no purchase)
+- 184 task trials with reward_scaling of 184.0 (payment = total_reward / 184)
+- If bidding correctly (bid = true value):
+  - Win probability depends on gabor value (higher values win less often)
+  - When winning, pay random price (uniform 2-42), get true value back
+  - Expected profit per trial ≈ 5 CHF (varies by gabor value)
+- **Expected total payment: ~57 CHF** (10 CHF base + ~47 CHF from task)
