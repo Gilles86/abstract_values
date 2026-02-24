@@ -71,7 +71,8 @@ class TaskSession(Session):
         reward_trial = InstructionTrial(self,
                                         trial_nr=self.n_trials + 1,
                                         txt=f'You have earned a total of {total_reward:.2f} CHF in this run.',
-                                        keys=None)
+                                        bottom_txt='Press SPACE BAR to continue.',
+                                        keys=['space'])
         reward_trial.run()
 
         self.close()
