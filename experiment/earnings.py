@@ -32,8 +32,10 @@ class EarningsSession(Session):
                     total_earnings += reward
                     print(f'{reward_file.name}: {reward:.2f} CHF')
             
-            print(f'\nTotal earnings: {total_earnings:.2f} CHF')
-            message = f'Congratulations!\n\nYou have completed the experiment.\n\nYour total earnings are:\n\n{total_earnings:.2f} CHF\n\n({len(reward_files)} runs completed)\n\nThank you for participating!\n\nPlease wait for the experimenter.'
+            print(f'\nTotal variable reward: {total_earnings:.2f} CHF')
+            total_payment = 10.0 + total_earnings
+            
+            message = f'Congratulations!\n\nYou have completed the experiment.\n\nShow-up fee: 10.00 CHF\nVariable reward: {total_earnings:.2f} CHF\n\nYour total earnings are:\n\n{total_payment:.2f} CHF\n\n({len(reward_files)} runs completed)\n\nThank you for participating!\n\nPlease wait for the experimenter.'
         
         # Display earnings on screen
         earnings_trial = InstructionTrial(
