@@ -4,17 +4,25 @@ import yaml
 from pathlib import Path
 from psychopy.visual import TextStim
 import numpy as np
-from utils import get_value
+from utils import get_value, InstructionTrial
 from stimuli import AnnulusGrating, FixationCross
 import argparse
 
 class ExampleSession(Session):
     def __init__(self, subject, mapping, output_str, output_dir=None, settings_file=None):
         super().__init__(output_str, output_dir=output_dir, settings_file=settings_file)
+
+
+        # Read instructions.yml
+        instructions_file = Path(__file__).parent / 'instructions.yml'
+        with open(instructions_file, 'r') as f:
+            self.instructions = yaml.safe_load(f)['phase_1']
+
         self.mouse = event.Mouse(visible=False)
         self.settings['subject'] = subject
         self.settings['mapping'] = mapping
-        self.bottom_text = TextStim(self.win, text='Press left/right to change orientation\nPress SPACE BAR to quit.',
+        # self.bottom_text = TextStim(self.win, text='Press left/right to change orientation\nPress SPACE BAR to quit.',
+        self.bottom_text = TextStim(self.win, text='Press left/right to change orientation.',
                                     pos=(0, -1.5 * self.settings['grating']['size'] / 2),
                                     height=.75, color='white', wrapWidth=60)
         self.orientations = self.settings['mappings']['orientations'][1:-1]
@@ -24,19 +32,33 @@ class ExampleSession(Session):
                                                 color=self.settings['fixation_cross']['color'],
                                                 line_width=self.settings['fixation_cross']['line_width'])
 
+        self.visisted_all_orientations = False
+
     def run(self):
         self.start_experiment()
-        self.create_trials()
-        self.trials[0].run()  # Only one trial
+        for trial in self.trials:
+            self.current_trial = trial
+            trial.run()
         self.close()
 
     def create_trials(self):
-        self.trials = [ExampleTrial(self, trial_nr=1, orientation=self.orientations[0])]
+
+
+        self.trials = []
+        instruction_trial = InstructionTrial(self, trial_nr=0,
+                                             txt=self.instructions['instructions'],
+                                             bottom_txt='Press SPACE BAR to continue.',
+                                             keys=['space'],
+                                             phase_durations=[np.inf],
+                                             phase_names=['instruction'])
+        self.trials.append(instruction_trial)
+
+        self.trials.append(ExampleTrial(self, trial_nr=1, orientation=self.orientations[0]))
 
     def update_orientation(self, step):
         self.current_orientation_idx += step
         self.current_orientation_idx = np.clip(self.current_orientation_idx, 0, len(self.orientations) - 1)
-        self.trials[0].update_stimuli(self.orientations[self.current_orientation_idx])
+        self.current_trial.update_stimuli(self.orientations[self.current_orientation_idx])
 
 class ExampleTrial(Trial):
     def __init__(self, session, trial_nr, orientation=0):
@@ -65,6 +87,10 @@ class ExampleTrial(Trial):
                                    height=1, color=(-1, 1, -1))
 
     def update_stimuli(self, orientation):
+        if orientation == self.session.orientations[-1]:
+            self.session.visited_all_orientations = True
+            self.session.bottom_text.text = 'Press left/right to change orientation.\nPress SPACE BAR to quit.'
+
         self.orientation = orientation
         self.value = get_value(orientation, self.session.settings['mapping'])
 
@@ -90,7 +116,7 @@ class ExampleTrial(Trial):
                 self.session.update_orientation(-1)
             elif key == 'right':
                 self.session.update_orientation(1)
-            elif key == 'space':
+            elif self.session.visited_all_orientations and (key == 'space'):
                 self.session.close()
                 self.session.quit()
 
@@ -108,4 +134,5 @@ if __name__ == '__main__':
                              output_str=f'sub-{args.subject}_ses-{args.session:02d}_task-examples.{args.mapping}',
                              output_dir=Path(__file__).parent / 'logs' / f'sub-{args.subject}' / f'session-{args.session:02d}',
                              settings_file=Path(__file__).parent / 'settings' / f'{args.settings}.yml')
+    session.create_trials()
     session.run()
