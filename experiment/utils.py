@@ -51,7 +51,7 @@ class InstructionTrial(Trial):
                              pos=(0.0, 0.0), height=txt_height, wrapWidth=txt_width, color=txt_color)
 
         if bottom_txt is None:
-            bottom_txt = "Press any button to continue"
+            bottom_txt = ""
 
         self.text2 = TextStim(session.win, bottom_txt, pos=(
             0.0, -6.0), height=txt_height, wrapWidth=txt_width,
@@ -78,6 +78,6 @@ class InstructionTrial(Trial):
         if self.session.win.mouseVisible:
             self.session.win.mouseVisible = False
 
-        self.session.fixation_stimulus.draw()
+        # self.session.fixation_stimulus.draw()
         self.text.draw()
         self.text2.draw()
