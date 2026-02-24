@@ -8,15 +8,22 @@ from utils import get_value
 from response_slider import ResponseSlider
 from stimuli import AnnulusGrating, FixationCross
 import argparse
+from utils import InstructionTrial
 
 class TaskSession(Session):
     def __init__(self, subject, session, run, mapping, output_str, output_dir=None, settings_file=None, feedback=False):
         super().__init__(output_str, output_dir=output_dir, settings_file=settings_file)
+
+        self.instructions_file = Path(__file__).parent / 'instructions.yml'
+        with open(self.instructions_file, 'r') as f:
+            self.instructions = yaml.safe_load(f)['phase_3']
+
         self.mouse = event.Mouse(visible=False)
+
         self.settings['subject'], self.settings['session'], self.settings['run'] = subject, session, run
         self.settings['mapping'] = mapping
         self.settings['feedback'] = feedback
-        self.settings['range'] = [2, 42]
+        self.settings['range'] = [0, 42]
         self.fixation_stimulus = FixationCross(self.win, 
                                                 size=self.settings['fixation_cross']['size'],
                                                 color=self.settings['fixation_cross']['color'],
@@ -45,22 +52,51 @@ class TaskSession(Session):
                                          precision=0.5)
     def run(self):
         self.start_experiment()
-        self.create_trials()
+
         for trial in self.trials:
             self.response_slider.random_init_marker()
             self.response_slider.show_marker = False
             print('Current marker slider position:', self.response_slider.marker_position)
             trial.run()
 
+        total_reward = sum([trial.parameters.get('reward', 0.0) for trial in self.trials]) / self.settings.get('reward_scaling', 184.0)
+
+        print(f'Total reward for this session: {total_reward:.2f} points')
+
+        # write total_reward to a file:
+        reward_file = Path(self.output_dir) / f'reward_{self.settings["subject"]}_{self.settings["session"]}_{self.settings["run"]}.txt'
+        with open(reward_file, 'w') as f:
+            f.write(f'{total_reward:.2f}\n')
+
+        reward_trial = InstructionTrial(self,
+                                        trial_nr=self.n_trials + 1,
+                                        txt=f'You have earned a total of {total_reward:.2f} CHF in this run.',
+                                        keys=None)
+        reward_trial.run()
+
         self.close()
 
-    def create_trials(self):
+    def create_trials(self, n_trials=None):
+
+        self.trials = []
+
+        self.trials.append(InstructionTrial(self, trial_nr=0,
+                                             txt=self.instructions['instructions'].format(block_nr=self.settings['run'], n_blocks=self.settings['main_task'].get('n_blocks')),
+                                             bottom_txt='Press SPACE BAR to continue.',
+                                             keys=['space'],
+                                             phase_durations=[np.inf],
+                                             phase_names=['instruction']))        
 
         # Randomly sample orientations:
         # 23 possible orientations
         self.orientations = self.settings['mappings']['orientations'][1:-1]
         self.orientations = self.orientations.copy() * self.settings['main_task'].get('n_repeats')
-        n_trials = len(self.orientations) * self.settings['main_task'].get('n_repeats')
+        self.n_trials = len(self.orientations) * self.settings['main_task'].get('n_repeats')
+
+        if n_trials is not None:
+            self.n_trials = n_trials
+        else:
+            self.n_trials = len(self.orientations) * self.settings['main_task'].get('n_repeats')
 
         isis = self.settings['main_task'].get('isis')
 
@@ -70,8 +106,6 @@ class TaskSession(Session):
 
         np.random.shuffle(isis)
         np.random.shuffle(self.orientations)
-
-        self.trials = []
 
         for i, (isi, ori) in enumerate(zip(isis[:n_trials], self.orientations)):
             self.trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials + i + 1, orientation=ori))
@@ -98,6 +132,7 @@ class TaskTrial(Trial):
 
         self.parameters['orientation'] = orientation
         self.parameters['value'] = get_value(self.parameters['orientation'], self.session.settings['mapping'])
+        self.parameters['reward'] = 0.0
         size_grating = self.session.settings['grating']['size']
 
         # self.grating = GratingStim(session.win, tex='sin', mask='circle',
@@ -180,6 +215,21 @@ class TaskTrial(Trial):
                     self.parameters['response_time'] = self.response_onset - self.session.global_log.iloc[-1]['onset']
                     self.parameters['response'] = response_slider.marker_position
 
+                    # implement random bid
+                    precision = response_slider.precision
+                    bid = round(np.random.uniform(self.session.settings['range'][0], self.session.settings['range'][1]) / precision) * precision
+
+                    print('bid: ', bid)
+                    print('Response: ', self.parameters['response'])
+                    print("value: ", self.parameters['value'])
+                    
+                    if self.parameters['response'] > bid:
+                        self.parameters['reward'] = 42 + self.parameters['value'] - bid
+                    else:
+                        self.parameters['reward'] = 42.0
+
+                    print('reward: ', self.parameters['reward'])
+
                     time_so_far = self.session.clock.getTime() - self.start_trial
                     self.phase_durations[self.phase_names.index('iti')] = self.total_duration - time_so_far - self.phase_durations[self.phase_names.index('feedback')]
                     self.stop_phase()
@@ -200,6 +250,7 @@ if __name__ == '__main__':
     argparser.add_argument('mapping', type=str, choices=['linear', 'cdf', 'inverse_cdf'], help='Mapping type')
     argparser.add_argument('--settings', type=str, default='default', help='Name of settings file (default by default)')
     argparser.add_argument('--feedback', action='store_true', help='Whether to provide feedback or not')
+    argparser.add_argument('--n_trials', type=int, default=None, help='Number of trials')
     args = argparser.parse_args()
 
     session = TaskSession(subject=args.subject,
@@ -210,4 +261,5 @@ if __name__ == '__main__':
                               output_dir=Path(__file__).parent / 'logs' / f'sub-{args.subject}' / f'session-{args.session:02d}',
                               feedback=args.feedback,
                               settings_file=Path(__file__).parent / 'settings' / f'{args.settings}.yml')
+    session.create_trials(n_trials=args.n_trials)
     session.run()
