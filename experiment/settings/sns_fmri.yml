@@ -1,0 +1,106 @@
+window:
+  size: [1920, 1080]
+  pos: [0, 0]
+  color: [0, 0, 0]
+  fullscr: True
+  winType: pyglet
+  screen: 1
+  viewPos: [0, 0]
+
+monitor:
+  name: default
+  width: 54.5
+  distance: 60  # in cm
+  gamma: 1
+
+mouse:
+  visible: False
+
+mri:
+  simulate: False
+  TR: 0.996  # seconds between volume acquisitions
+  TA: 0.996  # seconds to acquire one volume
+  volumes: 300  # number of 3D volumes to obtain in a given scanning run
+  sync: t  # character used as flag for sync timing, default='5'
+  skip: 0  # how many frames to silently omit initially during T1 stabilization, no sync pulse.
+  sound: False  # simulate scanner noise
+  n_dummy_scans: 20  # 20 × 0.996 s ≈ 19.92 s ≈ 20 s
+
+mappings:
+  linear: [2.0, 3.5, 5.5, 7.0, 8.5, 10.5, 12.0, 13.5,
+    15.5, 17.0, 18.5, 20.5, 22.0, 23.5, 25.5, 27.0, 28.5, 30.5,
+    32.0, 33.5, 35.5, 37.0, 38.5, 40.5, 42.0]
+
+  inverse_cdf: [2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 11.5, 16.0,
+    18.5, 20.0, 21.0, 21.5, 22.0, 22.5, 23.0, 24.0,
+    25.5, 28.0, 32.5, 36.5, 39.0, 40.0, 41.0, 41.5,
+    42.0]
+
+  cdf: [2.0, 5.5, 8.0, 10.0, 11.0, 11.5,
+    12.0, 12.5, 13.0, 14.0, 16.0, 18.5, 22.0, 25.5,
+    28.0, 30.0, 31.0, 31.5, 32.0, 32.5, 33.0, 34.0, 36.0, 38.5, 42.0]
+
+  orientations: [  0. ,   7.5,  15. ,  22.5,  30. ,  37.5,  45. ,  52.5,  60. ,
+        67.5,  75. ,  82.5,  90. ,  97.5, 105. , 112.5, 120. , 127.5,
+       135. , 142.5, 150. , 157.5, 165. , 172.5, 180. ]
+
+
+fixation_cross:
+  size: 0.5
+  color: white
+  line_width: 5
+
+grating:
+  spatial_freq: 1.0  # cycles per degree
+  contrast: 0.1
+  temporal_frequency: 2.0  # cycles per second
+  size: 7.5  # degrees
+  hole_size: 1.5
+
+durations:
+  green_fixation: 0.3
+  white_fixation: 0.7
+  gabor: 1.5
+  isi: 4
+  response_bar: 3
+  feedback: 1
+  iti: 1.5
+
+durations_training:
+  green_fixation: 0.3
+  white_fixation: 0.7
+  gabor: 1.5
+  response_bar: 5
+  feedback: 1.5
+  iti: 1.0
+
+
+slider:
+  max_length: 10
+  max_range: [2, 42]
+  borderColor: [-1, -1, -1]
+  color: [.5, .5, .5]
+  feedbackColor: [1., 1., -1]
+  height: .75
+  borderWidth: 5.
+  markerColor: [.25, .25, .25]
+  text_height: .5
+
+interface:
+  mouse_multiplier: 2.
+
+training:
+  n_repeats: 10
+  n_blocks: 10
+
+main_task:
+  n_repeats: 1
+  isis: [4.0, 4.5, 5.0, 5.5]
+  n_blocks: 10
+  reward_scaling: 200.0  # 10 runs × 20 trials
+  baseline_duration: 20  # seconds of fixation at start and end of each run
+
+various:
+  text_height: .75
+  text_width: 60
+  text_color: [1, 1, 1]

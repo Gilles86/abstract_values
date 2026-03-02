@@ -102,16 +102,37 @@ class TaskSession(Session):
         n_trials_effective = self.n_trials
 
         isis = self.settings['main_task'].get('isis')
+        n_isi_values = len(isis)
 
-        # Have at least as many ISIs as trials
-        while len(isis) < n_trials_effective:
-            isis = isis + isis
+        # Trim to nearest multiple of ISI count so each ISI occurs equally often
+        n_trials_effective = (n_trials_effective // n_isi_values) * n_isi_values
+        self.n_trials = n_trials_effective
+        isis = isis * (n_trials_effective // n_isi_values)
 
         np.random.shuffle(isis)
         np.random.shuffle(self.orientations)
 
-        for i, (isi, ori) in enumerate(zip(isis[:n_trials_effective], self.orientations)):
+        baseline_duration = self.settings['main_task'].get('baseline_duration', 0)
+
+        if baseline_duration > 0:
+            self.trials.append(FixationTrial(self, trial_nr=-1, duration=baseline_duration))
+
+        for i, (isi, ori) in enumerate(zip(isis, self.orientations[:n_trials_effective])):
             self.trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials_effective + i + 1, orientation=ori, isi=isi))
+
+        if baseline_duration > 0:
+            self.trials.append(FixationTrial(self, trial_nr=-2, duration=baseline_duration))
+
+
+class FixationTrial(Trial):
+    def __init__(self, session, trial_nr, duration):
+        super().__init__(session, trial_nr,
+                         phase_durations=[duration],
+                         phase_names=['fixation'])
+
+    def draw(self):
+        self.session.fixation_stimulus.set_color((1, 1, 1))
+        self.session.fixation_stimulus.draw()
 
 
 class TaskTrial(Trial):
