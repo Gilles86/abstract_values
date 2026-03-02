@@ -65,13 +65,8 @@ class TaskSession(Session):
 
         # write total_reward to a file:
         reward_file = Path(self.output_dir) / f'reward_{self.settings["subject"]}_{self.settings["session"]}_{self.settings["run"]}.txt'
-        try:
-            with open(reward_file, 'w') as f:
-                f.write(f'{total_reward:.2f}\n')
-            print(f'Reward saved to {reward_file}')
-        except IOError as e:
-            print(f'ERROR: Could not save reward file: {e}')
-            print(f'Total reward was: {total_reward:.2f} CHF - please record manually!')
+        with open(reward_file, 'w') as f:
+            f.write(f'{total_reward:.2f}\n')
 
         reward_trial = InstructionTrial(self,
                                         trial_nr=self.n_trials + 1,
@@ -93,28 +88,30 @@ class TaskSession(Session):
                                              phase_durations=[np.inf],
                                              phase_names=['instruction']))        
 
-        # Get orientations (excluding edge orientations at 0 and 180 degrees)
+        # Randomly sample orientations:
+        # 23 possible orientations
         self.orientations = self.settings['mappings']['orientations'][1:-1]
-        
+        self.orientations = self.orientations.copy() * self.settings['main_task'].get('n_repeats')
+        self.n_trials = len(self.orientations) * self.settings['main_task'].get('n_repeats')
+
         if n_trials is not None:
             self.n_trials = n_trials
         else:
             self.n_trials = len(self.orientations) * self.settings['main_task'].get('n_repeats')
 
+        n_trials_effective = self.n_trials
+
         isis = self.settings['main_task'].get('isis')
 
-        # Generate enough ISIs by repeating and sampling
-        n_repeats = int(np.ceil(self.n_trials / len(isis)))
-        isis = np.tile(isis, n_repeats)[:self.n_trials]  # Repeat and trim to exact length
-        
+        # Have at least as many ISIs as trials
+        while len(isis) < n_trials_effective:
+            isis = isis + isis
+
         np.random.shuffle(isis)
-        
-        # Repeat orientations for multiple trials
-        self.orientations = np.tile(self.orientations, self.settings['main_task'].get('n_repeats'))
         np.random.shuffle(self.orientations)
 
-        for i, (isi, ori) in enumerate(zip(isis[:n_trials], self.orientations)):
-            self.trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials + i + 1, orientation=ori, isi=isi))
+        for i, (isi, ori) in enumerate(zip(isis[:n_trials_effective], self.orientations)):
+            self.trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials_effective + i + 1, orientation=ori, isi=isi))
 
 
 class TaskTrial(Trial):
@@ -202,8 +199,7 @@ class TaskTrial(Trial):
                     self.session.mouse.setPos((response_slider.marker.pos[0],0))
                     self.last_mouse_pos = response_slider.marker.pos[0]
                 except Exception as e:
-                    print(f'Warning: Could not set mouse position: {e}')
-                    self.last_mouse_pos = self.session.mouse.getPos()[0]/self.session.settings['interface']['mouse_multiplier']
+                    print(e)
 
             self.last_mouse_pos = self.session.mouse.getPos()[0]/self.session.settings['interface']['mouse_multiplier']
 
