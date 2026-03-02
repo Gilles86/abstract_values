@@ -49,4 +49,9 @@ for ($run = 1; $run -le 8; $run++) {
 Write-Host "Displaying total earnings..."
 python earnings.py $subject_id $session_id --settings sns_multisubject
 
+# Copy logs to network drive
+Write-Host "Copying logs to N:\client_write\gilles\experiment\logs..."
+Copy-Item -Path "logs\sub-*" -Destination "N:\client_write\gilles\experiment\logs\" -Recurse -Force
+Write-Host "Logs copied successfully!"
+
 Read-Host
