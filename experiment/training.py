@@ -118,8 +118,6 @@ class TrainingTrial(Trial):
                             self.session.settings['durations_training']['feedback'],
                             self.session.settings['durations_training']['iti']]
 
-        print(phase_durations)
-
         super().__init__(session, trial_nr, phase_durations, phase_names=phase_names)
 
         self.parameters['orientation'] = orientation
@@ -186,7 +184,8 @@ class TrainingTrial(Trial):
                     self.session.mouse.setPos((response_slider.marker.pos[0],0))
                     self.last_mouse_pos = response_slider.marker.pos[0]
                 except Exception as e:
-                    print(e)
+                    print(f'Warning: Could not set mouse position: {e}')
+                    self.last_mouse_pos = self.session.mouse.getPos()[0]/self.session.settings['interface']['mouse_multiplier']
 
             self.last_mouse_pos = self.session.mouse.getPos()[0]/self.session.settings['interface']['mouse_multiplier']
 

@@ -32,7 +32,7 @@ class ExampleSession(Session):
                                                 color=self.settings['fixation_cross']['color'],
                                                 line_width=self.settings['fixation_cross']['line_width'])
 
-        self.visisted_all_orientations = False
+        self.visited_all_orientations = False
 
     def run(self):
         self.start_experiment()

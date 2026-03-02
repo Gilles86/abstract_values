@@ -26,16 +26,23 @@ class EarningsSession(Session):
         else:
             # Read and sum all rewards
             total_earnings = 0.0
+            read_errors = []
             for reward_file in sorted(reward_files):
-                with open(reward_file, 'r') as f:
-                    reward = float(f.read().strip())
-                    total_earnings += reward
-                    print(f'{reward_file.name}: {reward:.2f} CHF')
+                try:
+                    with open(reward_file, 'r') as f:
+                        reward = float(f.read().strip())
+                        total_earnings += reward
+                        print(f'{reward_file.name}: {reward:.2f} CHF')
+                except (IOError, ValueError) as e:
+                    error_msg = f'Error reading {reward_file.name}: {e}'
+                    print(error_msg)
+                    read_errors.append(error_msg)
             
             print(f'\nTotal variable reward: {total_earnings:.2f} CHF')
             total_payment = 10.0 + total_earnings
             
-            message = f'Congratulations!\n\nYou have completed the experiment.\n\nShow-up fee: 10.00 CHF\nVariable reward: {total_earnings:.2f} CHF\n\nYour total earnings are:\n\n{total_payment:.2f} CHF\n\n({len(reward_files)} runs completed)\n\nThank you for participating!\n\nPlease wait for the experimenter.'
+            error_note = f'\n\nNote: {len(read_errors)} file(s) could not be read.' if read_errors else ''
+            message = f'Congratulations!\n\nYou have completed the experiment.\n\nShow-up fee: 10.00 CHF\nVariable reward: {total_earnings:.2f} CHF\n\nYour total earnings are:\n\n{total_payment:.2f} CHF\n\n({len(reward_files)} runs completed){error_note}\n\nThank you for participating!\n\nPlease wait for the experimenter.'
         
         # Display earnings on screen
         earnings_trial = InstructionTrial(
