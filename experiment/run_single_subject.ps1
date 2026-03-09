@@ -29,9 +29,9 @@ if ($subject_id % 2 -eq 0) {
 Write-Host ("Running single-subject experiment for subject {0}, session {1}: {2}" -f $subject_id, $session_id, $mapping)
 
 Write-Host "Running examples..."
-& $python "$expDir\examples.py" $subject_id $session_id $mapping
+& $python "$expDir\examples.py" $subject_id $session_id $mapping --settings single_subject
 
 Write-Host "Running training..."
-& $python "$expDir\training.py" $subject_id $session_id $mapping
+& $python "$expDir\training.py" $subject_id $session_id $mapping --settings single_subject
 
 Read-Host
