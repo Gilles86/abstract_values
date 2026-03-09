@@ -48,44 +48,65 @@ Estimation task with feedback. Participants view a gabor and use a mouse slider 
 ### Phase 3 — Main Task (`task.py`)
 BDM auction task without feedback. Participants bid on gabors. Each bid is compared to a randomly drawn price; if the bid exceeds the price, the participant buys at the random price and sells at the true value.
 
-- **Runs:** 8 runs (behavioral) / 10 runs (fMRI), each with **20 trials**
+- **Runs:** 8 runs (behavioral) / 9 runs (fMRI)
+- **Trials per run:** 20 (behavioral) / 23 (fMRI — all orientations exactly once)
 - **Trial timeline:** green fixation (0.3 s) → white fixation (0.7 s) → gabor (1.5 s) → ISI (4.0–5.5 s, jittered) → slider response (3 s) → feedback (1.0 s) → ITI (1.5 s)
 - **Fixed trial duration:** the ITI is automatically shortened when the participant responds early, so each trial always lasts exactly **8.0 s + ISI**
-- **ISI jitter:** the 4 ISI values [4.0, 4.5, 5.0, 5.5 s] each occur **exactly 5 times** per run (20 trials = 4 × 5), guaranteeing a fixed run duration
+- **ISI jitter (behavioral):** the 4 ISI values [4.0, 4.5, 5.0, 5.5 s] each occur **exactly 5 times** per run (20 trials = 4 × 5), guaranteeing a fixed run duration of 255 s
+- **ISI jitter (fMRI):** ISI is drawn randomly from [4.0, 4.5, 5.0, 5.5 s] per trial; run duration is variable (~347 s expected)
+- **Wait trials (fMRI only):** two 10 s fixation-only rest periods inserted after trial 7 and trial 15, controlled by `main_task.wait_duration`
+- **Baseline fixation (fMRI only):** 20 s fixation at the start and end of each run, controlled by `main_task.baseline_duration`
 
-#### Exact run duration
+#### Behavioral run duration (exact)
 
 | Component | Duration |
 |---|---|
 | 20 trials × 8.0 s base | 160.0 s |
 | 5 × each ISI (4.0 + 4.5 + 5.0 + 5.5) s | 95.0 s |
-| **Total per run** | **255 s (4:15)** |
+| **Total** | **255 s (4:15)** |
 
-Each run also starts with a self-paced instruction screen (spacebar to continue), not included above.
+Each behavioral run starts with a self-paced instruction screen (click to continue).
+
+#### fMRI run duration (expected)
+
+| Component | Duration |
+|---|---|
+| Baseline fixation | 20.0 s |
+| 23 trials × 8.0 s base | 184.0 s |
+| 23 ISIs (mean 4.5 s) | ~103.5 s |
+| 2 × rest fixation | 20.0 s |
+| Baseline fixation | 20.0 s |
+| **Total (expected)** | **~347 s** |
+
+Each fMRI run starts with a `DummyWaiterTrial` that counts sync triggers before the protocol begins (no instruction screen).
 
 #### Total Phase 3 duration
 
-| Setup | Settings file | Runs | Per run (acquired) | Total (excl. instruction screens) |
+| Setup | Settings file | Runs | Per run | Total |
 |---|---|---|---|---|
-| Behavioral / pilot | `sns_multisubject` | 8 | 255 s | **34:00 min (exact)** |
-| fMRI | `sns_fmri` | 10 | 20 + 255 + 20 = 295 s | **49:10 min (exact)** |
+| Behavioral | `sns_multisubject` | 8 | 255 s (exact) | **34:00 min** |
+| fMRI | `sns_fmri` | 9 | ~347 s (variable) | **~52 min** |
 
-fMRI run structure (acquired data only, after dummy scans):
-- **Baseline fixation** — 20 s white fixation cross
-- **20 task trials** — 255 s
-- **Baseline fixation** — 20 s white fixation cross
+fMRI run structure (after sync triggers):
+- **Baseline fixation** — 20 s
+- **Task trials 1–7** — ~112 s (7 trials, ISI-jittered)
+- **Rest fixation** — 10 s
+- **Task trials 8–15** — ~124 s (8 trials, ISI-jittered)
+- **Rest fixation** — 10 s
+- **Task trials 16–23** — ~124 s (8 trials, ISI-jittered)
+- **Baseline fixation** — 20 s
 
-fMRI dummy scans (discarded, before experiment starts): 20 volumes × TR 0.996 s ≈ 19.92 s per run.
+> The four fixation periods per run (20 s + 10 s + 10 s + 20 s = **60 s total**) serve as the fMRI baseline in the GLM.
 
 ### Earnings Display (`earnings.py`)
-After all 8 runs, total variable earnings and final payment are displayed on screen.
+After all runs, total variable earnings and final payment are displayed on screen.
 
 ---
 
 ## Payment
 
 - **Show-up fee:** 10 CHF
-- **Variable earnings:** sum of auction outcomes across all trials, divided by the reward scaling factor (160.0 for 8-run behavioral; 200.0 for 10-run fMRI)
+- **Variable earnings:** sum of auction outcomes across all trials, divided by the reward scaling factor (184.0 for 8-run behavioral; 207.0 for 9-run fMRI)
 - **Auction outcome per trial:** if `bid > random_price`, earn `true_value − random_price`; otherwise earn 0
 - **Optimal strategy:** honest bidding (bid = true value) maximizes expected earnings
 - **Expected total:** ~57 CHF with optimal play
@@ -94,18 +115,27 @@ After all 8 runs, total variable earnings and final payment are displayed on scr
 
 ## Running the Experiment
 
-On the stimulus PC, open PowerShell and run:
+### Behavioral session (`run_task.ps1`)
 
 ```powershell
 cd path\to\experiment
 .\run_task.ps1
 ```
 
-You will be prompted for:
-- `subject_id` — integer
-- `session_id` — 1 or 2
+Prompts for `subject_id` and `session_id`, then runs all phases in sequence: `examples.py` → `training.py` → `task.py` × 8 runs → `earnings.py`. Logs are copied to `N:\client_write\gilles\experiment\logs\`.
 
-The script then activates the virtual environment and runs all four phases in sequence (`examples.py` → `training.py` → `task.py` × 8 runs → `earnings.py`). At the end, logs are copied to `N:\client_write\gilles\experiment\logs\`.
+### fMRI session (`run_fmri.ps1`)
+
+```powershell
+.\run_fmri.ps1
+```
+
+Prompts for `subject_id` and `session_id`, then:
+1. **Practice run** (`training.py`, 30 trials, ~5 min) — run during the anatomical scan, no trigger needed
+2. **9 functional runs** (`task.py --settings sns_fmri`) — each waits for sync triggers before starting
+3. **Earnings display** (`earnings.py`)
+
+Counterbalancing is applied automatically (same logic as `run_task.ps1`).
 
 ---
 
@@ -138,9 +168,10 @@ Settings files live in `settings/`. Key parameters in `sns_multisubject.yml`:
 | Grating contrast             | 0.1                                |
 | Slider range                 | 2–42 CHF                           |
 | Training blocks / repeats    | 10 blocks × 10 repeats             |
-| Main task runs               | 8                                  |
+| Main task runs               | 8 (behavioral) / 9 (fMRI)         |
 | ISI range (main task)        | 4.0, 4.5, 5.0, 5.5 s (jittered)   |
-| Reward scaling factor        | 184.0                              |
+| Wait trial duration (fMRI)   | 10 s (at 1/3 and 2/3 of each run) |
+| Reward scaling factor        | 184.0 (behavioral) / 207.0 (fMRI) |
 
 ---
 
@@ -151,8 +182,8 @@ Logs are written to `logs/sub-{subject}/session-{session}/`:
 ```
 sub-{s}_ses-{ss}_task-examples.{mapping}_events.tsv
 sub-{s}_ses-{ss}_task-training.{mapping}_events.tsv
-sub-{s}_ses-{ss}_run-{rr}_task-estimate.{mapping}_events.tsv   (× 8 runs)
-reward_{subject}_{session}_{run}.txt                            (× 8 runs)
+sub-{s}_ses-{ss}_run-{rr}_task-estimate.{mapping}_events.tsv   (× 8 runs behavioral / × 9 runs fMRI)
+reward_{subject}_{session}_{run}.txt                            (× 8 runs behavioral / × 9 runs fMRI)
 sub-{s}_ses-{ss}_earnings_events.tsv
 ```
 

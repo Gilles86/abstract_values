@@ -4,11 +4,10 @@ import yaml
 from pathlib import Path
 from psychopy.visual import GratingStim, TextStim
 import numpy as np
-from utils import get_value
+from utils import get_value, InstructionTrial, DummyWaiterTrial
 from response_slider import ResponseSlider
 from stimuli import AnnulusGrating, FixationCross
 import argparse
-from utils import InstructionTrial
 
 class TaskSession(Session):
     def __init__(self, subject, session, run, mapping, output_str, output_dir=None, settings_file=None, feedback=False):
@@ -81,12 +80,16 @@ class TaskSession(Session):
 
         self.trials = []
 
-        self.trials.append(InstructionTrial(self, trial_nr=0,
-                                             txt=self.instructions['instructions'].format(block_nr=self.settings['run'], n_blocks=self.settings['main_task'].get('n_blocks')),
-                                             bottom_txt='Press SPACE BAR to continue.',
-                                             keys=['space'],
-                                             phase_durations=[np.inf],
-                                             phase_names=['instruction']))        
+        n_dummy_scans = self.settings.get('mri', {}).get('n_dummy_scans', 0)
+        if n_dummy_scans > 0:
+            self.trials.append(DummyWaiterTrial(self, trial_nr=-5, n_triggers=n_dummy_scans))
+        else:
+            self.trials.append(InstructionTrial(self, trial_nr=0,
+                                                txt=self.instructions['instructions'].format(block_nr=self.settings['run'], n_blocks=self.settings['main_task'].get('n_blocks')),
+                                                bottom_txt='Press SPACE BAR to continue.',
+                                                keys=['space'],
+                                                phase_durations=[np.inf],
+                                                phase_names=['instruction']))
 
         # Randomly sample orientations:
         # 23 possible orientations
@@ -101,24 +104,25 @@ class TaskSession(Session):
 
         n_trials_effective = self.n_trials
 
-        isis = self.settings['main_task'].get('isis')
-        n_isi_values = len(isis)
+        isis = list(np.random.choice(self.settings['main_task'].get('isis'), n_trials_effective))
 
-        # Trim to nearest multiple of ISI count so each ISI occurs equally often
-        n_trials_effective = (n_trials_effective // n_isi_values) * n_isi_values
-        self.n_trials = n_trials_effective
-        isis = isis * (n_trials_effective // n_isi_values)
-
-        np.random.shuffle(isis)
         np.random.shuffle(self.orientations)
 
         baseline_duration = self.settings['main_task'].get('baseline_duration', 0)
+        wait_duration = self.settings['main_task'].get('wait_duration', 0)
 
-        if baseline_duration > 0:
-            self.trials.append(FixationTrial(self, trial_nr=-1, duration=baseline_duration))
-
+        task_trials = []
         for i, (isi, ori) in enumerate(zip(isis, self.orientations[:n_trials_effective])):
-            self.trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials_effective + i + 1, orientation=ori, isi=isi))
+            task_trials.append(TaskTrial(self, trial_nr=(self.settings['run']-1)*n_trials_effective + i + 1, orientation=ori, isi=isi))
+
+        if wait_duration > 0:
+            third = n_trials_effective // 3
+            two_thirds = 2 * n_trials_effective // 3
+            # Insert in reverse order so the earlier index is not shifted
+            task_trials.insert(two_thirds, FixationTrial(self, trial_nr=-4, duration=wait_duration))
+            task_trials.insert(third, FixationTrial(self, trial_nr=-3, duration=wait_duration))
+
+        self.trials.extend(task_trials)
 
         if baseline_duration > 0:
             self.trials.append(FixationTrial(self, trial_nr=-2, duration=baseline_duration))

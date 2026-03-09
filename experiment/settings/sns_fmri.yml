@@ -9,8 +9,8 @@ window:
 
 monitor:
   name: default
-  width: 54.5
-  distance: 60  # in cm
+  width: 55
+  distance: 100  # in cm
   gamma: 1
 
 mouse:
@@ -20,11 +20,11 @@ mri:
   simulate: False
   TR: 0.996  # seconds between volume acquisitions
   TA: 0.996  # seconds to acquire one volume
-  volumes: 300  # number of 3D volumes to obtain in a given scanning run
-  sync: t  # character used as flag for sync timing, default='5'
+  volumes: 375  # upper bound: 23 trials × (8.0 + 5.5 s max ISI) + 2×10 + 2×20 = ~370 s / 0.996 TR ≈ 372
+  sync: '5'  # character used as flag for sync timing, default='5'
   skip: 0  # how many frames to silently omit initially during T1 stabilization, no sync pulse.
   sound: False  # simulate scanner noise
-  n_dummy_scans: 20  # 20 × 0.996 s ≈ 19.92 s ≈ 20 s
+  n_dummy_scans: 2  # number of sync triggers to wait for before starting the protocol
 
 mappings:
   linear: [2.0, 3.5, 5.5, 7.0, 8.5, 10.5, 12.0, 13.5,
@@ -96,9 +96,10 @@ training:
 main_task:
   n_repeats: 1
   isis: [4.0, 4.5, 5.0, 5.5]
-  n_blocks: 10
-  reward_scaling: 200.0  # 10 runs × 20 trials
-  baseline_duration: 20  # seconds of fixation at start and end of each run
+  n_blocks: 9
+  reward_scaling: 207.0  # 9 runs × 23 trials
+  baseline_duration: 20  # seconds of fixation at start and end of each run (fMRI baseline for GLM)
+  wait_duration: 10  # seconds of fixation inserted at 1/3 and 2/3 of each run (fMRI baseline for GLM)
 
 various:
   text_height: .75

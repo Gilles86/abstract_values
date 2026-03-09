@@ -28,6 +28,47 @@ def get_value(orientation, mapping):
     return value
 
 
+class DummyWaiterTrial(Trial):
+    """Waits for n_triggers MRI sync pulses before starting.
+
+    Shows a 'Waiting for scanner' message with a live trigger counter.
+    Uses a large finite duration instead of np.inf to avoid corrupting
+    the session timer on exit.
+    """
+
+    def __init__(self, session, trial_nr, n_triggers):
+        self.n_triggers = n_triggers
+        self.n_triggers_received = 0
+        super().__init__(session, trial_nr,
+                         phase_durations=[3600],  # 1-hour cap; always exited via stop_phase()
+                         phase_names=['dummy_scans'])
+
+        txt_height = self.session.settings['various'].get('text_height', .75)
+        txt_color = self.session.settings['various'].get('text_color', (1, 1, 1))
+        self.waiting_text = TextStim(
+            session.win,
+            text=self._waiting_msg(),
+            pos=(0.0, 0.0), height=txt_height, color=txt_color)
+
+    def _waiting_msg(self):
+        return f'Waiting for scanner...\n({self.n_triggers_received}/{self.n_triggers} triggers received)'
+
+    def draw(self):
+        self.waiting_text.text = self._waiting_msg()
+        self.waiting_text.draw()
+        self.session.fixation_stimulus.set_color((1, 1, 1))
+        self.session.fixation_stimulus.draw()
+
+    def get_events(self):
+        events = super().get_events()
+        for key, t in events:
+            if key == self.session.mri_trigger:
+                self.n_triggers_received += 1
+                print(f'Dummy scan {self.n_triggers_received}/{self.n_triggers}')
+                if self.n_triggers_received >= self.n_triggers:
+                    self.stop_phase()
+
+
 class InstructionTrial(Trial):
 
     def __init__(self, session, trial_nr, txt, bottom_txt=None, keys=None, phase_durations=None, 

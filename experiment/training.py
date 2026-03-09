@@ -62,10 +62,7 @@ class TrainingSession(Session):
 
         self.trials.append(InstructionTrial(self, trial_nr=0,
                                              txt=self.instructions['instructions'],
-                                             bottom_txt='Press SPACE BAR to continue.',
-                                             keys=['space'],
-                                             phase_durations=[np.inf],
-                                             phase_names=['instruction']))
+                                             bottom_txt='Click to continue.'))
 
         # Randomly sample orientations:
         # possible orientations
@@ -93,7 +90,7 @@ class TrainingSession(Session):
             block_start_trial = InstructionTrial(
                 self,
                 trial_nr=len(self.trials) + 1,
-                txt=f'Block {i+1} of {n_blocks}\n\nIn this block, you will continue to receive feedback on your performance.\n\nRemember to respond as accurately as possible using the slider.\n\nPress any button to start.',
+                txt=f'Block {i+1} of {n_blocks}\n\nIn this block, you will continue to receive feedback on your performance.\n\nRemember to respond as accurately as possible using the slider.\n\nClick to start.',
             )
             self.trials.append(block_start_trial)
 
