@@ -109,7 +109,12 @@ class TaskSession(Session):
         np.random.shuffle(self.orientations)
 
         baseline_duration = self.settings['main_task'].get('baseline_duration', 0)
+        pre_baseline  = self.settings['main_task'].get('pre_baseline_duration',  baseline_duration)
+        post_baseline = self.settings['main_task'].get('post_baseline_duration', baseline_duration)
         wait_duration = self.settings['main_task'].get('wait_duration', 0)
+
+        if pre_baseline > 0:
+            self.trials.append(FixationTrial(self, trial_nr=-1, duration=pre_baseline))
 
         task_trials = []
         for i, (isi, ori) in enumerate(zip(isis, self.orientations[:n_trials_effective])):
@@ -124,8 +129,8 @@ class TaskSession(Session):
 
         self.trials.extend(task_trials)
 
-        if baseline_duration > 0:
-            self.trials.append(FixationTrial(self, trial_nr=-2, duration=baseline_duration))
+        if post_baseline > 0:
+            self.trials.append(FixationTrial(self, trial_nr=-2, duration=post_baseline))
 
 
 class FixationTrial(Trial):

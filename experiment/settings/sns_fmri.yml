@@ -24,7 +24,7 @@ mri:
   sync: '5'  # character used as flag for sync timing, default='5'
   skip: 0  # how many frames to silently omit initially during T1 stabilization, no sync pulse.
   sound: False  # simulate scanner noise
-  n_dummy_scans: 2  # number of sync triggers to wait for before starting the protocol
+  n_dummy_scans: 20  # wait for 20 triggers (~20 s); this period serves as pre-task baseline in GLM
 
 mappings:
   linear: [2.0, 3.5, 5.5, 7.0, 8.5, 10.5, 12.0, 13.5,
@@ -98,7 +98,7 @@ main_task:
   isis: [4.0, 4.5, 5.0, 5.5]
   n_blocks: 9
   reward_scaling: 207.0  # 9 runs × 23 trials
-  baseline_duration: 20  # seconds of fixation at start and end of each run (fMRI baseline for GLM)
+  post_baseline_duration: 20  # seconds of fixation at END of each run (fMRI baseline for GLM)
   wait_duration: 10  # seconds of fixation inserted at 1/3 and 2/3 of each run (fMRI baseline for GLM)
 
 various:

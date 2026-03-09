@@ -87,16 +87,16 @@ Each fMRI run starts with a `DummyWaiterTrial` that counts sync triggers before 
 | Behavioral | `sns_multisubject` | 8 | 255 s (exact) | **34:00 min** |
 | fMRI | `sns_fmri` | 9 | ~347 s (variable) | **~52 min** |
 
-fMRI run structure (after sync triggers):
-- **Baseline fixation** — 20 s
+fMRI run structure:
+- **Dummy-trigger wait** — 20 triggers × TR 0.996 s ≈ **20 s** (fixation screen; serves as pre-task baseline in GLM)
 - **Task trials 1–7** — ~112 s (7 trials, ISI-jittered)
 - **Rest fixation** — 10 s
 - **Task trials 8–15** — ~124 s (8 trials, ISI-jittered)
 - **Rest fixation** — 10 s
 - **Task trials 16–23** — ~124 s (8 trials, ISI-jittered)
-- **Baseline fixation** — 20 s
+- **Post-task fixation** — 20 s
 
-> The four fixation periods per run (20 s + 10 s + 10 s + 20 s = **60 s total**) serve as the fMRI baseline in the GLM.
+> The four fixation periods (dummy wait ~20 s + 10 s + 10 s + post-task 20 s = **~60 s total**) serve as the fMRI baseline in the GLM.
 
 ### Earnings Display (`earnings.py`)
 After all runs, total variable earnings and final payment are displayed on screen.
