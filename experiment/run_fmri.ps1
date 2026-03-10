@@ -29,6 +29,10 @@ if ($subject_id % 2 -eq 0) {
     $mapping = if ($session_id -eq 1) { "inverse_cdf" } else { "cdf" }
 }
 
+# Ask whether to use the eyetracker
+$use_eyetracker = Read-Host "Use eyetracker? (y/n)"
+$eyetracker_flag = if ($use_eyetracker -eq 'y') { '--eyetracker' } else { '' }
+
 Write-Host ("Running fMRI experiment for subject {0}, session {1}: {2}" -f $subject_id, $session_id, $mapping)
 
 # Practice run during anatomical scan (~5 min, no scanner trigger needed)
@@ -38,7 +42,7 @@ Write-Host "Running practice run during anatomical scan (~5 min)..."
 # Run the main task for 8 runs
 for ($run = 1; $run -le 8; $run++) {
     Write-Host ("Running main task - Run {0} of 8" -f $run)
-    & $python "$expDir\task.py" $subject_id $session_id $run $mapping --settings sns_fmri
+    & $python "$expDir\task.py" $subject_id $session_id $run $mapping --settings sns_fmri $eyetracker_flag
 }
 
 # Display total earnings

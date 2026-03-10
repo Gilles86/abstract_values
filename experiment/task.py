@@ -1,4 +1,8 @@
 from exptools2.core import Session, Trial
+try:
+    from exptools2.core import PylinkEyetrackerSession as _TaskBase
+except ImportError:
+    _TaskBase = Session
 from psychopy import event
 import yaml
 from pathlib import Path
@@ -9,9 +13,11 @@ from response_slider import ResponseSlider
 from stimuli import AnnulusGrating, FixationCross
 import argparse
 
-class TaskSession(Session):
-    def __init__(self, subject, session, run, mapping, output_str, output_dir=None, settings_file=None, feedback=False):
-        super().__init__(output_str, output_dir=output_dir, settings_file=settings_file)
+class TaskSession(_TaskBase):
+    def __init__(self, subject, session, run, mapping, output_str, output_dir=None, settings_file=None, feedback=False, eyetracker_on=False):
+        super().__init__(output_str, output_dir=output_dir, settings_file=settings_file, eyetracker_on=eyetracker_on)
+        if not hasattr(self, 'eyetracker_on'):
+            self.eyetracker_on = False
 
         self.instructions_file = Path(__file__).parent / 'instructions.yml'
         with open(self.instructions_file, 'r') as f:
@@ -50,7 +56,13 @@ class TaskSession(Session):
                                          text_height=self.settings['slider'].get('text_height'),
                                          precision=0.5)
     def run(self):
+        if self.eyetracker_on:
+            self.calibrate_eyetracker()
+
         self.start_experiment()
+
+        if self.eyetracker_on:
+            self.start_recording_eyetracker()
 
         for trial in self.trials:
             self.response_slider.random_init_marker()
@@ -284,6 +296,7 @@ if __name__ == '__main__':
     argparser.add_argument('--settings', type=str, default='default', help='Name of settings file (default by default)')
     argparser.add_argument('--feedback', action='store_true', help='Whether to provide feedback or not')
     argparser.add_argument('--n_trials', type=int, default=None, help='Number of trials')
+    argparser.add_argument('--eyetracker', action='store_true', help='Enable Eyelink eyetracker')
     args = argparser.parse_args()
 
     session = TaskSession(subject=args.subject,
@@ -293,6 +306,7 @@ if __name__ == '__main__':
                               output_str=f'sub-{args.subject.zfill(2)}_ses-{args.session}_run-{args.run:02d}_task-estimate.{args.mapping}',
                               output_dir=Path(__file__).parent / 'logs' / f'sub-{args.subject.zfill(2)}' / f'ses-{args.session}',
                               feedback=args.feedback,
+                              eyetracker_on=args.eyetracker,
                               settings_file=Path(__file__).parent / 'settings' / f'{args.settings}.yml')
     session.create_trials(n_trials=args.n_trials)
     session.run()

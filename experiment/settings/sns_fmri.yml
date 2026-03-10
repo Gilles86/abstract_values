@@ -101,6 +101,15 @@ main_task:
   post_baseline_duration: 20  # seconds of fixation at END of each run (fMRI baseline for GLM)
   wait_duration: 10  # seconds of fixation inserted at 1/3 and 2/3 of each run (fMRI baseline for GLM)
 
+eyetracker:
+  model: eyelink
+  CNUM: 5
+  MIN_CALIB_FIX: 1000
+  options:
+    active_eye: RIGHT
+    sample_rate: 500
+    calibration_type: HV5
+
 various:
   text_height: .75
   text_width: 60

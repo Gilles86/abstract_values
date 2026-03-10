@@ -134,10 +134,24 @@ Prompts for `subject_id` and `session_id`, then runs all phases in sequence: `ex
 .\run_fmri.ps1
 ```
 
-Prompts for `subject_id` and `session_id`, then:
+Prompts for `subject_id`, `session_id`, and whether to use the eyetracker, then:
 1. **Practice run** (`training.py`, 30 trials, ~5 min) — run during the anatomical scan, no trigger needed
-2. **9 functional runs** (`task.py --settings sns_fmri`) — each waits for sync triggers before starting
+2. **8 functional runs** (`task.py --settings sns_fmri`) — each waits for sync triggers before starting
 3. **Earnings display** (`earnings.py`)
+
+### Eyetracker
+
+The experiment supports an **Eyelink** eyetracker (right eye, 500 Hz, HV5 calibration). It is optional and off by default — `run_fmri.ps1` will ask `Use eyetracker? (y/n)` at startup.
+
+When enabled (`--eyetracker` flag), each functional run:
+1. Runs a full Eyelink calibration before the dummy-trigger wait
+2. Starts recording immediately after `start_experiment()`
+3. Saves the `.edf` file automatically on `close()`
+
+The eyetracker is **not** used during the practice run (training during anatomical scan). To run task.py manually with the eyetracker:
+```powershell
+& $python task.py 01 1 1 cdf --settings sns_fmri --eyetracker
+```
 
 Counterbalancing is applied automatically (same logic as `run_task.ps1`).
 
