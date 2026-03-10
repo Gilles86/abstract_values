@@ -1,7 +1,7 @@
 """Calculate total earnings per participant from reward files across sessions.
 
 Reward files are expected under:
-  {bids_folder}/sourcedata/behavior/sub-{subject}/session-{session}/reward_{subject}_{session}_{run}.txt
+  {bids_folder}/sourcedata/behavior/sub-{subject}/ses-{session}/reward_{subject}_{session}_{run}.txt
 
 Falls back to a local logs directory when --bids_folder is not given.
 
@@ -22,7 +22,7 @@ def load_rewards(behavior_dir: Path) -> dict:
     """Return rewards[(subject, session)] = {run: value}."""
     rewards = defaultdict(dict)
 
-    for reward_file in sorted(behavior_dir.glob('sub-*/session-*/reward_*.txt')):
+    for reward_file in sorted(behavior_dir.glob('sub-*/ses-*/reward_*.txt')):
         try:
             value = float(reward_file.read_text().strip())
         except ValueError:

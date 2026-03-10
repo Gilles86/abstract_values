@@ -63,12 +63,12 @@ if __name__ == '__main__':
     argparser.add_argument('--settings', type=str, default='default', help='Name of settings file (default by default)')   
     args = argparser.parse_args()
 
-    output_dir = Path(__file__).parent / 'logs' / f'sub-{args.subject}' / f'session-{args.session:02d}'
-    
+    output_dir = Path(__file__).parent / 'logs' / f'sub-{args.subject.zfill(2)}' / f'ses-{args.session}'
+
     session = EarningsSession(
         subject=args.subject,
         session=args.session,
-        output_str=f'sub-{args.subject}_ses-{args.session:02d}_earnings',
+        output_str=f'sub-{args.subject.zfill(2)}_ses-{args.session}_earnings',
         output_dir=output_dir,
         settings_file=Path(__file__).parent / 'settings' / f'{args.settings}.yml'
     )

@@ -184,12 +184,13 @@ Settings files live in `settings/`. Key parameters in `sns_multisubject.yml`:
 Logs are written to `logs/sub-{subject}/session-{session}/`:
 
 ```
-sub-{s}_ses-{ss}_task-examples.{mapping}_events.tsv
-sub-{s}_ses-{ss}_task-training.{mapping}_events.tsv
-sub-{s}_ses-{ss}_run-{rr}_task-estimate.{mapping}_events.tsv   (× 8 runs behavioral / × 9 runs fMRI)
-reward_{subject}_{session}_{run}.txt                            (× 8 runs behavioral / × 9 runs fMRI)
-sub-{s}_ses-{ss}_earnings_events.tsv
+sub-{sub}_ses-{ses}_task-examples.{mapping}_events.tsv
+sub-{sub}_ses-{ses}_task-training.{mapping}_events.tsv
+sub-{sub}_ses-{ses}_run-{run}_task-estimate.{mapping}_events.tsv   (× 8 runs)
+reward_{subject}_{session}_{run}.txt                               (× 8 runs)
+sub-{sub}_ses-{ses}_earnings_events.tsv
 ```
+where `{sub}` is zero-padded (e.g. `01`), `{ses}` is not (e.g. `1`), `{run}` is zero-padded (e.g. `01`).
 
 Each `_events.tsv` contains one row per trial phase with columns: `trial_nr`, `onset`, `event_type`, `phase`, `response`, `nr_frames`, `orientation`, `value`, `response_time`, `onset_abs`, `duration`.
 

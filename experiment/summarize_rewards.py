@@ -10,7 +10,7 @@ def main(bids_folder):
     # Collect totals: rewards[(subject, session)] = list of per-run rewards
     rewards = defaultdict(list)
 
-    for reward_file in sorted(behavior_dir.glob('sub-*/session-*/reward_*.txt')):
+    for reward_file in sorted(behavior_dir.glob('sub-*/ses-*/reward_*.txt')):
         value = float(reward_file.read_text().strip())
         # Filename: reward_{subject}_{session}_{run}.txt
         parts = reward_file.stem.split('_')

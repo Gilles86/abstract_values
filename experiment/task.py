@@ -290,8 +290,8 @@ if __name__ == '__main__':
                              session=args.session,
                              run=args.run,
                               mapping=args.mapping,
-                              output_str=f'sub-{args.subject}_ses-{args.session:02d}_run-{args.run:02d}_task-estimate.{args.mapping}',
-                              output_dir=Path(__file__).parent / 'logs' / f'sub-{args.subject}' / f'session-{args.session:02d}',
+                              output_str=f'sub-{args.subject.zfill(2)}_ses-{args.session}_run-{args.run:02d}_task-estimate.{args.mapping}',
+                              output_dir=Path(__file__).parent / 'logs' / f'sub-{args.subject.zfill(2)}' / f'ses-{args.session}',
                               feedback=args.feedback,
                               settings_file=Path(__file__).parent / 'settings' / f'{args.settings}.yml')
     session.create_trials(n_trials=args.n_trials)
