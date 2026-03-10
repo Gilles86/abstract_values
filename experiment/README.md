@@ -48,7 +48,7 @@ Estimation task with feedback. Participants view a gabor and use a mouse slider 
 ### Phase 3 — Main Task (`task.py`)
 BDM auction task without feedback. Participants bid on gabors. Each bid is compared to a randomly drawn price; if the bid exceeds the price, the participant buys at the random price and sells at the true value.
 
-- **Runs:** 8 runs (behavioral) / 9 runs (fMRI)
+- **Runs:** 8 runs (behavioral and fMRI)
 - **Trials per run:** 20 (behavioral) / 23 (fMRI — all orientations exactly once)
 - **Trial timeline:** green fixation (0.3 s) → white fixation (0.7 s) → gabor (1.5 s) → ISI (4.0–5.5 s, jittered) → slider response (3 s) → feedback (1.0 s) → ITI (1.5 s)
 - **Fixed trial duration:** the ITI is automatically shortened when the participant responds early, so each trial always lasts exactly **8.0 s + ISI**
@@ -71,21 +71,25 @@ Each behavioral run starts with a self-paced instruction screen (click to contin
 
 | Component | Duration |
 |---|---|
-| Baseline fixation | 20.0 s |
+| Dummy-trigger wait (20 × TR) | ~19.9 s |
 | 23 trials × 8.0 s base | 184.0 s |
-| 23 ISIs (mean 4.5 s) | ~103.5 s |
+| 23 ISIs (mean 4.75 s) | ~109.3 s |
 | 2 × rest fixation | 20.0 s |
-| Baseline fixation | 20.0 s |
-| **Total (expected)** | **~347 s** |
+| Post-task fixation | 20.0 s |
+| **Total (expected)** | **~353 s** |
 
 Each fMRI run starts with a `DummyWaiterTrial` that counts sync triggers before the protocol begins (no instruction screen).
+
+> **SCANNER PROTOCOL — SET VOLUMES TO 355**
+>
+> ISIs are drawn randomly from [4.0, 4.5, 5.0, 5.5 s], so run duration varies. The **expected** duration is **~353 s ÷ 0.996 s TR ≈ 355 volumes**. Set your scan to **355 volumes**. The post-task fixation may be cut a few seconds short or long depending on that run's ISIs — this is intentional and fine.
 
 #### Total Phase 3 duration
 
 | Setup | Settings file | Runs | Per run | Total |
 |---|---|---|---|---|
 | Behavioral | `sns_multisubject` | 8 | 255 s (exact) | **34:00 min** |
-| fMRI | `sns_fmri` | 9 | ~347 s (variable) | **~52 min** |
+| fMRI | `sns_fmri` | 8 | ~353 s (variable) | **~47 min** |
 
 fMRI run structure:
 - **Dummy-trigger wait** — 20 triggers × TR 0.996 s ≈ **20 s** (fixation screen; serves as pre-task baseline in GLM)
@@ -168,7 +172,7 @@ Settings files live in `settings/`. Key parameters in `sns_multisubject.yml`:
 | Grating contrast             | 0.1                                |
 | Slider range                 | 2–42 CHF                           |
 | Training blocks / repeats    | 10 blocks × 10 repeats             |
-| Main task runs               | 8 (behavioral) / 9 (fMRI)         |
+| Main task runs               | 8 (behavioral and fMRI)            |
 | ISI range (main task)        | 4.0, 4.5, 5.0, 5.5 s (jittered)   |
 | Wait trial duration (fMRI)   | 10 s (at 1/3 and 2/3 of each run) |
 | Reward scaling factor        | 184.0 (behavioral) / 207.0 (fMRI) |

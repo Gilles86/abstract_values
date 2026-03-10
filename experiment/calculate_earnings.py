@@ -6,8 +6,7 @@ Reward files are expected under:
 Falls back to a local logs directory when --bids_folder is not given.
 
 Warns if a participant does not have all EXPECTED_RUNS_TOTAL runs combined
-across both sessions (default: 18, i.e. 9 per session × 2 sessions for fMRI;
-use --expected_runs 16 for behavioral, 8 per session × 2 sessions).
+across both sessions (default: 16, i.e. 8 per session × 2 sessions).
 """
 import argparse
 import warnings
@@ -15,7 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 
 SHOW_UP_FEE_PER_SESSION = 10.0
-EXPECTED_RUNS_TOTAL = 18  # 9 runs × 2 sessions (fMRI); override with --expected_runs for behavioral (16)
+EXPECTED_RUNS_TOTAL = 16  # 8 runs × 2 sessions (fMRI); override with --expected_runs for behavioral (16)
 DEFAULT_BIDS_FOLDER = Path('/data/ds-abstract_values_pilot')
 
 

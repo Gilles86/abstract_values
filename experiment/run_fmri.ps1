@@ -35,9 +35,9 @@ Write-Host ("Running fMRI experiment for subject {0}, session {1}: {2}" -f $subj
 Write-Host "Running practice run during anatomical scan (~5 min)..."
 & $python "$expDir\training.py" $subject_id $session_id $mapping --settings sns_fmri --n_trials 30
 
-# Run the main task for 9 runs
-for ($run = 1; $run -le 9; $run++) {
-    Write-Host ("Running main task - Run {0} of 9" -f $run)
+# Run the main task for 8 runs
+for ($run = 1; $run -le 8; $run++) {
+    Write-Host ("Running main task - Run {0} of 8" -f $run)
     & $python "$expDir\task.py" $subject_id $session_id $run $mapping --settings sns_fmri
 }
 
@@ -46,8 +46,8 @@ Write-Host "Displaying total earnings..."
 & $python "$expDir\earnings.py" $subject_id $session_id --settings sns_fmri
 
 # Copy logs to network drive
-Write-Host "Copying logs to N:\client_write\gilles\experiment\logs..."
-Copy-Item -Path "$expDir\logs\sub-*" -Destination "N:\client_write\gilles\experiment\logs\" -Recurse -Force
+Write-Host "Copying logs to T:\scratch\Gilles de Hollander\fMRI..."
+Copy-Item -Path "$expDir\logs\sub-*" -Destination "T:\scratch\Gilles de Hollander\fMRI\" -Recurse -Force
 Write-Host "Logs copied successfully!"
 
 Read-Host

@@ -20,7 +20,7 @@ mri:
   simulate: False
   TR: 0.996  # seconds between volume acquisitions
   TA: 0.996  # seconds to acquire one volume
-  volumes: 375  # upper bound: 23 trials × (8.0 + 5.5 s max ISI) + 2×10 + 2×20 = ~370 s / 0.996 TR ≈ 372
+  volumes: 355  # mean: 20 dummy + 23 trials × 12.75 s (mean ISI 4.75) + 2×10 + 20 s post ≈ 353 s / 0.996
   sync: '5'  # character used as flag for sync timing, default='5'
   skip: 0  # how many frames to silently omit initially during T1 stabilization, no sync pulse.
   sound: False  # simulate scanner noise
@@ -96,8 +96,8 @@ training:
 main_task:
   n_repeats: 1
   isis: [4.0, 4.5, 5.0, 5.5]
-  n_blocks: 9
-  reward_scaling: 207.0  # 9 runs × 23 trials
+  n_blocks: 8
+  reward_scaling: 184.0  # 8 runs × 23 trials
   post_baseline_duration: 20  # seconds of fixation at END of each run (fMRI baseline for GLM)
   wait_duration: 10  # seconds of fixation inserted at 1/3 and 2/3 of each run (fMRI baseline for GLM)
 
