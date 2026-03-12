@@ -17,7 +17,6 @@ import warnings
 
 import numpy as np
 from nilearn import image
-from nilearn.glm.first_level import make_first_level_design_matrix
 from glmsingle.glmsingle import GLM_single
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
@@ -28,7 +27,11 @@ TR = 0.996
 
 
 def build_design_matrix(events_run, n_vols):
-    """Return a binary (n_vols × n_regressors) design matrix for one run."""
+    """Return a binary (n_vols × n_regressors) design matrix for one run.
+
+    Each event gets its own column with a single 1 at the nearest TR.
+    Column order: gabor_1, response_1, gabor_2, response_2, ...
+    """
     ev = events_run.reset_index().copy()
     ev['trial_type'] = ev.apply(
         lambda row: f'gabor_{int(row["trial_nr"])}'
@@ -36,20 +39,11 @@ def build_design_matrix(events_run, n_vols):
                     else f'response_{int(row["trial_nr"])}',
         axis=1,
     )
-    ev['duration'] = 0.0
-    ev['onset'] = ((ev['onset'] + TR / 2.) // TR) * TR
-
-    frametimes = np.linspace(TR / 2., (n_vols - .5) * TR, n_vols)
-    dm = make_first_level_design_matrix(
-        frametimes,
-        ev[['onset', 'trial_type', 'duration']],
-        hrf_model='fir',
-        drift_model=None,
-        drift_order=0,
-    ).drop('constant', axis=1)
-    dm.columns = [c.replace('_delay_0', '') for c in dm.columns]
-    dm /= dm.max()
-    return np.round(dm).values
+    dm = np.zeros((n_vols, len(ev)))
+    for col, (_, row) in enumerate(ev.iterrows()):
+        onset_tr = int(np.round(row['onset'] / TR))
+        dm[min(onset_tr, n_vols - 1), col] = 1.0
+    return dm
 
 
 def main(subject, session, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair'):
