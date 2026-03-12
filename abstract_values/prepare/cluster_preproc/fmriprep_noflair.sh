@@ -37,7 +37,7 @@ apptainer run \
   -B /shares/zne.uzh/gdehol/ds-abstractvalue:/data \
   -B /scratch/gdehol:/workflow \
   -B ${FILTER_FILE}:/bids_filter_noflair.json \
-  --cleanenv /shares/zne.uzh/containers/fmriprep-25.2.3 \
+  --cleanenv /shares/zne.uzh/containers/fmriprep-25.2.5 \
     /data /data/derivatives/fmriprep-noflair participant \
   --participant-label $PARTICIPANT_LABEL \
   --bids-filter-file /bids_filter_noflair.json \

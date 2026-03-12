@@ -8,4 +8,4 @@
 
 source /etc/profile.d/lmod.sh
 module load apptainer/1.4.1
-apptainer build --sandbox /shares/zne.uzh/containers/fmriprep-25.2.3 docker://nipreps/fmriprep:25.2.3
+apptainer build --sandbox /shares/zne.uzh/containers/fmriprep-25.2.5 docker://nipreps/fmriprep:25.2.5

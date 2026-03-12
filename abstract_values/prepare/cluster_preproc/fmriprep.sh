@@ -29,7 +29,7 @@ apptainer run \
   -B /shares/zne.uzh/containers/templateflow:/opt/templateflow \
   -B /shares/zne.uzh/gdehol/ds-abstractvalue:/data \
   -B /scratch/gdehol:/workflow \
-  --cleanenv /shares/zne.uzh/containers/fmriprep-25.2.3 \
+  --cleanenv /shares/zne.uzh/containers/fmriprep-25.2.5 \
     /data /data/derivatives/fmriprep participant \
   --participant-label $PARTICIPANT_LABEL \
   --output-spaces T1w fsnative \
