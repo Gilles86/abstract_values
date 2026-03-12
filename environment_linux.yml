@@ -19,10 +19,8 @@ dependencies:
   - nibabel
   - nilearn
   - nipype
-  # Install via pip for better Apple Silicon compatibility
   - pip:
-      - tensorflow-macos==2.14.0
-      - tensorflow-metal==1.1.0
+      - tensorflow==2.14.0
       - tensorflow-probability==0.22.0
       - protobuf==3.20.3
       - tqdm
