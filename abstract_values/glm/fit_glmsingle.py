@@ -17,7 +17,6 @@ import warnings
 
 import numpy as np
 from nilearn import image
-from glmsingle.glmsingle import GLM_single
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
@@ -27,10 +26,10 @@ TR = 0.996
 
 
 def build_design_matrix(events_run, n_vols):
-    """Return a binary (n_vols × n_regressors) design matrix for one run.
+    """Return (dm, trial_types) for one run.
 
-    Each event gets its own column with a single 1 at the nearest TR.
-    Column order: gabor_1, response_1, gabor_2, response_2, ...
+    dm          : binary (n_vols × n_events) array, one 1 per column at the nearest TR
+    trial_types : list of str labels, e.g. ['gabor_1', 'response_1', ...]
     """
     ev = events_run.reset_index().copy()
     ev['trial_type'] = ev.apply(
@@ -43,7 +42,7 @@ def build_design_matrix(events_run, n_vols):
     for col, (_, row) in enumerate(ev.iterrows()):
         onset_tr = int(np.round(row['onset'] / TR))
         dm[min(onset_tr, n_vols - 1), col] = 1.0
-    return dm
+    return dm, ev['trial_type'].tolist()
 
 
 def main(subject, session, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair'):
@@ -59,10 +58,12 @@ def main(subject, session, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-fla
     data = [image.load_img(str(f)).get_fdata() for f in bold]
 
     X = []
+    all_trial_types = []
     for run, d in zip(runs, data):
         n_vols = d.shape[3]
-        dm = build_design_matrix(events.loc[run], n_vols)
+        dm, trial_types = build_design_matrix(events.loc[run], n_vols)
         X.append(dm)
+        all_trial_types.extend(trial_types)
         print(f'  run-{run}: {n_vols} volumes, {dm.shape[1]} regressors')
 
     opt = dict(
@@ -78,12 +79,19 @@ def main(subject, session, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-fla
                / f'sub-{subject}' / f'ses-{session}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    from glmsingle.glmsingle import GLM_single
     results = GLM_single(opt).fit(X, data, TR, TR, outputdir=str(out_dir))
+
+    betas = results['typed']['betasmd']  # (x, y, z, n_total_trials)
+    gabor_idx    = [i for i, t in enumerate(all_trial_types) if t.startswith('gabor')]
+    response_idx = [i for i, t in enumerate(all_trial_types) if t.startswith('response')]
 
     fn = (f'sub-{subject}_ses-{session}_task-abstractvalue'
           f'_space-T1w_desc-{{desc}}_pe.nii.gz')
-    image.new_img_like(bold[0], results['typed']['betasmd']).to_filename(
-        str(out_dir / fn.format(desc='betas')))
+    image.new_img_like(bold[0], betas[..., gabor_idx]).to_filename(
+        str(out_dir / fn.format(desc='gabor')))
+    image.new_img_like(bold[0], betas[..., response_idx]).to_filename(
+        str(out_dir / fn.format(desc='response')))
     image.new_img_like(bold[0], results['typed']['R2']).to_filename(
         str(out_dir / fn.format(desc='R2')))
 

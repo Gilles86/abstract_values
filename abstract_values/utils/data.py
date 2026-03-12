@@ -147,13 +147,18 @@ class Subject:
 
     # ── GLMsingle outputs ──────────────────────────────────────────────────────
 
-    def get_glmsingle_betas(self, session):
-        """Return single-trial beta image from GLMsingle."""
+    def get_glmsingle_betas(self, session, desc='gabor'):
+        """Return single-trial beta image from GLMsingle.
+
+        Parameters
+        ----------
+        desc : {'gabor', 'response', 'R2'}
+        """
         fn = (self.bids_folder / 'derivatives' / 'glmsingle'
               / self.fmriprep_deriv / f'sub-{self.subject_id}'
               / f'ses-{session}' / 'func'
               / f'sub-{self.subject_id}_ses-{session}'
-                f'_task-abstractvalue_space-T1w_desc-betas_pe.nii.gz')
+                f'_task-abstractvalue_space-T1w_desc-{desc}_pe.nii.gz')
         if not fn.exists():
-            raise FileNotFoundError(f'No GLMsingle betas: {fn}')
+            raise FileNotFoundError(f'No GLMsingle output ({desc}): {fn}')
         return image.load_img(str(fn))
