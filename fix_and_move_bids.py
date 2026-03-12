@@ -41,6 +41,8 @@ FMAP_TO_FUNC: dict[str, list[str]] = {
 }
 
 FMAP_TYPES = ["magnitude1", "magnitude2", "phasediff"]
+TASK_LABEL = "abstractvalue"
+TASK_NAME  = "Abstract Values"
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -53,7 +55,7 @@ def strip_zero_pad(run_str: str) -> str:
 def intended_for(subject: str, session: str, func_runs: list[str]) -> list[str]:
     return [
         f"bids::sub-{subject}/ses-{session}/func/"
-        f"sub-{subject}_ses-{session}_run-{r}_bold.nii.gz"
+        f"sub-{subject}_ses-{session}_task-{TASK_LABEL}_run-{r}_bold.nii.gz"
         for r in func_runs
     ]
 
@@ -120,8 +122,36 @@ def process_fmap(src_dir: Path, dst_dir: Path,
                 copy_file(src_nii, dst_nii, dry_run)
 
 
+def process_func(src_dir: Path, dst_dir: Path,
+                 subject: str, session: str, dry_run: bool) -> None:
+    """Copy func files, inserting task label and TaskName into BOLD files."""
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for src_file in sorted(src_dir.iterdir()):
+        # BOLD files: insert task-<label> and patch JSON
+        if re.search(r"_run-\d+_bold\.(nii\.gz|json)$", src_file.name):
+            dst_name = re.sub(
+                r"(_run-\d+_bold)",
+                f"_task-{TASK_LABEL}\\1",
+                src_file.name,
+            )
+            dst_file = dst_dir / dst_name
+            if src_file.suffix == ".json":
+                data = json.loads(src_file.read_text())
+                data["TaskName"] = TASK_NAME
+                print(f"  {dst_name}  (TaskName added)")
+                if not dry_run:
+                    dst_file.write_text(json.dumps(data, indent=4) + "\n")
+            else:
+                print(f"  {dst_name}")
+                copy_file(src_file, dst_file, dry_run)
+        else:
+            dst_file = dst_dir / src_file.name
+            print(f"  {src_file.name}")
+            copy_file(src_file, dst_file, dry_run)
+
+
 def process_modality(src_dir: Path, dst_dir: Path, dry_run: bool) -> None:
-    """Copy all files unchanged (anat, func)."""
+    """Copy all files unchanged (anat)."""
     for src_file in sorted(src_dir.iterdir()):
         dst_file = dst_dir / src_file.name
         print(f"  {src_file.name}")
@@ -166,11 +196,13 @@ def process_subject_session(subject: str, session: str, dry_run: bool) -> None:
     print("\n[fmap] fixing IntendedFor + renaming run-0N -> run-N:")
     process_fmap(src_sub / "fmap", dst_sub / "fmap", subject, session, dry_run)
 
-    for modality in ("anat", "func"):
-        src_mod = src_sub / modality
-        if src_mod.exists():
-            print(f"\n[{modality}]")
-            process_modality(src_mod, dst_sub / modality, dry_run)
+    if (src_sub / "anat").exists():
+        print("\n[anat]")
+        process_modality(src_sub / "anat", dst_sub / "anat", dry_run)
+
+    if (src_sub / "func").exists():
+        print("\n[func]")
+        process_func(src_sub / "func", dst_sub / "func", subject, session, dry_run)
 
 
 def discover_subject_sessions() -> list[tuple[str, str]]:
