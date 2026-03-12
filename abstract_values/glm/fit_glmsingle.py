@@ -13,9 +13,7 @@ Usage:
 """
 
 import argparse
-import re
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -23,36 +21,16 @@ from nilearn import image
 from nilearn.glm.first_level import make_first_level_design_matrix
 from glmsingle.glmsingle import GLM_single
 
+from abstract_values.utils.data import Subject, BIDS_FOLDER
+
 warnings.filterwarnings('ignore')
 
 TR = 0.996
-BIDS_FOLDER = Path('/data/ds-abstractvalue')
-
-
-def get_bold_files(subject, session, derivatives):
-    func_dir = derivatives / f'sub-{subject}' / f'ses-{session}' / 'func'
-    pattern = f'sub-{subject}_ses-{session}_task-abstractvalue_run-*_space-T1w_*desc-preproc_bold.nii.gz'
-    files = sorted(func_dir.glob(pattern))
-    if not files:
-        raise FileNotFoundError(f'No preprocessed BOLD found in {func_dir}')
-    return files
-
-
-def get_run_number(path):
-    return int(re.search(r'run-(\d+)', path.name).group(1))
-
-
-def load_events(subject, session, run, bids_folder):
-    behavior_dir = bids_folder / 'sourcedata' / 'behavior' / f'sub-{subject}' / f'ses-{session}'
-    candidates = sorted(behavior_dir.glob(f'*_run-{run:02d}_task-estimate.*_events.tsv'))
-    if not candidates:
-        raise FileNotFoundError(f'No events file for sub-{subject} ses-{session} run-{run:02d}')
-    return pd.read_csv(candidates[0], sep='\t')
 
 
 def build_design_matrix(events_run, n_vols):
-    """Return a (n_vols x n_trials*2) binary design matrix for one run."""
-    ev = events_run[events_run['event_type'].isin(['gabor', 'response_bar'])].copy()
+    """Return a binary (n_vols × n_regressors) design matrix for one run."""
+    ev = events_run.reset_index().copy()
     ev['trial_type'] = ev.apply(
         lambda row: f'gabor_{int(row["trial_nr"])}'
                     if row['event_type'] == 'gabor'
@@ -60,7 +38,6 @@ def build_design_matrix(events_run, n_vols):
         axis=1,
     )
     ev['duration'] = 0.0
-    # Snap onsets to TR grid
     ev['onset'] = ((ev['onset'] + TR / 2.) // TR) * TR
 
     frametimes = np.linspace(TR / 2., (n_vols - .5) * TR, n_vols)
@@ -73,30 +50,27 @@ def build_design_matrix(events_run, n_vols):
     ).drop('constant', axis=1)
     dm.columns = [c.replace('_delay_0', '') for c in dm.columns]
     dm /= dm.max()
-    dm = np.round(dm)
-    return dm
+    return np.round(dm).values
 
 
 def main(subject, session, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair'):
-    bids_folder = Path(bids_folder)
-    derivatives = bids_folder / 'derivatives'
+    sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
-    bold_files = get_bold_files(subject, session, derivatives / fmriprep_deriv)
-    runs = [get_run_number(f) for f in bold_files]
+    runs  = sub.get_runs(session)
+    bold  = sub.get_preprocessed_bold(session, runs)
+    events = sub.get_events(session, runs)
 
-    print(f'Found {len(bold_files)} BOLD runs: {runs}')
+    print(f'sub-{subject}  ses-{session}  [{fmriprep_deriv}]')
+    print(f'  {len(runs)} runs: {runs}')
 
-    data = [image.load_img(f).get_fdata() for f in bold_files]
+    data = [image.load_img(str(f)).get_fdata() for f in bold]
 
-    design_matrices = []
+    X = []
     for run, d in zip(runs, data):
         n_vols = d.shape[3]
-        ev = load_events(subject, session, run, bids_folder)
-        dm = build_design_matrix(ev, n_vols)
-        design_matrices.append(dm)
+        dm = build_design_matrix(events.loc[run], n_vols)
+        X.append(dm)
         print(f'  run-{run}: {n_vols} volumes, {dm.shape[1]} regressors')
-
-    X = [dm.values for dm in design_matrices]
 
     opt = dict(
         wantlibrary=1,
@@ -106,19 +80,19 @@ def main(subject, session, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-fla
         sessionindicator=np.array([session] * len(runs))[np.newaxis, :],
     )
 
-    out_dir = (derivatives / 'glmsingle' / fmriprep_deriv
+    from pathlib import Path
+    out_dir = (Path(bids_folder) / 'derivatives' / 'glmsingle' / fmriprep_deriv
                / f'sub-{subject}' / f'ses-{session}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    glmsingle_obj = GLM_single(opt)
-    results = glmsingle_obj.fit(X, data, TR, TR, outputdir=str(out_dir))
+    results = GLM_single(opt).fit(X, data, TR, TR, outputdir=str(out_dir))
 
-    betas = image.new_img_like(bold_files[0], results['typed']['betasmd'])
-    r2    = image.new_img_like(bold_files[0], results['typed']['R2'])
-
-    fn = f'sub-{subject}_ses-{session}_task-abstractvalue_space-T1w_desc-{{desc}}_pe.nii.gz'
-    betas.to_filename(str(out_dir / fn.format(desc='betas')))
-    r2.to_filename(str(out_dir / fn.format(desc='R2')))
+    fn = (f'sub-{subject}_ses-{session}_task-abstractvalue'
+          f'_space-T1w_desc-{{desc}}_pe.nii.gz')
+    image.new_img_like(bold[0], results['typed']['betasmd']).to_filename(
+        str(out_dir / fn.format(desc='betas')))
+    image.new_img_like(bold[0], results['typed']['R2']).to_filename(
+        str(out_dir / fn.format(desc='R2')))
 
     print(f'Saved to {out_dir}')
 
@@ -130,8 +104,7 @@ if __name__ == '__main__':
     parser.add_argument('session', type=int)
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'],
-                        help='Which fmriprep derivative to use')
+                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
     args = parser.parse_args()
 
     main(args.subject, args.session,
