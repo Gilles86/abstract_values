@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH --time=2:00:00
 
 source /etc/profile.d/lmod.sh
 module load apptainer/1.4.1
