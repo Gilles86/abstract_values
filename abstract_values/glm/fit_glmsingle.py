@@ -8,9 +8,10 @@ Two events are modelled per trial:
 
   orientation_<angle>   — TR nearest the Gabor stimulus onset; labelled by the
                           orientation of the Gabor patch (e.g. orientation_90.0)
-  response_<value>      — TR nearest the response-bar onset; labelled by the
-                          participant's slider response on that trial
-                          (e.g. response_22.5)
+  response_<bid>        — TR nearest the response-bar onset; labelled by the
+                          participant's bid on that trial (e.g. response_22.5),
+                          taken from the feedback event. For non-responses
+                          (NaN bid) the label falls back to response_<angle>.
 
 Each unique orientation and each unique response value gets its own column in
 the design matrix, shared consistently across all runs and sessions.  This is
@@ -55,6 +56,7 @@ import argparse
 import warnings
 
 import numpy as np
+import pandas as pd
 from nilearn import image
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
@@ -65,11 +67,20 @@ TR = 0.996
 
 
 def make_condition_label(row):
-    """Map a single event row to its condition label."""
+    """Map a single event row to its condition label.
+
+    Gabor events are labelled by orientation (orientation_<angle>).
+    Response-bar events are labelled by the participant's bid (response_<bid>),
+    which is joined in from the feedback event by get_events(). For non-
+    responses (bid is NaN) we fall back to orientation so there are no
+    degenerate response_nan conditions.
+    """
     if row['event_type'] == 'gabor':
         return f'orientation_{row["orientation"]}'
-    else:
-        return f'response_{row["response"]}'
+    bid = row['bid']
+    if pd.isna(bid):
+        return f'response_{row["orientation"]}'   # fallback for non-responses
+    return f'response_{bid}'
 
 
 def build_condition_index(all_events):

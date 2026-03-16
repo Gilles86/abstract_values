@@ -27,12 +27,12 @@ def make_events(n_trials=5, onset_start=30.0, isi=12.0):
         rows.append({'trial_nr': t, 'onset': gabor_onset,
                      'event_type': 'gabor',
                      'orientation': orientations[t - 1],
-                     'value': 20.0, 'response': responses[t - 1],
+                     'value': 20.0, 'bid': float('nan'),
                      'duration': 0.0})
         rows.append({'trial_nr': t, 'onset': gabor_onset + 6.0,
                      'event_type': 'response_bar',
                      'orientation': orientations[t - 1],
-                     'value': 20.0, 'response': responses[t - 1],
+                     'value': 20.0, 'bid': responses[t - 1],
                      'duration': 0.0})
     return pd.DataFrame(rows).set_index(['trial_nr'])
 
@@ -67,6 +67,8 @@ class TestBuildDesignMatrix:
         responses    = [t for t in trial_order if t.startswith('response')]
         assert len(orientations) == self.n_trials
         assert len(responses) == self.n_trials
+        # response labels use the bid value
+        assert all(t.startswith('response_') for t in responses)
 
     def test_binary(self):
         dm, _ = build_design_matrix(self.events, self.n_vols, self.cond_idx)

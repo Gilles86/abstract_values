@@ -113,14 +113,23 @@ class Subject:
                     f'No events file for sub-{self.subject_id} '
                     f'ses-{session} run-{run:02d} in {behavior_dir}')
             df = pd.read_csv(candidates[0], sep='\t')
+
+            # The participant's bid is stored in the feedback event, not in
+            # response_bar. Join it onto response_bar rows by trial_nr.
+            bids = (df[df['event_type'] == 'feedback']
+                    .set_index('trial_nr')['response']
+                    .rename('bid'))
             df = df[df['event_type'].isin(['gabor', 'response_bar'])].copy()
+            df = df.join(bids, on='trial_nr')
+            # For response_bar events use the bid; for gabor events it is NaN
+            # (intentionally — make_condition_label only uses bid for response_bar).
             df['run'] = run
             dfs.append(df)
 
         events = pd.concat(dfs, ignore_index=True)
         events = events.set_index(['run', 'trial_nr'])
         return events[['onset', 'event_type', 'orientation', 'value',
-                        'response', 'duration']]
+                        'bid', 'duration']]
 
     # ── confounds ──────────────────────────────────────────────────────────────
 
