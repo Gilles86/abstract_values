@@ -27,6 +27,7 @@ dependencies:
       - protobuf==3.20.3
       - tqdm
       - glmsingle
+      - neuropythy
       - pybids
       - pymc
       - -e ./libs/braincoder
