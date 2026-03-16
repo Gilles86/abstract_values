@@ -128,7 +128,7 @@ def build_design_matrix(events_run, n_vols, condition_to_idx):
 
 
 def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair',
-         debug=False):
+         debug=False, smoothed=False):
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
     if sessions is None:
@@ -171,7 +171,8 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
         for run, bold_path in zip(runs, bold):
             if ref_bold is None:
                 ref_bold = bold_path
-            img = image.load_img(str(bold_path)).get_fdata()
+            img = image.smooth_img(str(bold_path), fwhm=5.0).get_fdata() if smoothed \
+                else image.load_img(str(bold_path)).get_fdata()
             n_vols = img.shape[3]
             dm, trial_order = build_design_matrix(events.loc[run], n_vols, condition_to_idx)
             data.append(img)
@@ -189,7 +190,8 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
     )
 
     from pathlib import Path
-    out_dir = (Path(bids_folder) / 'derivatives' / 'glmsingle' / fmriprep_deriv
+    glmsingle_deriv = 'glmsingle.smoothed' if smoothed else 'glmsingle'
+    out_dir = (Path(bids_folder) / 'derivatives' / glmsingle_deriv / fmriprep_deriv
                / f'sub-{subject}' / ses_label / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -227,9 +229,13 @@ if __name__ == '__main__':
                         choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
     parser.add_argument('--debug', action='store_true',
                         help='Write outputs and diagnostic figures for all 4 GLMsingle steps.')
+    parser.add_argument('--smoothed', action='store_true',
+                        help='Spatially smooth BOLD data with a 5 mm FWHM Gaussian kernel '
+                             'before fitting. Outputs go to derivatives/glmsingle.smoothed/.')
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions,
          bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv,
-         debug=args.debug)
+         debug=args.debug,
+         smoothed=args.smoothed)
