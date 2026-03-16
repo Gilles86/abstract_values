@@ -193,8 +193,12 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
                / f'sub-{subject}' / ses_label / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    fig_dir = out_dir.parent / 'figures'
+
     from glmsingle.glmsingle import GLM_single
-    results = GLM_single(opt).fit(X, data, TR, TR, outputdir=str(out_dir))
+    results = GLM_single(opt).fit(X, data, TR, TR,
+                                  outputdir=str(out_dir),
+                                  figuredir=str(fig_dir))
 
     betas = results['typed']['betasmd']  # (x, y, z, n_total_trials)
     gabor_idx    = [i for i, t in enumerate(all_trial_types) if t.startswith('orientation')]
