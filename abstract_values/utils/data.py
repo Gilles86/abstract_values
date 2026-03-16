@@ -41,6 +41,21 @@ class Subject:
         return (self.bids_folder / 'sourcedata' / 'behavior'
                 / f'sub-{self.subject_id}' / f'ses-{session}')
 
+    # ── sessions ───────────────────────────────────────────────────────────────
+
+    def get_sessions(self):
+        """Return sorted list of session numbers available in fmriprep output."""
+        sub_dir = self._fmriprep_dir / f'sub-{self.subject_id}'
+        sessions = []
+        for d in sub_dir.iterdir():
+            m = re.match(r'ses-(\d+)$', d.name)
+            if d.is_dir() and m:
+                sessions.append(int(m.group(1)))
+        sessions = sorted(sessions)
+        if not sessions:
+            raise FileNotFoundError(f'No sessions found in {sub_dir}')
+        return sessions
+
     # ── runs ───────────────────────────────────────────────────────────────────
 
     def get_runs(self, session):
@@ -147,17 +162,23 @@ class Subject:
 
     # ── GLMsingle outputs ──────────────────────────────────────────────────────
 
-    def get_glmsingle_betas(self, session, desc='gabor'):
+    def get_glmsingle_betas(self, sessions, desc='gabor'):
         """Return single-trial beta image from GLMsingle.
 
         Parameters
         ----------
+        sessions : int or list of int
+            Session number(s) that were fitted jointly. Pass a single int for
+            a single-session fit, or a list for a multi-session fit.
         desc : {'gabor', 'response', 'R2'}
         """
+        if isinstance(sessions, int):
+            sessions = [sessions]
+        ses_label = f'ses-{sessions[0]}' if len(sessions) == 1 else 'ses-all'
         fn = (self.bids_folder / 'derivatives' / 'glmsingle'
               / self.fmriprep_deriv / f'sub-{self.subject_id}'
-              / f'ses-{session}' / 'func'
-              / f'sub-{self.subject_id}_ses-{session}'
+              / ses_label / 'func'
+              / f'sub-{self.subject_id}_{ses_label}'
                 f'_task-abstractvalue_space-T1w_desc-{desc}_pe.nii.gz')
         if not fn.exists():
             raise FileNotFoundError(f'No GLMsingle output ({desc}): {fn}')

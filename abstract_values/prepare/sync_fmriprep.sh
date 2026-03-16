@@ -2,7 +2,7 @@
 # Sync fmriprep derivatives from sciencecluster to local, keeping only
 # T1w-space functional outputs (excludes fsnative BOLD and surface .gii files).
 
-EXCLUDES=(--exclude '*_space-fsnative_*' --exclude '*_hemi-*')
+EXCLUDES=(--exclude '*_space-fsnative_*' --exclude 'func/*_hemi-*' --exclude '*_desc-preproc_bold.nii.gz')
 CLUSTER=sciencecluster:/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives
 LOCAL=/data/ds-abstractvalue/derivatives
 

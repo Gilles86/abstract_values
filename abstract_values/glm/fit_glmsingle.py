@@ -2,14 +2,53 @@
 """
 Fit GLMsingle single-trial betas for the abstract values fMRI task.
 
-Models two events per trial:
-  gabor_{trial_nr}    — onset of the oriented Gabor stimulus
-  response_{trial_nr} — onset of the response slider (response_bar phase)
+Design matrix
+-------------
+Two events are modelled per trial:
+
+  orientation_<angle>   — TR nearest the Gabor stimulus onset; labelled by the
+                          orientation of the Gabor patch (e.g. orientation_90.0)
+  response_<value>      — TR nearest the response-bar onset; labelled by the
+                          participant's slider response on that trial
+                          (e.g. response_22.5)
+
+Each unique orientation and each unique response value gets its own column in
+the design matrix, shared consistently across all runs and sessions.  This is
+critical for GLMsingle's fracridge cross-validation: GLMsingle identifies
+conditions by design-matrix column index, so assigning the same orientation the
+same column in every run ensures that same-orientation trials are grouped
+together when selecting the ridge regularisation parameter alpha via
+leave-one-run-out cross-validation.
+
+GLMsingle then expands the condition-level design matrix internally to a
+single-trial design, yielding one beta per trial presentation per voxel.
+
+Output
+------
+Three 4-D NIfTI images are saved (x × y × z × n_trials):
+
+  desc-gabor_pe.nii.gz    — single-trial betas for the Gabor stimulus phase
+  desc-response_pe.nii.gz — single-trial betas for the response phase
+  desc-R2_pe.nii.gz       — cross-validated R² of the final GLMsingle model
+
+Output is written to:
+  derivatives/glmsingle/<fmriprep_deriv>/sub-<subject>/<ses_label>/func/
+
+where <ses_label> is ses-<N> for a single session or ses-all for a joint fit.
+
+Sessions
+--------
+By default all available sessions are fitted jointly (recommended: GLMsingle
+uses the session indicator to handle session-to-session scaling differences).
+Pass --sessions to restrict to specific session numbers.
 
 Usage:
-    python fit_glmsingle.py pil01 1
-    python fit_glmsingle.py 01 1 --fmriprep-deriv fmriprep-noflair
-    python fit_glmsingle.py 01 1 --bids-folder /data/ds-abstractvalue
+    python fit_glmsingle.py pil01
+    python fit_glmsingle.py pil01 --sessions 1
+    python fit_glmsingle.py pil01 --sessions 1 2
+    python fit_glmsingle.py 01 --sessions 1 --fmriprep-deriv fmriprep-noflair
+    python fit_glmsingle.py 01 --bids-folder /data/ds-abstractvalue
+    python fit_glmsingle.py pil01 --debug   # write all 4 model steps + figures
 """
 
 import argparse
@@ -25,74 +64,138 @@ warnings.filterwarnings('ignore')
 TR = 0.996
 
 
-def build_design_matrix(events_run, n_vols):
-    """Return (dm, trial_types) for one run.
+def make_condition_label(row):
+    """Map a single event row to its condition label."""
+    if row['event_type'] == 'gabor':
+        return f'orientation_{row["orientation"]}'
+    else:
+        return f'response_{row["response"]}'
 
-    dm          : binary (n_vols × n_events) array, one 1 per column at the nearest TR
-    trial_types : list of str labels, e.g. ['gabor_1', 'response_1', ...]
+
+def build_condition_index(all_events):
+    """Return a global {condition_label: column_index} mapping.
+
+    Must be shared across all runs so that the same orientation/response value
+    always activates the same design-matrix column — which is what GLMsingle
+    uses as the condition ID for fracridge cross-validation.
+
+    Parameters
+    ----------
+    all_events : iterable of per-run DataFrames (reset index, event_type column)
+    """
+    conditions = set()
+    for ev in all_events:
+        for _, row in ev.iterrows():
+            conditions.add(make_condition_label(row))
+
+    def _key(c):
+        prefix, val = c.split('_', 1)
+        return (prefix, float(val))
+
+    return {c: i for i, c in enumerate(sorted(conditions, key=_key))}
+
+
+def build_design_matrix(events_run, n_vols, condition_to_idx):
+    """Return (dm, trial_order) for one run.
+
+    dm          : binary (n_vols × n_conditions) array, one 1 per row at the nearest TR
+    trial_order : condition labels in onset-time order — one entry per event,
+                  matching the order GLMsingle assigns single-trial betas
     """
     ev = events_run.reset_index().copy()
-    ev['trial_type'] = ev.apply(
-        lambda row: f'gabor_{int(row["trial_nr"])}'
-                    if row['event_type'] == 'gabor'
-                    else f'response_{int(row["trial_nr"])}',
-        axis=1,
-    )
-    dm = np.zeros((n_vols, len(ev)))
-    for col, (_, row) in enumerate(ev.iterrows()):
+    ev['condition'] = ev.apply(make_condition_label, axis=1)
+    ev = ev.sort_values('onset')
+
+    dm = np.zeros((n_vols, len(condition_to_idx)))
+    trial_order = []
+    for _, row in ev.iterrows():
         onset_tr = int(np.round(row['onset'] / TR))
+        col = condition_to_idx[row['condition']]
         dm[min(onset_tr, n_vols - 1), col] = 1.0
-    return dm, ev['trial_type'].tolist()
+        trial_order.append(row['condition'])
+    return dm, trial_order
 
 
-def main(subject, session, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair'):
+def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair',
+         debug=False):
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
-    runs  = sub.get_runs(session)
-    bold  = sub.get_preprocessed_bold(session, runs)
-    events = sub.get_events(session, runs)
+    if sessions is None:
+        sessions = sub.get_sessions()
 
-    print(f'sub-{subject}  ses-{session}  [{fmriprep_deriv}]')
-    print(f'  {len(runs)} runs: {runs}')
+    ses_label = f'ses-{sessions[0]}' if len(sessions) == 1 else 'ses-all'
+    print(f'sub-{subject}  {ses_label}  [{fmriprep_deriv}]')
 
-    data = [image.load_img(str(f)).get_fdata() for f in bold]
+    # First pass: collect all events to build a globally consistent condition map.
+    # GLMsingle uses column index as condition ID, so the same orientation/response
+    # value must always occupy the same column across all runs and sessions.
+    session_run_events = {}
+    for session in sessions:
+        runs   = sub.get_runs(session)
+        events = sub.get_events(session, runs)
+        session_run_events[session] = (runs, events)
 
+    condition_to_idx = build_condition_index(
+        events.loc[run].reset_index()
+        for session, (runs, events) in session_run_events.items()
+        for run in runs
+    )
+    n_orientations = sum(1 for c in condition_to_idx if c.startswith('orientation'))
+    n_responses    = sum(1 for c in condition_to_idx if c.startswith('response'))
+    print(f'  {len(condition_to_idx)} conditions: '
+          f'{n_orientations} orientations, {n_responses} response values')
+
+    # Second pass: load BOLD and build design matrices.
+    data = []
     X = []
     all_trial_types = []
-    for run, d in zip(runs, data):
-        n_vols = d.shape[3]
-        dm, trial_types = build_design_matrix(events.loc[run], n_vols)
-        X.append(dm)
-        all_trial_types.extend(trial_types)
-        print(f'  run-{run}: {n_vols} volumes, {dm.shape[1]} regressors')
+    session_indicators = []
+    ref_bold = None
+
+    for session in sessions:
+        runs, events = session_run_events[session]
+        bold = sub.get_preprocessed_bold(session, runs)
+        print(f'  ses-{session}: {len(runs)} runs: {runs}')
+
+        for run, bold_path in zip(runs, bold):
+            if ref_bold is None:
+                ref_bold = bold_path
+            img = image.load_img(str(bold_path)).get_fdata()
+            n_vols = img.shape[3]
+            dm, trial_order = build_design_matrix(events.loc[run], n_vols, condition_to_idx)
+            data.append(img)
+            X.append(dm)
+            all_trial_types.extend(trial_order)
+            session_indicators.append(session)
+            print(f'    run-{run}: {n_vols} volumes, {len(trial_order)} trials')
 
     opt = dict(
         wantlibrary=1,
         wantglmdenoise=1,
         wantfracridge=1,
-        wantfileoutputs=[0, 0, 0, 1],
-        sessionindicator=np.array([session] * len(runs))[np.newaxis, :],
+        wantfileoutputs=[1, 1, 1, 1] if debug else [0, 0, 0, 1],
+        sessionindicator=np.array(session_indicators)[np.newaxis, :],
     )
 
     from pathlib import Path
     out_dir = (Path(bids_folder) / 'derivatives' / 'glmsingle' / fmriprep_deriv
-               / f'sub-{subject}' / f'ses-{session}' / 'func')
+               / f'sub-{subject}' / ses_label / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from glmsingle.glmsingle import GLM_single
     results = GLM_single(opt).fit(X, data, TR, TR, outputdir=str(out_dir))
 
     betas = results['typed']['betasmd']  # (x, y, z, n_total_trials)
-    gabor_idx    = [i for i, t in enumerate(all_trial_types) if t.startswith('gabor')]
+    gabor_idx    = [i for i, t in enumerate(all_trial_types) if t.startswith('orientation')]
     response_idx = [i for i, t in enumerate(all_trial_types) if t.startswith('response')]
 
-    fn = (f'sub-{subject}_ses-{session}_task-abstractvalue'
+    fn = (f'sub-{subject}_{ses_label}_task-abstractvalue'
           f'_space-T1w_desc-{{desc}}_pe.nii.gz')
-    image.new_img_like(bold[0], betas[..., gabor_idx]).to_filename(
+    image.new_img_like(ref_bold, betas[..., gabor_idx]).to_filename(
         str(out_dir / fn.format(desc='gabor')))
-    image.new_img_like(bold[0], betas[..., response_idx]).to_filename(
+    image.new_img_like(ref_bold, betas[..., response_idx]).to_filename(
         str(out_dir / fn.format(desc='response')))
-    image.new_img_like(bold[0], results['typed']['R2']).to_filename(
+    image.new_img_like(ref_bold, results['typed']['R2']).to_filename(
         str(out_dir / fn.format(desc='R2')))
 
     print(f'Saved to {out_dir}')
@@ -102,12 +205,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-', e.g. pil01 or 01")
-    parser.add_argument('session', type=int)
+    parser.add_argument('--sessions', type=int, nargs='+', default=None,
+                        help='Session number(s) to fit. Default: all available sessions.')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
                         choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
+    parser.add_argument('--debug', action='store_true',
+                        help='Write outputs and diagnostic figures for all 4 GLMsingle steps.')
     args = parser.parse_args()
 
-    main(args.subject, args.session,
+    main(args.subject, sessions=args.sessions,
          bids_folder=args.bids_folder,
-         fmriprep_deriv=args.fmriprep_deriv)
+         fmriprep_deriv=args.fmriprep_deriv,
+         debug=args.debug)
