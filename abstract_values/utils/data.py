@@ -171,7 +171,8 @@ class Subject:
 
     # ── GLMsingle outputs ──────────────────────────────────────────────────────
 
-    def get_glmsingle_betas(self, sessions, desc='gabor'):
+    def get_single_trial_estimates(self, sessions, desc='gabor', smoothed=False,
+                                   zscore_sessions=False):
         """Return single-trial beta image from GLMsingle.
 
         Parameters
@@ -180,15 +181,47 @@ class Subject:
             Session number(s) that were fitted jointly. Pass a single int for
             a single-session fit, or a list for a multi-session fit.
         desc : {'gabor', 'response', 'R2'}
+        smoothed : bool
+            Load from ``glmsingle.smoothed`` instead of ``glmsingle``.
+        zscore_sessions : bool
+            Z-score betas within each session independently before returning.
+            Only valid when multiple sessions were fitted jointly.
         """
         if isinstance(sessions, int):
             sessions = [sessions]
         ses_label = f'ses-{sessions[0]}' if len(sessions) == 1 else 'ses-all'
-        fn = (self.bids_folder / 'derivatives' / 'glmsingle'
+
+        glmsingle_deriv = 'glmsingle.smoothed' if smoothed else 'glmsingle'
+        fn = (self.bids_folder / 'derivatives' / glmsingle_deriv
               / self.fmriprep_deriv / f'sub-{self.subject_id}'
               / ses_label / 'func'
               / f'sub-{self.subject_id}_{ses_label}'
                 f'_task-abstractvalue_space-T1w_desc-{desc}_pe.nii.gz')
         if not fn.exists():
             raise FileNotFoundError(f'No GLMsingle output ({desc}): {fn}')
-        return image.load_img(str(fn))
+
+        im = image.load_img(str(fn))
+
+        if zscore_sessions:
+            if len(sessions) < 2:
+                raise ValueError('zscore_sessions requires multiple sessions')
+            # Determine trial count per session to split the 4-D image.
+            session_sizes = []
+            for session in sessions:
+                runs = self.get_runs(session)
+                events = self.get_events(session, runs)
+                n_trials = sum(len(events.loc[run]) for run in runs)
+                session_sizes.append(n_trials)
+            boundaries = np.cumsum([0] + session_sizes)
+            zscored = []
+            for start, stop in zip(boundaries[:-1], boundaries[1:]):
+                block = image.index_img(im, slice(start, stop))
+                zscored.append(image.clean_img(block, detrend=False,
+                                               standardize='zscore'))
+            im = image.concat_imgs(zscored)
+
+        return im
+
+    def get_glmsingle_betas(self, sessions, desc='gabor'):
+        """Alias for get_single_trial_estimates (smoothed=False)."""
+        return self.get_single_trial_estimates(sessions, desc=desc)
