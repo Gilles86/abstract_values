@@ -122,7 +122,7 @@ def main(subject, sessions=None, mask=None, n_iterations=1000,
     # ── save ──────────────────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
     out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'aprf'
-               / f'sub-{subject}' / ses_label / 'func')
+               / fmriprep_deriv / f'sub-{subject}' / ses_label / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fn = (f'sub-{subject}_{ses_label}_task-abstractvalue'

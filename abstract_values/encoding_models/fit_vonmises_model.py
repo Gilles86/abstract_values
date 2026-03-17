@@ -121,7 +121,7 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
 
     # ── save ──────────────────────────────────────────────────────────────────
     out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises'
-               / f'sub-{subject}' / ses_label / 'func')
+               / fmriprep_deriv / f'sub-{subject}' / ses_label / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     smooth_label = '_smoothed' if smoothed else ''
