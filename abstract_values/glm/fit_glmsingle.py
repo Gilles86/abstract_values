@@ -226,7 +226,8 @@ if __name__ == '__main__':
                         help='Session number(s) to fit. Default: all available sessions.')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
+                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair',
+                                 'fmriprep-t2w'])
     parser.add_argument('--debug', action='store_true',
                         help='Write outputs and diagnostic figures for all 4 GLMsingle steps.')
     parser.add_argument('--smoothed', action='store_true',
