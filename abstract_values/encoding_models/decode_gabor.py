@@ -111,7 +111,9 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
 
     if mask is None:
         raise ValueError('Please provide --mask and --mask-desc (whole-brain decoding is not supported)')
-    masker = NiftiMasker(mask_img=mask).fit()
+    masker = NiftiMasker(mask_img=mask,
+                        target_affine=betas_img.affine,
+                        target_shape=betas_img.shape[:3]).fit()
 
     data = pd.DataFrame(
         masker.transform(betas_img).astype(np.float32),
