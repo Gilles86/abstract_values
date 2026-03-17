@@ -5,7 +5,6 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=02:00:00
-#SBATCH --partition=gpu          # GPU node needed to build JAX CUDA extensions
 #SBATCH --gres=gpu:1
 
 # Build the abstract_values conda environment on the cluster.
