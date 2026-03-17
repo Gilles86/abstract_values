@@ -8,6 +8,8 @@
 # Full factorial:
 #   5 masks × 2 nvoxels × 2 noise × 2 smoothed × 2 lambda
 #   = 80 gabor jobs + 80 value jobs = 160 jobs total
+#
+# Currently set to nvoxels=50,500 (100 and 250 submitted separately).
 
 set -e
 
@@ -26,7 +28,7 @@ declare -A MASKS=(
 N_JOBS=0
 for MASK_DESC in BensonV1 BensonV2 BensonV3 NPCl NPCr; do
     MASK=${MASKS[$MASK_DESC]}
-    for NVOX in 100 250; do
+    for NVOX in 50 500; do
         for SPHERICAL in 0 1; do
             for SMOOTHED in 0 1; do
                 for LAMBD in 0.0 0.1; do
