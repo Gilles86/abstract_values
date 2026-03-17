@@ -179,7 +179,7 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
         test_data_sel  = test_data[sel]
 
         # ── fit noise model ───────────────────────────────────────────────────
-        n_iter_noise = 100 if debug else 5000
+        n_iter_noise = 100 if debug else 1000
         residfit = ResidualFitter(model, train_data_sel, train_paradigm,
                                   parameters=basis_pars, weights=weights_sel,
                                   lambd=lambd)

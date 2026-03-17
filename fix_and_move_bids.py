@@ -44,6 +44,17 @@ FMAP_TYPES = ["magnitude1", "magnitude2", "phasediff"]
 TASK_LABEL = "abstractvalue"
 TASK_NAME  = "Abstract Values"
 
+# Per-(subject, session) FLAIR acquisition label.
+# None (or missing key) means: copy with original filename unchanged.
+# pil01: ses-1 → acq-long, ses-2 → acq-short
+# pil02: ses-1 → acq-short, ses-2 → acq-long  (vice-versa)
+FLAIR_ACQ: dict[tuple[str, str], str] = {
+    ("pil01", "1"): "long",
+    ("pil01", "2"): "short",
+    ("pil02", "1"): "short",
+    ("pil02", "2"): "long",
+}
+
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -127,13 +138,16 @@ def process_func(src_dir: Path, dst_dir: Path,
     """Copy func files, inserting task label and TaskName into BOLD files."""
     dst_dir.mkdir(parents=True, exist_ok=True)
     for src_file in sorted(src_dir.iterdir()):
-        # BOLD files: insert task-<label> and patch JSON
+        # BOLD files: insert task-<label> if not already present, and patch JSON
         if re.search(r"_run-\d+_bold\.(nii\.gz|json)$", src_file.name):
-            dst_name = re.sub(
-                r"(_run-\d+_bold)",
-                f"_task-{TASK_LABEL}\\1",
-                src_file.name,
-            )
+            if f"_task-{TASK_LABEL}_" not in src_file.name:
+                dst_name = re.sub(
+                    r"(_run-\d+_bold)",
+                    f"_task-{TASK_LABEL}\\1",
+                    src_file.name,
+                )
+            else:
+                dst_name = src_file.name
             dst_file = dst_dir / dst_name
             if src_file.suffix == ".json":
                 data = json.loads(src_file.read_text())
@@ -150,11 +164,20 @@ def process_func(src_dir: Path, dst_dir: Path,
             copy_file(src_file, dst_file, dry_run)
 
 
-def process_modality(src_dir: Path, dst_dir: Path, dry_run: bool) -> None:
-    """Copy all files unchanged (anat)."""
+def process_anat(src_dir: Path, dst_dir: Path,
+                 subject: str, session: str, dry_run: bool) -> None:
+    """Copy anat files, renaming FLAIR with acq label when configured."""
+    flair_acq = FLAIR_ACQ.get((subject, session))
     for src_file in sorted(src_dir.iterdir()):
-        dst_file = dst_dir / src_file.name
-        print(f"  {src_file.name}")
+        if flair_acq and re.search(r"_FLAIR\.(nii\.gz|json)$", src_file.name):
+            dst_name = re.sub(r"(_FLAIR)", f"_acq-{flair_acq}\\1", src_file.name)
+        else:
+            dst_name = src_file.name
+        dst_file = dst_dir / dst_name
+        label = f"  {src_file.name}"
+        if dst_name != src_file.name:
+            label += f"  ->  {dst_name}"
+        print(label)
         copy_file(src_file, dst_file, dry_run)
 
 
@@ -193,12 +216,15 @@ def process_subject_session(subject: str, session: str, dry_run: bool) -> None:
 
     print(f"\n=== sub-{subject}  ses-{session} ===")
 
-    print("\n[fmap] fixing IntendedFor + renaming run-0N -> run-N:")
-    process_fmap(src_sub / "fmap", dst_sub / "fmap", subject, session, dry_run)
+    if (src_sub / "fmap").exists():
+        print("\n[fmap] fixing IntendedFor + renaming run-0N -> run-N:")
+        process_fmap(src_sub / "fmap", dst_sub / "fmap", subject, session, dry_run)
+    else:
+        print("\n[fmap] not found, skipping")
 
     if (src_sub / "anat").exists():
         print("\n[anat]")
-        process_modality(src_sub / "anat", dst_sub / "anat", dry_run)
+        process_anat(src_sub / "anat", dst_sub / "anat", subject, session, dry_run)
 
     if (src_sub / "func").exists():
         print("\n[func]")

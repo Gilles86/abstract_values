@@ -22,7 +22,7 @@ def load_rewards(behavior_dir: Path) -> dict:
     """Return rewards[(subject, session)] = {run: value}."""
     rewards = defaultdict(dict)
 
-    for reward_file in sorted(behavior_dir.glob('sub-*/ses-*/reward_*.txt')):
+    for reward_file in sorted(behavior_dir.glob('sub-*/*/reward_*.txt')):
         try:
             value = float(reward_file.read_text().strip())
         except ValueError:
@@ -108,7 +108,7 @@ def main() -> None:
     )
     parser.add_argument(
         '--bids_folder',
-        default=DEFAULT_BIDS_FOLDER,
+        default=None,
         type=Path,
         help=f'Path to BIDS root folder (default: {DEFAULT_BIDS_FOLDER}). '
              'Reward files are read from <bids_folder>/sourcedata/behavior/.',
@@ -121,7 +121,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    behavior_dir = args.bids_folder / 'sourcedata' / 'behavior'
+    if args.bids_folder is None:
+        local_logs = Path(__file__).parent / 'logs'
+        behavior_dir = local_logs if local_logs.exists() else DEFAULT_BIDS_FOLDER / 'sourcedata' / 'behavior'
+    else:
+        behavior_dir = args.bids_folder / 'sourcedata' / 'behavior'
+
     if not behavior_dir.exists():
         parser.error(f'Behavior directory not found: {behavior_dir}')
 
