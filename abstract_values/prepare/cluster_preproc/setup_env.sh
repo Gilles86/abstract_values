@@ -20,7 +20,7 @@
 #   KERAS_BACKEND=jax conda run -n abstract_values python ...
 
 source /etc/profile.d/lmod.sh
-module load cuda/12.4          # needed for jax[cuda12] compilation
+module load cuda/12.6.3        # needed for jax[cuda12] compilation
 
 # ── locate mamba/conda ────────────────────────────────────────────────────────
 if command -v mamba &>/dev/null; then
@@ -32,10 +32,10 @@ else
     exit 1
 fi
 
-REPO=/shares/zne.uzh/gdehol/git/abstract_values
+REPO=/home/$USER/git/abstract_values
 
 # ── clone / update braincoder ─────────────────────────────────────────────────
-BRAINCODER_DIR=/shares/zne.uzh/gdehol/git/braincoder
+BRAINCODER_DIR=/home/$USER/git/braincoder_keras
 if [ ! -d "$BRAINCODER_DIR" ]; then
     git clone git@github.com:Gilles86/braincoder.git "$BRAINCODER_DIR"
 fi
