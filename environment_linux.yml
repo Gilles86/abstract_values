@@ -22,7 +22,7 @@ dependencies:
   - pip:
       # Keras 3 + multi-backend ML
       - tensorflow==2.20.0
-      - tensorflow-probability==0.25.0
+      - tensorflow-probability[tf]==0.25.0
       - jax[cuda12]           # GPU-accelerated JAX on cluster (CUDA 12)
       - torch                 # PyTorch (CPU; add torch+cu121 for GPU)
       - keras==3.13.2
