@@ -124,8 +124,9 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
                / f'sub-{subject}' / ses_label / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    smooth_label = '_smoothed' if smoothed else ''
     fn = (f'sub-{subject}_{ses_label}_task-abstractvalue'
-          f'_space-T1w_desc-{{desc}}_pe.nii.gz')
+          f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
     # 4D weights image: volume i = weights for basis function i
     weights_img = image.concat_imgs(
