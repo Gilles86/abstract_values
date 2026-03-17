@@ -51,14 +51,14 @@ Scripts in `abstract_values/prepare/cluster_preproc/`:
 
 | Script | Purpose |
 |--------|---------|
-| `fmriprep_noflair.sh` | Main pipeline — T1w only → `derivatives/fmriprep` |
+| `fmriprep.sh` | Main pipeline — T1w only → `derivatives/fmriprep` |
 | `fmriprep_t2w.sh` | Pilot (pil02): T1w + T2w → `derivatives/fmriprep-t2w` |
 | `fmriprep_acqlong.sh` | Pilot (pil01): T1w + acq-long FLAIR → `derivatives/fmriprep-acqlong` |
 | `fmriprep_acqshort.sh` | Pilot (pil01): T1w + acq-short FLAIR → `derivatives/fmriprep-acqshort` |
 
 ```bash
 # submit study participants as array
-sbatch --array=1-30 fmriprep_noflair.sh
+sbatch --array=1-30 fmriprep.sh
 
 # submit a pilot by name
 sbatch --export=PARTICIPANT_LABEL=pil02 fmriprep_t2w.sh

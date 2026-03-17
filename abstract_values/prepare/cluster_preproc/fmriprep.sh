@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=fmriprep_noflair
-#SBATCH --output=/home/gdehol/logs/abstractvalue_fmriprep_noflair_%A-%a.txt
+#SBATCH --job-name=fmriprep_abstractvalue
+#SBATCH --output=/home/gdehol/logs/abstractvalue_fmriprep_%A-%a.txt
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
@@ -12,11 +12,11 @@
 # Two ways to run:
 #
 #   Numeric subjects (array job):
-#     sbatch --array=1-30 fmriprep_noflair.sh
+#     sbatch --array=1-30 fmriprep.sh
 #     -> labels 001, 002, ..., 030
 #
 #   Any subject by name (single job, overrides array):
-#     sbatch --export=PARTICIPANT_LABEL=pil02 fmriprep_noflair.sh
+#     sbatch --export=PARTICIPANT_LABEL=pil02 fmriprep.sh
 #
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
