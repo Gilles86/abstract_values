@@ -2,10 +2,10 @@ name: abstract_values
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
+  - python=3.11          # 3.11+ needed for keras>=3.13
   - pip
   # Scientific stack
-  - numpy<2.0
+  - numpy
   - scipy
   - pandas
   - matplotlib
@@ -19,16 +19,21 @@ dependencies:
   - nibabel
   - nilearn
   - nipype
-  # Install via pip for better Apple Silicon compatibility
   - pip:
-      - tensorflow-macos==2.14.0
-      - tensorflow-metal==1.1.0
-      - tensorflow-probability==0.22.0
-      - protobuf==3.20.3
-      - tqdm
+      # Keras 3 + TF backend with Metal GPU acceleration
+      - tensorflow==2.17.0
+      - tensorflow-metal          # Apple Silicon GPU
+      - tensorflow-probability==0.25.0
+      # Multi-backend extras (CPU only on Mac — use cluster for JAX/Torch GPU)
+      - jax
+      - torch
+      - keras==3.13.2
+      # Braincoder (keras-backend branch)
+      - git+https://github.com/Gilles86/braincoder.git@keras-backend
+      # fMRI analysis
       - glmsingle
       - neuropythy
       - pybids
       - pymc
-      - -e ./libs/braincoder
+      - tqdm
       - -e .

@@ -114,6 +114,17 @@ class Subject:
                     f'ses-{session} run-{run:02d} in {behavior_dir}')
             df = pd.read_csv(candidates[0], sep='\t')
 
+            # Set the first scanner trigger (pulse) as t=0.
+            # Raw onsets are relative to Psychopy script start; the BOLD
+            # acquisition starts at the first pulse, so we must subtract it.
+            pulse_onsets = df.loc[df['event_type'] == 'pulse', 'onset']
+            if pulse_onsets.empty:
+                raise ValueError(
+                    f'No pulse events found in {candidates[0]}')
+            first_pulse = float(pulse_onsets.min())
+            df = df.copy()
+            df['onset'] = df['onset'] - first_pulse
+
             # The participant's bid is stored in the feedback event, not in
             # response_bar. Join it onto response_bar rows by trial_nr.
             bids = (df[df['event_type'] == 'feedback']

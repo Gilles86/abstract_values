@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
 
-from braincoder.models import GaussianPRF
+from braincoder.models import LogGaussianPRF
 from braincoder.optimize import ParameterFitter
 from braincoder.utils import get_rsq
 
@@ -96,7 +96,7 @@ def main(subject, sessions=None, mask=None, n_iterations=1000,
     print(f'  {data.shape[1]} voxels in mask')
 
     # ── model ─────────────────────────────────────────────────────────────────
-    model = GaussianPRF(allow_neg_amplitudes=True)
+    model = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mu_sd_natural')
     fitter = ParameterFitter(model, data, paradigm)
 
     # Grid search over mu and sd; amplitude and baseline refined afterwards
@@ -120,16 +120,26 @@ def main(subject, sessions=None, mask=None, n_iterations=1000,
     print(f'  mean R²={float(r2.mean()):.4f}')
 
     # ── save ──────────────────────────────────────────────────────────────────
+    smooth_label = '_smoothed' if smoothed else ''
     out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'aprf'
                / f'sub-{subject}' / ses_label / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fn = (f'sub-{subject}_{ses_label}_task-abstractvalue'
-          f'_space-T1w_desc-{{desc}}_pe.nii.gz')
+          f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
     for param in ['mu', 'sd', 'amplitude', 'baseline']:
         masker.inverse_transform(pars[param]).to_filename(
             str(out_dir / fn.format(desc=param)))
+
+    # ── FWHM in natural (CHF) space ───────────────────────────────────────────
+    # For LogGaussianPRF(mu_sd_natural): σ_log = sqrt(log(1 + (sd/mu)²))
+    # Half-max points: exp(μ_log ± σ_log·sqrt(2·log2)), μ_log = log(mu) - σ_log²/2
+    sigma_log = np.sqrt(np.log(1 + (pars['sd'] / pars['mu'].clip(1e-6)) ** 2))
+    mu_log    = np.log(pars['mu'].clip(1e-6)) - 0.5 * sigma_log ** 2
+    k         = sigma_log * np.sqrt(2 * np.log(2))
+    fwhm      = np.exp(mu_log + k) - np.exp(mu_log - k)
+    masker.inverse_transform(fwhm).to_filename(str(out_dir / fn.format(desc='fwhm')))
 
     masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
 
