@@ -39,7 +39,7 @@ OUT_JSON="${BIDS_FOLDER}/derivatives/benchmarks/sub-${PARTICIPANT_LABEL}_ses-${S
 
 # ── load CUDA ─────────────────────────────────────────────────────────────────
 source /etc/profile.d/lmod.sh
-module load cuda/12.4
+module load cuda/12.6.3
 
 echo "============================================================"
 echo "  Backend benchmark"
