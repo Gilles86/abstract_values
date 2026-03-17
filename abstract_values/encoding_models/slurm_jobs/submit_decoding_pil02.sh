@@ -6,8 +6,8 @@
 #   bash submit_decoding_pil02.sh
 #
 # Full factorial:
-#   2 derivs × 5 masks × 4 nvoxels × 2 noise × 2 smoothed × 2 lambda
-#   = 320 gabor jobs + 320 value jobs = 640 jobs total
+#   5 masks × 4 nvoxels × 2 noise × 2 smoothed × 2 lambda
+#   = 160 gabor jobs + 160 value jobs = 320 jobs total
 
 set -e
 
@@ -24,7 +24,7 @@ declare -A MASKS=(
 )
 
 N_JOBS=0
-for DERIV in fmriprep-noflair fmriprep-t2w; do
+for DERIV in fmriprep-t2w; do
     for MASK_DESC in BensonV1 BensonV2 BensonV3 NPCl NPCr; do
         MASK=${MASKS[$MASK_DESC]}
         for NVOX in 50 100 250 500; do
