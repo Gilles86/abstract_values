@@ -151,7 +151,7 @@ if __name__ == '__main__':
                         help='Brain mask NIfTI (default: fmriprep brain mask)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
+                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     args = parser.parse_args()
 

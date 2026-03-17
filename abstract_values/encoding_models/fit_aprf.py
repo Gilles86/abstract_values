@@ -158,7 +158,7 @@ if __name__ == '__main__':
                         help='Max gradient descent iterations (default: 1000)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
+                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--debug', action='store_true',
                         help='Run only 100 gradient descent iterations (fast test)')
