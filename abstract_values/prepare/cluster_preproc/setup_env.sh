@@ -43,7 +43,7 @@ git -C "$BRAINCODER_DIR" checkout keras-backend
 git -C "$BRAINCODER_DIR" pull
 
 # ── create or update environment ──────────────────────────────────────────────
-if $CONDA_CMD env list | grep -q "^abstract_values "; then
+if $CONDA_CMD env list | grep -q "abstract_values"; then
     echo "Environment abstract_values exists — updating..."
     $CONDA_CMD env update -n abstract_values -f "$REPO/environment_linux.yml" --prune
 else
