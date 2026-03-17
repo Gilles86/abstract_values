@@ -47,6 +47,8 @@ ARGS=(
 echo "fit_aprf: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}"
 echo "Args: ${ARGS[*]}"
 
+. $HOME/init_conda.sh
+
 conda run -n abstract_values python -u \
     "$REPO/abstract_values/encoding_models/fit_aprf.py" \
     "${ARGS[@]}"

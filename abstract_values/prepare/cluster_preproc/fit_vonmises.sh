@@ -51,6 +51,8 @@ ARGS=(
 echo "fit_vonmises: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}  n_basis=${N_BASIS}  kappa=${KAPPA}"
 echo "Args: ${ARGS[*]}"
 
+. $HOME/init_conda.sh
+
 conda run -n abstract_values python -u \
     "$REPO/abstract_values/encoding_models/fit_vonmises_model.py" \
     "${ARGS[@]}"
