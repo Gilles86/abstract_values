@@ -223,7 +223,8 @@ if __name__ == '__main__':
     parser.add_argument('session', type=int, help='Session number')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
+                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair',
+                                 'fmriprep-t2w'])
     parser.add_argument('--atlases', nargs='+',
                         choices=['exvivo', 'vpnl', 'benson'],
                         default=None,

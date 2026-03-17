@@ -153,7 +153,8 @@ if __name__ == '__main__':
                         help='ROI name used in output filenames (default: roi)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
+                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair',
+                                 'fmriprep-t2w'])
     args = parser.parse_args()
 
     main(args.subject, args.session,
