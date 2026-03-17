@@ -29,7 +29,7 @@ dependencies:
       # Braincoder (keras-backend branch)
       - git+https://github.com/Gilles86/braincoder.git@keras-backend
       # fMRI analysis
-      - glmsingle
+      - git+https://github.com/cvnlab/GLMsingle.git
       - pybids
       - pymc
       - tqdm
