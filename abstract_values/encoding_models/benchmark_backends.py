@@ -38,7 +38,7 @@ def _run_worker(subject, sessions, mask, mask_desc,
     import pandas as pd
     from nilearn.maskers import NiftiMasker
     from braincoder.models import LogGaussianPRF
-    from braincoder.optimize import ParameterFitter, ResidualFitter
+    from braincoder.optimize import ParameterFitter
     from braincoder.utils import get_rsq
     from abstract_values.utils.data import Subject, BIDS_FOLDER
 
@@ -86,17 +86,6 @@ def _run_worker(subject, sessions, mask, mask_desc,
     pred = model.predict(parameters=pars, paradigm=paradigm)
     r2 = get_rsq(data, pred)
 
-    model2 = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mu_sd_natural')
-    stimulus_range = np.linspace(value_min, value_max, 50, dtype='float32')
-    model2.init_pseudoWWT(stimulus_range, pars)
-
-    t0 = time.perf_counter()
-    residfit = ResidualFitter(model2, data, paradigm, parameters=pars)
-    omega, dof = residfit.fit(init_sigma2=0.1, init_dof=10.0, method='t',
-                              learning_rate=0.05, max_n_iterations=500,
-                              progressbar=False)
-    t_noise = time.perf_counter() - t0
-
     import keras
     result = dict(
         backend=os.environ.get('KERAS_BACKEND', 'tensorflow'),
@@ -106,8 +95,7 @@ def _run_worker(subject, sessions, mask, mask_desc,
         mean_r2=float(r2.mean()),
         t_grid_s=round(t_grid, 2),
         t_gd_s=round(t_gd, 2),
-        t_noise_s=round(t_noise, 2),
-        t_total_s=round(t_grid + t_gd + t_noise, 2),
+        t_total_s=round(t_grid + t_gd, 2),
     )
     print(json.dumps(result))
 
@@ -190,7 +178,6 @@ if __name__ == '__main__':
                 results.append(result)
                 print(f'  grid={result["t_grid_s"]:.1f}s  '
                       f'gd={result["t_gd_s"]:.1f}s  '
-                      f'noise={result["t_noise_s"]:.1f}s  '
                       f'total={result["t_total_s"]:.1f}s  '
                       f'mean_R²={result["mean_r2"]:.4f}')
                 break
@@ -201,7 +188,7 @@ if __name__ == '__main__':
     # ── summary table ─────────────────────────────────────────────────────────
     import pandas as pd
     df = pd.DataFrame(results).set_index('backend')[
-        ['t_grid_s', 't_gd_s', 't_noise_s', 't_total_s', 'mean_r2']]
+        ['t_grid_s', 't_gd_s', 't_total_s', 'mean_r2']]
     fastest = df['t_total_s'].min()
     df['speedup_vs_tf'] = (df.loc['tensorflow', 't_total_s'] / df['t_total_s']).round(2) \
         if 'tensorflow' in df.index else None
