@@ -3,8 +3,14 @@
 # ROI masks only (V1/V2/V3). Uses new braincoder (abstract_values env).
 set -e
 
-PYTHON="conda run -n abstract_values python -u"
-SCRIPTS=/Users/gdehol/git/abstract_values/abstract_values
+REPO=/Users/gdehol/git/abstract_values
+CONDA=/Users/gdehol/mambaforge/bin/conda
+PYTHON="PYTHONUNBUFFERED=1 $CONDA run -n abstract_values python -u"
+SCRIPTS=$REPO/abstract_values
+LOG=$REPO/logs/decoding_pil01_$(date +%Y%m%d_%H%M%S).log
+mkdir -p "$REPO/logs"
+exec > >(tee -a "$LOG") 2>&1
+echo "Logging to $LOG"
 V1=/data/ds-abstractvalue/derivatives/masks/sub-pil01/ses-1/anat/sub-pil01_ses-1_space-T1w_hemi-LR_desc-BensonV1_mask.nii.gz
 V2=/data/ds-abstractvalue/derivatives/masks/sub-pil01/ses-1/anat/sub-pil01_ses-1_space-T1w_hemi-LR_desc-BensonV2_mask.nii.gz
 V3=/data/ds-abstractvalue/derivatives/masks/sub-pil01/ses-1/anat/sub-pil01_ses-1_space-T1w_hemi-LR_desc-BensonV3_mask.nii.gz
@@ -40,8 +46,8 @@ done
 echo "======================================================"
 echo " DONE — executing analysis notebook"
 echo "======================================================"
-conda run -n abstract_values jupyter nbconvert \
+$CONDA run -n abstract_values jupyter nbconvert \
     --to notebook --execute --inplace \
     --ExecutePreprocessor.timeout=600 \
-    /Users/gdehol/git/abstract_values/notebooks/decode_analysis.ipynb
+    $REPO/notebooks/decode_analysis.ipynb
 echo "Notebook done."

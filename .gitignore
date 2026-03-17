@@ -1,10 +1,23 @@
-experiment/logs/*
+# Python
 *.pyc
 __pycache__/
-.ipynb_checkpoints
-.DS_Store
-.vscode/
-
 *.egg-info/
 dist/
 build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS / editors
+.DS_Store
+.vscode/
+
+# Logs (kept locally in logs/, never committed)
+logs/*.log
+*.log
+
+# Archives
+*.zip
+
+# Experiment session logs (generated at runtime)
+experiment/logs/*
