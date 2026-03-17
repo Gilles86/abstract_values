@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=08:00:00
+#SBATCH --time=00:30:00
 
 # Bayesian leave-one-run-out abstract value (CHF) decoding.
 # Requires MASK and MASK_DESC to be set (no whole-brain default).
