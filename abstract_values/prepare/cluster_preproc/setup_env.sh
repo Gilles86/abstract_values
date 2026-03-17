@@ -62,11 +62,16 @@ conda run -n abstract_values pip install -e "$REPO"
 echo ""
 echo "=== Verification ==="
 conda run -n abstract_values python -c "
+import os
+os.environ.setdefault('KERAS_BACKEND', 'jax')
 import keras; print('keras:', keras.__version__)
 import jax; print('jax:', jax.__version__)
 import jax.numpy as jnp
 x = jnp.ones((10,10))
 print('jax GPU devices:', jax.devices())
+import tensorflow as tf; print('tensorflow:', tf.__version__)
+import tensorflow_probability as tfp; print('tensorflow_probability:', tfp.__version__)
+import torch; print('torch:', torch.__version__, '  CUDA:', torch.cuda.is_available())
 from braincoder.models import LogGaussianPRF, VonMisesPRF
 from braincoder.optimize import ParameterFitter, ResidualFitter, WeightFitter
 print('braincoder OK')

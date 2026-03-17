@@ -32,7 +32,7 @@ FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep-flair}"
 N_ITERATIONS="${N_ITERATIONS:-1000}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
-REPO=/shares/zne.uzh/gdehol/git/abstract_values
+REPO=/home/gdehol/git/abstract_values
 
 ARGS=(
     "$PARTICIPANT_LABEL"

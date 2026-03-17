@@ -29,7 +29,7 @@ BACKENDS = ['tensorflow', 'jax', 'torch']
 
 # ── inner worker (called per-backend in subprocess) ───────────────────────────
 
-def _run_worker(subject, sessions, mask, mask_desc, n_voxels,
+def _run_worker(subject, sessions, mask, mask_desc,
                 n_grid_mus, n_grid_sds, n_iterations, bids_folder,
                 fmriprep_deriv, smoothed):
     """Fit ParameterFitter + ResidualFitter and print timing as JSON."""
@@ -59,12 +59,10 @@ def _run_worker(subject, sessions, mask, mask_desc, n_voxels,
     value_min, value_max = float(paradigm['x'].min()), float(paradigm['x'].max())
 
     betas_img = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=smoothed)
+    if mask is None:
+        mask = sub.get_brain_mask(sessions[0])
     masker = NiftiMasker(mask_img=mask).fit()
     data = pd.DataFrame(masker.transform(betas_img).astype('float32'))
-
-    # top-n voxels by variance as a cheap proxy for signal
-    sel = data.var(axis=0).sort_values(ascending=False).index[:n_voxels]
-    data = data[sel]
 
     model = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mu_sd_natural')
     fitter = ParameterFitter(model, data, paradigm)
@@ -103,7 +101,7 @@ def _run_worker(subject, sessions, mask, mask_desc, n_voxels,
     result = dict(
         backend=os.environ.get('KERAS_BACKEND', 'tensorflow'),
         keras_version=keras.__version__,
-        n_voxels=n_voxels,
+        n_voxels=data.shape[1],
         n_trials=len(paradigm),
         mean_r2=float(r2.mean()),
         t_grid_s=round(t_grid, 2),
@@ -119,9 +117,9 @@ if __name__ == '__main__':
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject')
     parser.add_argument('--sessions', type=int, nargs='+', default=None)
-    parser.add_argument('--mask', required=True)
-    parser.add_argument('--mask-desc', required=True)
-    parser.add_argument('--n-voxels', type=int, default=200)
+    parser.add_argument('--mask', default=None,
+                        help='Brain mask NIfTI (default: fmriprep brain mask)')
+    parser.add_argument('--mask-desc', default='brainmask')
     parser.add_argument('--n-grid-mus', type=int, default=20)
     parser.add_argument('--n-grid-sds', type=int, default=15)
     parser.add_argument('--n-iterations', type=int, default=500)
@@ -143,7 +141,6 @@ if __name__ == '__main__':
             sessions=args.sessions,
             mask=args.mask,
             mask_desc=args.mask_desc,
-            n_voxels=args.n_voxels,
             n_grid_mus=args.n_grid_mus,
             n_grid_sds=args.n_grid_sds,
             n_iterations=args.n_iterations,
@@ -158,15 +155,15 @@ if __name__ == '__main__':
     worker_args = [
         sys.executable, __file__,
         args.subject, '--worker',
-        '--mask', args.mask,
         '--mask-desc', args.mask_desc,
-        '--n-voxels', str(args.n_voxels),
         '--n-grid-mus', str(args.n_grid_mus),
         '--n-grid-sds', str(args.n_grid_sds),
         '--n-iterations', str(args.n_iterations),
         '--bids-folder', args.bids_folder,
         '--fmriprep-deriv', args.fmriprep_deriv,
     ]
+    if args.mask:
+        worker_args += ['--mask', args.mask]
     if args.sessions:
         worker_args += ['--sessions'] + [str(s) for s in args.sessions]
     if args.smoothed:
