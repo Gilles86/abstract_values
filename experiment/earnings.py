@@ -39,10 +39,10 @@ class EarningsSession(Session):
                     read_errors.append(error_msg)
             
             print(f'\nTotal variable reward: {total_earnings:.2f} CHF')
-            total_payment = 10.0 + total_earnings
-            
+            total_payment = 30.0 + total_earnings
+
             error_note = f'\n\nNote: {len(read_errors)} file(s) could not be read.' if read_errors else ''
-            message = f'Congratulations!\n\nYou have completed the experiment.\n\nShow-up fee: 10.00 CHF\nVariable reward: {total_earnings:.2f} CHF\n\nYour total earnings are:\n\n{total_payment:.2f} CHF\n\n({len(reward_files)} runs completed){error_note}\n\nThank you for participating!\n\nPlease wait for the experimenter.'
+            message = f'Congratulations!\n\nYou have completed the experiment.\n\nShow-up fee: 30.00 CHF\nVariable reward: {total_earnings:.2f} CHF\n\nYour total earnings are:\n\n{total_payment:.2f} CHF\n\n({len(reward_files)} runs completed){error_note}\n\nThank you for participating!\n\nPlease wait for the experimenter.'
         
         # Display earnings on screen
         earnings_trial = InstructionTrial(

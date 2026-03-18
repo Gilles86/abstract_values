@@ -96,11 +96,11 @@ Trial phases:
 ---
 
 **Payment calculation (for optimal play):**
-- Starting fee: 10 CHF
+- Starting fee: 30 CHF
 - Budget per trial: 42 CHF (kept if no purchase)
 - 184 task trials with reward_scaling of 184.0 (payment = total_reward / 184)
 - If bidding correctly (bid = true value):
   - Win probability depends on gabor value (higher values win less often)
   - When winning, pay random price (uniform 2-42), get true value back
   - Expected profit per trial ≈ 5 CHF (varies by gabor value)
-- **Expected total payment: ~57 CHF** (10 CHF base + ~47 CHF from task)
+- **Expected total payment: ~77 CHF** (30 CHF base + ~47 CHF from task)

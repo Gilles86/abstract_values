@@ -13,7 +13,7 @@ import warnings
 from collections import defaultdict
 from pathlib import Path
 
-SHOW_UP_FEE_PER_SESSION = 10.0
+SHOW_UP_FEE_PER_SESSION = 30.0
 EXPECTED_RUNS_TOTAL = 16  # 8 runs × 2 sessions (fMRI); override with --expected_runs for behavioral (16)
 DEFAULT_BIDS_FOLDER = Path('/data/ds-abstract_values_pilot')
 

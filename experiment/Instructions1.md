@@ -19,7 +19,7 @@ Figure 1: Example of a gabor.
 
 We will now explain each phase in detail.
 Note: You will have the opportunity to take short breaks between blocks in Phases 2 and 3. Use this time to rest if needed, but remember that your performance—and thus your earnings—will depend on your focus and accuracy.
-By agreeing to participate, you have already earned a starting fee of 10 CHF. It is very important that you understand the following instructions, since the additional payoffs from participating in the experiment will depend on your ability to make good decisions. Thank you again for participating in this experiment!
+By agreeing to participate, you have already earned a starting fee of 30 CHF. It is very important that you understand the following instructions, since the additional payoffs from participating in the experiment will depend on your ability to make good decisions. Thank you again for participating in this experiment!
 
 Experiment Description
 First phase of the experiment

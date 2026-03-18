@@ -109,11 +109,11 @@ After all runs, total variable earnings and final payment are displayed on scree
 
 ## Payment
 
-- **Show-up fee:** 10 CHF
+- **Show-up fee:** 30 CHF
 - **Variable earnings:** sum of auction outcomes across all trials, divided by the reward scaling factor (184.0 for 8-run behavioral; 207.0 for 9-run fMRI)
 - **Auction outcome per trial:** if `bid > random_price`, earn `true_value − random_price`; otherwise earn 0
 - **Optimal strategy:** honest bidding (bid = true value) maximizes expected earnings
-- **Expected total:** ~57 CHF with optimal play
+- **Expected total:** ~77 CHF with optimal play
 
 ---
 
