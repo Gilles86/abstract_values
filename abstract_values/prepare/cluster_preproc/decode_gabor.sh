@@ -47,7 +47,7 @@ LAMBD="${LAMBD:-0.0}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep-flair}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
-REPO=/shares/zne.uzh/gdehol/git/abstract_values
+REPO=$HOME/git/abstract_values
 
 ARGS=(
     "$PARTICIPANT_LABEL"
@@ -65,6 +65,9 @@ ARGS=(
 
 echo "decode_gabor: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}"
 echo "Args: ${ARGS[*]}"
+
+# Load environment
+. $HOME/init_conda.sh
 
 conda run -n abstract_values python -u \
     "$REPO/abstract_values/encoding_models/decode_gabor.py" \
