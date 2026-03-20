@@ -66,6 +66,49 @@ Sync fmriprep results back to local (T1w-space only):
 bash abstract_values/prepare/sync_fmriprep.sh
 ```
 
+## Encoding models (abstract pRF)
+
+Script: `abstract_values/encoding_models/fit_aprf.py`
+Custom model classes: `abstract_values/encoding_models/models.py`
+
+Fits a log-Gaussian pRF to single-trial GLMsingle betas using the **objective CHF value** of each gabor stimulus as the 1-D stimulus dimension. Uses braincoder (`ParameterFitter`): grid search (correlation cost) then Adam gradient descent.
+
+### Model types
+
+| `--model` | Parameters saved | Description |
+|-----------|-----------------|-------------|
+| `standard` (default) | `mode, fwhm, amplitude, baseline, r2` | Single log-Gaussian per voxel across all sessions. `mode_fwhm_natural` parameterisation. |
+| `session-shift` | `mode_1, mode_2, fwhm, amplitude, baseline, r2` | Mode shifts freely per session; fwhm/amplitude/baseline shared. Requires ≥2 sessions. Implemented in `SessionShiftedLogGaussianPRF`. |
+
+### Output paths
+
+```
+derivatives/encoding_models/aprf/sub-<subject>/[ses-<N>/]func/
+derivatives/encoding_models/aprf-session-shift/sub-<subject>/[ses-<N>/]func/
+```
+
+Files follow the pattern: `sub-<subject>[_ses-<N>]_task-abstractvalue_space-T1w_desc-<param>_pe.nii.gz`
+
+### SLURM job
+
+Script: `abstract_values/encoding_models/slurm_jobs/fit_aprf.sh`
+Resources: 8 CPUs, 32 GB RAM, 2 h wall time.
+
+```bash
+# standard model, single subject
+sbatch --export=PARTICIPANT_LABEL=pil01 fit_aprf.sh
+
+# session-shift model
+sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=session-shift fit_aprf.sh
+
+# study participants as array
+sbatch --array=1-30 fit_aprf.sh
+
+# optional overrides: SESSION, FMRIPREP_DERIV, SMOOTHED, N_ITERATIONS, MODEL
+```
+
+Logs: `/home/gdehol/logs/fit_aprf_<jobid>.txt`
+
 ## Cluster
 
 Hostname: `sciencecluster`
