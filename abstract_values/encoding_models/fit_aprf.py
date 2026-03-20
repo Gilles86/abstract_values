@@ -27,7 +27,7 @@ Output
   session-shift:
     derivatives/encoding_models/aprf-session-shift/sub-<subject>/<ses_label>/func/
       sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-{param}_pe.nii.gz
-      params: mu_1, mu_2, sd, amplitude, baseline, r2
+      params: mode_1, mode_2, fwhm, amplitude, baseline, r2
 
 Usage
 -----
@@ -178,7 +178,7 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
             fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
                   f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
-            for param in ['mu_1', 'mu_2', 'sd', 'amplitude', 'baseline']:
+            for param in ['mode_1', 'mode_2', 'fwhm', 'amplitude', 'baseline']:
                 masker.inverse_transform(pars[param]).to_filename(
                     str(out_dir / fn.format(desc=param)))
             masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
