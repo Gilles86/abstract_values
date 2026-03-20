@@ -109,6 +109,50 @@ sbatch --array=1-30 fit_aprf.sh
 
 Logs: `/home/gdehol/logs/fit_aprf_<jobid>.txt`
 
+## ROI masks
+
+Volumetric masks (T1w space) live under:
+```
+derivatives/masks/sub-<subject>/anat/
+```
+
+### File naming
+
+| Call | File loaded |
+|------|-------------|
+| `get_roi_mask('NPC', hemi='LR')` | `sub-<s>_space-T1w_hemi-LR_desc-NPC_mask.nii.gz` |
+| `get_roi_mask('NPCr', hemi=None)` | `sub-<s>_space-T1w_desc-NPCr_mask.nii.gz` |
+| `get_roi_mask('BensonV1', hemi='L')` | `sub-<s>_space-T1w_hemi-L_desc-BensonV1_mask.nii.gz` |
+
+`hemi=None` omits the hemi entity entirely — required for NPCr/NPCl (which already encode hemisphere in the desc).
+
+### Quick usage
+
+```python
+from abstract_values.utils.data import Subject, BIDS_FOLDER
+sub  = Subject('pil01', bids_folder=BIDS_FOLDER)
+mask = sub.get_roi_mask('NPCr', hemi=None)   # → NIfTI image
+```
+
+### How masks are made
+
+Surface labels (fsaverage space) → fsnative (FreeSurfer `SurfaceTransform`) → T1w volume (neuropythy `cortex_to_image`).
+Script: `abstract_values/surface/get_surface_roi_mask.py`
+
+Input labels:
+```
+derivatives/surface_masks/desc-{roi}_{hemi}_space-fsaverage_hemi-{lh|rh}.label.gii
+```
+
+### ROIs in use
+
+| ROI desc | Region |
+|----------|--------|
+| `NPC` / `NPCl` / `NPCr` | Numerosity Parietal Cortex (bilateral / left / right) |
+| `BensonV1` … | Visual areas from Benson atlas |
+
+**Default ROI for encoding model analyses: `NPCr` (`hemi=None`).**
+
 ## Cluster
 
 Hostname: `sciencecluster`
