@@ -109,7 +109,9 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
     # ── masker ────────────────────────────────────────────────────────────────
     if mask is None:
         mask = sub.get_brain_mask(sessions[0])
-    masker = NiftiMasker(mask_img=mask).fit()
+    masker = NiftiMasker(mask_img=mask,
+                         target_affine=betas_img.affine,
+                         target_shape=betas_img.shape[:3]).fit()
     data = pd.DataFrame(masker.transform(betas_img).astype(np.float32),
                         index=paradigm.index)
     print(f'  {data.shape[1]} voxels in mask')
