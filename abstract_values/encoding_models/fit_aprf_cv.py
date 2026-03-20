@@ -21,6 +21,7 @@ Usage
 import argparse
 from pathlib import Path
 
+import nibabel as nib
 import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
@@ -30,6 +31,12 @@ from braincoder.optimize import ParameterFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+
+
+def save_f32(img, path):
+    """Save a NIfTI image as float32, regardless of mask dtype."""
+    nib.Nifti1Image(img.get_fdata().astype(np.float32),
+                    img.affine).to_filename(str(path))
 
 
 def get_value_paradigm_with_runs(sub, sessions):
@@ -148,14 +155,14 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
         cv_r2 = get_rsq(test_data, test_pred)
         print(f'    mean CV R² = {float(cv_r2.mean()):.4f}')
 
-        masker.inverse_transform(cv_r2).to_filename(
-            str(out_dir / fn_run.format(run=test_run)))
+        save_f32(masker.inverse_transform(cv_r2),
+                 out_dir / fn_run.format(run=test_run))
         all_cvr2.append(cv_r2)
 
     # ── mean CV R² ────────────────────────────────────────────────────────────
     mean_cvr2 = pd.concat(all_cvr2, axis=1).mean(axis=1)
     print(f'  mean CV R² (all folds) = {float(mean_cvr2.mean()):.4f}')
-    masker.inverse_transform(mean_cvr2).to_filename(str(out_dir / fn_mean))
+    save_f32(masker.inverse_transform(mean_cvr2), out_dir / fn_mean)
     print(f'  saved to {out_dir}')
 
 

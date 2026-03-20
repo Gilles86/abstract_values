@@ -40,6 +40,7 @@ Usage
 import argparse
 from pathlib import Path
 
+import nibabel as nib
 import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
@@ -49,6 +50,12 @@ from braincoder.optimize import ParameterFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+
+
+def save_f32(img, path):
+    """Save a NIfTI image as float32, regardless of mask dtype."""
+    nib.Nifti1Image(img.get_fdata().astype(np.float32),
+                    img.affine).to_filename(str(path))
 
 
 def get_value_paradigm(sub, sessions):
@@ -179,9 +186,9 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
                   f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
             for param in ['mode_1', 'mode_2', 'fwhm', 'amplitude', 'baseline']:
-                masker.inverse_transform(pars[param]).to_filename(
-                    str(out_dir / fn.format(desc=param)))
-            masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
+                save_f32(masker.inverse_transform(pars[param]),
+                         out_dir / fn.format(desc=param))
+            save_f32(masker.inverse_transform(r2), out_dir / fn.format(desc='r2'))
 
             print(f'  saved to {out_dir}')
 
@@ -220,9 +227,9 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
                   f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
             for param in ['mode', 'fwhm', 'amplitude', 'baseline']:
-                masker.inverse_transform(pars[param]).to_filename(
-                    str(out_dir / fn.format(desc=param)))
-            masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
+                save_f32(masker.inverse_transform(pars[param]),
+                         out_dir / fn.format(desc=param))
+            save_f32(masker.inverse_transform(r2), out_dir / fn.format(desc='r2'))
 
             print(f'  saved to {out_dir}')
 
