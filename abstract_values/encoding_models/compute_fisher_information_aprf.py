@@ -20,8 +20,8 @@ Output
 
 Usage
 -----
-  python compute_fisher_information_aprf.py pil01 --sessions 1 --roi BensonV1
-  python compute_fisher_information_aprf.py pil01 --roi BensonV1          # all sessions
+  python compute_fisher_information_aprf.py pil01 --sessions 1
+  python compute_fisher_information_aprf.py pil01 --sessions 1 --roi BensonV1 --hemi LR
   python compute_fisher_information_aprf.py pil01 --roi NPC --hemi None
 """
 
@@ -51,7 +51,7 @@ def get_value_paradigm(sub, sessions):
     return pd.DataFrame({'x': np.array(rows, dtype=np.float32)})
 
 
-def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
+def main(subject, sessions=None, roi='NPCr', hemi='None', n_voxels=250,
          n_values=200, n_noise_iterations=1000, n_mc_samples=1000,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False):
@@ -182,10 +182,10 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--sessions', type=int, nargs='+', default=None)
-    parser.add_argument('--roi', default='BensonV1',
-                        help='ROI label (default: BensonV1)')
-    parser.add_argument('--hemi', default='LR',
-                        help="Hemisphere: LR, L, R, or None (default: LR)")
+    parser.add_argument('--roi', default='NPCr',
+                        help='ROI label (default: NPCr)')
+    parser.add_argument('--hemi', default='None',
+                        help="Hemisphere: LR, L, R, or None (default: None)")
     parser.add_argument('--n-voxels', type=int, default=250,
                         help='Top-N voxels by R² within mask (0 = all R²>0, default: 250)')
     parser.add_argument('--n-values', type=int, default=200,
