@@ -16,10 +16,10 @@ Input labels
 
 Output
 ------
-  derivatives/masks/sub-<subject>/ses-<session>/anat/
-    sub-<subject>_ses-<session>_space-T1w_desc-<roi>_mask.nii.gz   (bilateral)
-    sub-<subject>_ses-<session>_space-T1w_desc-<roi>l_mask.nii.gz  (left)
-    sub-<subject>_ses-<session>_space-T1w_desc-<roi>r_mask.nii.gz  (right)
+  derivatives/masks/sub-<subject>/anat/
+    sub-<subject>_space-T1w_desc-<roi>_mask.nii.gz   (bilateral)
+    sub-<subject>_space-T1w_desc-<roi>l_mask.nii.gz  (left)
+    sub-<subject>_space-T1w_desc-<roi>r_mask.nii.gz  (right)
 
 Usage
 -----
@@ -73,10 +73,10 @@ def main(subject, session, lh_label, rh_label, roi='roi',
             raise FileNotFoundError(f'Required path not found: {p}')
 
     out_dir = (bids_folder / 'derivatives' / 'masks'
-               / f'sub-{subject}' / f'ses-{session}' / 'anat')
+               / f'sub-{subject}' / 'anat')
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fn_prefix = f'sub-{subject}_ses-{session}_space-T1w_desc-{roi}'
+    fn_prefix = f'sub-{subject}_space-T1w_desc-{roi}'
 
     mask_data = []  # [lh_data_or_None, rh_data_or_None]
 
