@@ -21,7 +21,7 @@ fMRI + behavioral study on abstract value learning. Participants learn orientati
 | `/data/ds-abstractvalue/sourcedata/mri/` | Raw MRI data (pre-BIDS-conversion) |
 | `/data/ds-abstractvalue/sourcedata/behavior/` | Raw behavioral logs from experiment |
 | `/data/ds-abstractvalue/sub-*/` | BIDS-converted MRI data |
-| `/data/ds-abstractvalue/derivatives/fmriprep*/` | fmriprep outputs |
+| `/data/ds-abstractvalue/derivatives/fmriprep/` | fmriprep outputs (T1w + T2w) |
 | `/shares/zne.uzh/gdehol/ds-abstractvalue/` | Same dataset on cluster (sciencecluster) |
 | `/shares/zne.uzh/containers/fmriprep-25.2.3` | fmriprep Apptainer container |
 
@@ -51,19 +51,14 @@ Scripts in `abstract_values/prepare/cluster_preproc/`:
 
 | Script | Purpose |
 |--------|---------|
-| `fmriprep.sh` | Main pipeline — T1w only → `derivatives/fmriprep` |
-| `fmriprep_t2w.sh` | Pilot (pil02): T1w + T2w → `derivatives/fmriprep-t2w` |
-| `fmriprep_acqlong.sh` | Pilot (pil01): T1w + acq-long FLAIR → `derivatives/fmriprep-acqlong` |
-| `fmriprep_acqshort.sh` | Pilot (pil01): T1w + acq-short FLAIR → `derivatives/fmriprep-acqshort` |
+| `fmriprep.sh` | T1w + T2w → `derivatives/fmriprep` (all participants) |
 
 ```bash
 # submit study participants as array
 sbatch --array=1-30 fmriprep.sh
 
 # submit a pilot by name
-sbatch --export=PARTICIPANT_LABEL=pil02 fmriprep_t2w.sh
-sbatch --export=PARTICIPANT_LABEL=pil01 fmriprep_acqlong.sh
-sbatch --export=PARTICIPANT_LABEL=pil01 fmriprep_acqshort.sh
+sbatch --export=PARTICIPANT_LABEL=pil02 fmriprep.sh
 ```
 
 Sync fmriprep results back to local (T1w-space only):

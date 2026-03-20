@@ -169,7 +169,8 @@ def process_anat(src_dir: Path, dst_dir: Path,
     """Copy anat files, renaming FLAIR with acq label when configured."""
     flair_acq = FLAIR_ACQ.get((subject, session))
     for src_file in sorted(src_dir.iterdir()):
-        if flair_acq and re.search(r"_FLAIR\.(nii\.gz|json)$", src_file.name):
+        if (flair_acq and re.search(r"_FLAIR\.(nii\.gz|json)$", src_file.name)
+                and f"_acq-{flair_acq}_" not in src_file.name):
             dst_name = re.sub(r"(_FLAIR)", f"_acq-{flair_acq}\\1", src_file.name)
         else:
             dst_name = src_file.name

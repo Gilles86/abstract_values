@@ -58,7 +58,7 @@ def transform_to_fsnative(in_file, out_file, fs_hemi, target_subject, subjects_d
 
 
 def main(subject, session, lh_label, rh_label, roi='roi',
-         bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair'):
+         bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep'):
     bids_folder = Path(bids_folder)
     fmriprep_dir = bids_folder / 'derivatives' / fmriprep_deriv
     subjects_dir = fmriprep_dir / 'sourcedata' / 'freesurfer'
@@ -152,9 +152,8 @@ if __name__ == '__main__':
     parser.add_argument('--roi', default='roi',
                         help='ROI name used in output filenames (default: roi)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
-    parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair',
-                                 'fmriprep-t2w'])
+    parser.add_argument('--fmriprep-deriv', default='fmriprep',
+                        choices=['fmriprep', 'fmriprep-t2w'])
     args = parser.parse_args()
 
     main(args.subject, args.session,

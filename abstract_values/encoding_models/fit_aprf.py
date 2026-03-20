@@ -63,7 +63,7 @@ def get_value_paradigm(sub, sessions):
 
 
 def main(subject, sessions=None, mask=None, n_iterations=1000,
-         bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair',
+         bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -71,8 +71,9 @@ def main(subject, sessions=None, mask=None, n_iterations=1000,
     if sessions is None:
         sessions = sub.get_sessions()
 
-    ses_label = f'ses-{sessions[0]}' if len(sessions) == 1 else 'ses-all'
-    print(f'sub-{subject}  {ses_label}  [abstract pRF on objective value]')
+    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
+    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
+    print(f'sub-{subject}  {ses_dir or "all-sessions"}  [abstract pRF on objective value]')
 
     if debug:
         n_iterations = 100
@@ -121,11 +122,13 @@ def main(subject, sessions=None, mask=None, n_iterations=1000,
 
     # ── save ──────────────────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
-    out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'aprf'
-               / fmriprep_deriv / f'sub-{subject}' / ses_label / 'func')
+    out_dir = bids_folder / 'derivatives' / 'encoding_models' / 'aprf' / f'sub-{subject}'
+    if ses_dir:
+        out_dir = out_dir / ses_dir
+    out_dir = out_dir / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fn = (f'sub-{subject}_{ses_label}_task-abstractvalue'
+    fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
           f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
     for param in ['mu', 'sd', 'amplitude', 'baseline']:
@@ -157,8 +160,8 @@ if __name__ == '__main__':
     parser.add_argument('--n-iterations', type=int, default=1000,
                         help='Max gradient descent iterations (default: 1000)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
-    parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair', 'fmriprep-t2w'])
+    parser.add_argument('--fmriprep-deriv', default='fmriprep',
+                        choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--debug', action='store_true',
                         help='Run only 100 gradient descent iterations (fast test)')

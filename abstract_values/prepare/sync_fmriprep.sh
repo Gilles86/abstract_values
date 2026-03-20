@@ -6,7 +6,7 @@ EXCLUDES=(--exclude '*_space-fsnative_*' --exclude 'func/*_hemi-*' --exclude '*_
 CLUSTER=sciencecluster:/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives
 LOCAL=/data/ds-abstractvalue/derivatives
 
-for DERIV in fmriprep fmriprep-flair fmriprep-noflair fmriprep-t2w; do
+for DERIV in fmriprep; do
     echo "=== syncing $DERIV ==="
     rsync -av --progress "${EXCLUDES[@]}" \
       "${CLUSTER}/${DERIV}/" \

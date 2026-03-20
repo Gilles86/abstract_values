@@ -15,7 +15,7 @@
 # Optional overrides (--export key=value):
 #   SESSION       session number, e.g. SESSION=1 (default: all sessions)
 #   SMOOTHED      set to "1" to fit on spatially smoothed betas (default: off)
-#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
+#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   N_BASIS       number of Von Mises basis functions (default: 8)
 #   KAPPA         Von Mises concentration parameter (default: 2.0)
 #
@@ -30,7 +30,7 @@ fi
 
 SESSION="${SESSION:-}"
 SMOOTHED="${SMOOTHED:-0}"
-FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep-flair}"
+FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 N_BASIS="${N_BASIS:-8}"
 KAPPA="${KAPPA:-2.0}"
 

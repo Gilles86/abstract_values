@@ -89,7 +89,7 @@ def make_basis_parameters(n_basis, kappa):
 def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
          weight_alpha=0.0, lambd=0.0,
          mask=None, mask_desc=None, spherical_noise=False,
-         bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair',
+         bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False):
 
     bids_folder = Path(bids_folder)
@@ -98,8 +98,9 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
     if sessions is None:
         sessions = sub.get_sessions()
 
-    ses_label = f'ses-{sessions[0]}' if len(sessions) == 1 else 'ses-all'
-    print(f'sub-{subject}  {ses_label}  [gabor orientation decoding]')
+    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
+    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
+    print(f'sub-{subject}  {ses_dir or "all-sessions"}  [gabor orientation decoding]')
 
     # ── paradigm + data ───────────────────────────────────────────────────────
     paradigm = get_gabor_paradigm(sub, sessions)
@@ -130,14 +131,16 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
     print(f'  {n_basis} Von Mises basis functions  kappa={kappa}')
 
     # ── output dir ───────────────────────────────────────────────────────────
-    out_dir = (bids_folder / 'derivatives' / 'decoding' / 'gabor'
-               / f'sub-{subject}' / ses_label / 'func')
+    out_dir = bids_folder / 'derivatives' / 'decoding' / 'gabor' / f'sub-{subject}'
+    if ses_dir:
+        out_dir = out_dir / ses_dir
+    out_dir = out_dir / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
     noise_label  = 'spherical' if spherical_noise else 'full'
     smooth_label = '_smoothed' if smoothed else ''
     lambd_label  = f'_lambda-{lambd}' if lambd != 0.0 else ''
     out_fn = (out_dir /
-              f'sub-{subject}_{ses_label}_mask-{mask_desc}'
+              f'sub-{subject}{ses_entity}_mask-{mask_desc}'
               f'_nvoxels-{n_voxels}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
 
     # ── leave-one-run-out cross-validation ────────────────────────────────────
@@ -237,8 +240,8 @@ if __name__ == '__main__':
     parser.add_argument('--spherical-noise', action='store_true',
                         help='Fit isotropic noise model instead of full covariance')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
-    parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
-                        choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair', 'fmriprep-t2w'])
+    parser.add_argument('--fmriprep-deriv', default='fmriprep',
+                        choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--debug', action='store_true',
                         help='100 noise iterations (fast test)')

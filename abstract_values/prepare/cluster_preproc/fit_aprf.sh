@@ -16,7 +16,7 @@
 # Optional overrides (--export key=value):
 #   SESSION       session number, e.g. SESSION=1 (default: all sessions)
 #   SMOOTHED      set to "1" to fit on spatially smoothed betas (default: off)
-#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
+#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   N_ITERATIONS  max gradient descent iterations (default: 1000)
 #
 # Example (pilot, session 1, smoothed):
@@ -28,7 +28,7 @@ fi
 
 SESSION="${SESSION:-}"
 SMOOTHED="${SMOOTHED:-0}"
-FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep-flair}"
+FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 N_ITERATIONS="${N_ITERATIONS:-1000}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue

@@ -14,6 +14,8 @@ from collections import defaultdict
 from pathlib import Path
 
 SHOW_UP_FEE_PER_SESSION = 30.0
+SHOW_UP_FEE_BEHAVIORAL_PILOT = 10.0
+BEHAVIORAL_PILOT_FOLDER = Path('/Users/gdehol/data/ds-abstract_values_pilot')
 EXPECTED_RUNS_TOTAL = 16  # 8 runs × 2 sessions (fMRI); override with --expected_runs for behavioral (16)
 DEFAULT_BIDS_FOLDER = Path('/data/ds-abstract_values_pilot')
 
@@ -43,7 +45,8 @@ def load_rewards(behavior_dir: Path) -> dict:
     return rewards
 
 
-def summarize(behavior_dir: Path, expected_runs: int = EXPECTED_RUNS_TOTAL) -> None:
+def summarize(behavior_dir: Path, expected_runs: int = EXPECTED_RUNS_TOTAL,
+              show_up_fee: float = SHOW_UP_FEE_PER_SESSION) -> None:
     rewards = load_rewards(behavior_dir)
 
     if not rewards:
@@ -70,7 +73,7 @@ def summarize(behavior_dir: Path, expected_runs: int = EXPECTED_RUNS_TOTAL) -> N
             sessions_present.append(session)
             session_variable = sum(run_rewards.values())
             n_runs = len(run_rewards)
-            session_total = SHOW_UP_FEE_PER_SESSION + session_variable
+            session_total = show_up_fee + session_variable
 
             total_variable += session_variable
             total_runs += n_runs
@@ -81,10 +84,10 @@ def summarize(behavior_dir: Path, expected_runs: int = EXPECTED_RUNS_TOTAL) -> N
 
         # Grand total across all sessions
         n_sessions = len(sessions_present)
-        grand_total = n_sessions * SHOW_UP_FEE_PER_SESSION + total_variable
+        grand_total = n_sessions * show_up_fee + total_variable
         print(f'  ── {n_sessions} session(s) | {total_runs} run(s) total ──')
         print(f'  Variable reward:  {total_variable:.2f} CHF')
-        print(f'  Show-up fees:     {n_sessions * SHOW_UP_FEE_PER_SESSION:.2f} CHF  ({n_sessions} × {SHOW_UP_FEE_PER_SESSION:.2f})')
+        print(f'  Show-up fees:     {n_sessions * show_up_fee:.2f} CHF  ({n_sessions} × {show_up_fee:.2f})')
         print(f'  GRAND TOTAL:      {grand_total:.2f} CHF')
 
         # ── warnings ──────────────────────────────────────────────────────
@@ -119,6 +122,12 @@ def main() -> None:
         type=int,
         help=f'Expected number of runs per participant in total (default: {EXPECTED_RUNS_TOTAL})',
     )
+    parser.add_argument(
+        '--show_up_fee',
+        default=None,
+        type=float,
+        help='Show-up fee per session in CHF. Defaults to 10 for the behavioral pilot dataset, 30 otherwise.',
+    )
     args = parser.parse_args()
 
     if args.bids_folder is None:
@@ -130,7 +139,14 @@ def main() -> None:
     if not behavior_dir.exists():
         parser.error(f'Behavior directory not found: {behavior_dir}')
 
-    summarize(behavior_dir, expected_runs=args.expected_runs)
+    if args.show_up_fee is not None:
+        show_up_fee = args.show_up_fee
+    elif args.bids_folder is not None and Path(args.bids_folder).resolve() == BEHAVIORAL_PILOT_FOLDER.resolve():
+        show_up_fee = SHOW_UP_FEE_BEHAVIORAL_PILOT
+    else:
+        show_up_fee = SHOW_UP_FEE_PER_SESSION
+
+    summarize(behavior_dir, expected_runs=args.expected_runs, show_up_fee=show_up_fee)
 
 
 if __name__ == '__main__':

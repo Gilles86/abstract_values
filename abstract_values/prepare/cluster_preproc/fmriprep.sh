@@ -6,7 +6,7 @@
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
 
-# Main fmriprep pipeline — T1w only, no FLAIR.
+# Main fmriprep pipeline — T1w + T2w (T2-pial surface correction).
 # Output: derivatives/fmriprep
 #
 # Two ways to run:
@@ -27,13 +27,25 @@ module load apptainer/1.4.1
 
 export APPTAINERENV_FS_LICENSE=$HOME/freesurfer/license.txt
 
+FILTER_FILE=$(mktemp /tmp/bids_filter_XXXXXX.json)
+cat > "$FILTER_FILE" << 'EOF'
+{
+    "fmap": {"datatype": "fmap"},
+    "bold": {"datatype": "func", "suffix": "bold"},
+    "t1w":  {"datatype": "anat", "suffix": "T1w"},
+    "t2w":  {"datatype": "anat", "suffix": "T2w"}
+}
+EOF
+
 apptainer run \
   -B /shares/zne.uzh/containers/templateflow:/opt/templateflow \
   -B /shares/zne.uzh/gdehol/ds-abstractvalue:/data \
   -B /scratch/gdehol:/workflow \
+  -B ${FILTER_FILE}:/bids_filter.json \
   --cleanenv /shares/zne.uzh/containers/fmriprep-25.2.5 \
     /data /data/derivatives/fmriprep participant \
   --participant-label $PARTICIPANT_LABEL \
+  --bids-filter-file /bids_filter.json \
   --output-spaces T1w fsnative \
   --skip_bids_validation \
   -w /workflow \
