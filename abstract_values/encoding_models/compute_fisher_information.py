@@ -141,7 +141,8 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
         #       = grad_basis^T  omega_eff⁻¹  grad_basis
         # where omega_eff = inv(W @ Sigma^{-1} @ W^T)
         W = weights_sel.values  # (n_basis, n_voxels)
-        precision_eff = W @ np.linalg.solve(omega.values, W.T)  # (n_basis, n_basis)
+        omega_arr = omega.values if hasattr(omega, 'values') else np.asarray(omega)
+        precision_eff = W @ np.linalg.solve(omega_arr, W.T)  # (n_basis, n_basis)
         omega_eff = np.linalg.inv(precision_eff)
         print(f'  computing Fisher information over {n_orientations} orientations '
               f'(analytical, Gaussian)...')
