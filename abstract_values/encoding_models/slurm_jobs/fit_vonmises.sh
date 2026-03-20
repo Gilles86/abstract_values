@@ -21,7 +21,7 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
 fi
 
 SESSION="${SESSION:-}"
-FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep-flair}"
+FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
