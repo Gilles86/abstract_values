@@ -94,8 +94,8 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
     print(f'  {data.shape[1]} voxels in mask')
 
     # ── grid (reused across folds; value range is from full dataset) ──────────
-    mus        = np.linspace(value_min, value_max, 20).astype(np.float32)
-    sds        = np.linspace(1.0, (value_max - value_min) / 2, 15).astype(np.float32)
+    modes      = np.linspace(value_min, value_max, 20).astype(np.float32)
+    fwhms      = np.linspace(1.0, value_max - value_min, 15).astype(np.float32)
     amplitudes = np.array([1.0], dtype=np.float32)
     baselines  = np.array([0.0], dtype=np.float32)
 
@@ -132,11 +132,11 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
         model   = LogGaussianPRF(allow_neg_amplitudes=True,
-                                 parameterisation='mu_sd_natural')
+                                 parameterisation='mode_fwhm_natural')
         fitter  = ParameterFitter(model, train_data, train_paradigm)
 
         print('    grid search...')
-        grid_pars = fitter.fit_grid(mus, sds, amplitudes, baselines,
+        grid_pars = fitter.fit_grid(modes, fwhms, amplitudes, baselines,
                                     use_correlation_cost=True)
         grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
 

@@ -5,30 +5,36 @@ using the OBJECTIVE VALUE of each trial's gabor stimulus as the paradigm.
 
 Model
 -----
-  GaussianPRF (braincoder) with parameters [mu, sd, amplitude, baseline].
-  Fitting is non-linear: grid search (correlation cost) followed by
-  gradient descent (Adam) via braincoder.optimize.ParameterFitter.
+  standard (default):
+    LogGaussianPRF with parameters [mu, sd, amplitude, baseline].
+    Fits per-session or across sessions treating value as the only stimulus dim.
 
-Paradigm
---------
-  The 'value' column from gabor events — the objective CHF value assigned to
-  the orientation shown on each trial. Same trial ordering as the gabor betas
-  written by fit_glmsingle (session → run → event sorted by onset).
+  session-shift:
+    SessionShiftedLogGaussianPRF — mu shifts freely between sessions while
+    sd, amplitude, baseline are shared.  Requires at least 2 sessions.
+    Parameters: [mu_1, mu_2, sd, amplitude, baseline].
+
+Fitting is non-linear: grid search (correlation cost) followed by
+gradient descent (Adam) via braincoder.optimize.ParameterFitter.
 
 Output
 ------
-  derivatives/encoding_models/aprf/sub-<subject>/<ses_label>/func/
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-mu_pe.nii.gz
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-sd_pe.nii.gz
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-amplitude_pe.nii.gz
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-baseline_pe.nii.gz
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-r2_pe.nii.gz
+  standard:
+    derivatives/encoding_models/aprf/sub-<subject>/<ses_label>/func/
+      sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-{param}_pe.nii.gz
+      params: mu, sd, amplitude, baseline, r2, fwhm
+
+  session-shift:
+    derivatives/encoding_models/aprf-session-shift/sub-<subject>/<ses_label>/func/
+      sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-{param}_pe.nii.gz
+      params: mu_1, mu_2, sd, amplitude, baseline, r2
 
 Usage
 -----
   python fit_aprf.py pil01 --sessions 1
   python fit_aprf.py pil01 --sessions 1 --mask /path/to/mask.nii.gz
-  python fit_aprf.py pil01 --sessions 1 --smoothed --debug
+  python fit_aprf.py pil01 --sessions 1 2 --model session-shift
+  python fit_aprf.py pil01 --sessions 1 2 --model session-shift --debug
 """
 
 import argparse
@@ -62,7 +68,27 @@ def get_value_paradigm(sub, sessions):
     return pd.DataFrame({'x': np.array(rows, dtype=np.float32)})
 
 
-def main(subject, sessions=None, mask=None, n_iterations=1000,
+def get_value_session_paradigm(sub, sessions):
+    """Return DataFrame with columns 'x' (CHF value) and 'session' (0-based index).
+
+    Session 0 = first session in sorted order, session 1 = second, etc.
+    """
+    xs, session_ids = [], []
+    for session_idx, session in enumerate(sorted(sessions)):
+        runs = sub.get_runs(session)
+        events = sub.get_events(session, runs)
+        for run in runs:
+            run_ev = events.loc[run].reset_index().sort_values('onset')
+            for _, row in run_ev[run_ev['event_type'] == 'gabor'].iterrows():
+                xs.append(float(row['value']))
+                session_ids.append(float(session_idx))
+    return pd.DataFrame({
+        'x':       np.array(xs,          dtype=np.float32),
+        'session': np.array(session_ids, dtype=np.float32),
+    })
+
+
+def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='standard',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False):
     bids_folder = Path(bids_folder)
@@ -70,17 +96,26 @@ def main(subject, sessions=None, mask=None, n_iterations=1000,
 
     if sessions is None:
         sessions = sub.get_sessions()
+    sessions = sorted(sessions)
+
+    if model_type == 'session-shift' and len(sessions) < 2:
+        raise ValueError('--model session-shift requires at least 2 sessions')
 
     ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
     ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  [abstract pRF on objective value]')
+    print(f'sub-{subject}  {ses_dir or "all-sessions"}  '
+          f'[abstract pRF on objective value  model={model_type}]')
 
     if debug:
-        n_iterations = 100
+        n_iterations = 50
 
     # ── paradigm ─────────────────────────────────────────────────────────────
-    paradigm = get_value_paradigm(sub, sessions)
-    value_min, value_max = float(paradigm['x'].min()), float(paradigm['x'].max())
+    if model_type == 'session-shift':
+        paradigm = get_value_session_paradigm(sub, sessions)
+    else:
+        paradigm = get_value_paradigm(sub, sessions)
+    value_min = float(paradigm['x'].min())
+    value_max = float(paradigm['x'].max())
     print(f'  {len(paradigm)} trials  value range: {value_min:.1f}–{value_max:.1f} CHF')
 
     # ── betas ─────────────────────────────────────────────────────────────────
@@ -96,57 +131,100 @@ def main(subject, sessions=None, mask=None, n_iterations=1000,
     data = pd.DataFrame(masker.transform(betas_img).astype(np.float32))
     print(f'  {data.shape[1]} voxels in mask')
 
-    # ── model ─────────────────────────────────────────────────────────────────
-    model = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mu_sd_natural')
-    fitter = ParameterFitter(model, data, paradigm)
+    _skip_save = False
+    if debug and data.shape[1] > 1000:
+        rng = np.random.default_rng(0)
+        debug_cols = rng.choice(data.shape[1], 1000, replace=False)
+        data = data.iloc[:, debug_cols]
+        _skip_save = True
+        print(f'  [debug] subsampled to {data.shape[1]} voxels (saving skipped)')
 
-    # Grid search over mu and sd; amplitude and baseline refined afterwards
-    mus        = np.linspace(value_min, value_max, 20).astype(np.float32)
-    sds        = np.linspace(1.0, (value_max - value_min) / 2, 15).astype(np.float32)
-    amplitudes = np.array([1.0], dtype=np.float32)
-    baselines  = np.array([0.0], dtype=np.float32)
-
-    print('  grid search...')
-    grid_pars = fitter.fit_grid(mus, sds, amplitudes, baselines,
-                                use_correlation_cost=True)
-    grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
-
-    # Gradient descent
-    print(f'  gradient descent ({n_iterations} iterations)...')
-    pars = fitter.fit(max_n_iterations=n_iterations, init_pars=grid_pars)
-
-    # ── R² ────────────────────────────────────────────────────────────────────
-    pred = model.predict(parameters=pars, paradigm=paradigm)
-    r2 = get_rsq(data, pred)
-    print(f'  mean R²={float(r2.mean()):.4f}')
-
-    # ── save ──────────────────────────────────────────────────────────────────
+    # ── model + grid search + gradient descent ────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
-    out_dir = bids_folder / 'derivatives' / 'encoding_models' / 'aprf' / f'sub-{subject}'
-    if ses_dir:
-        out_dir = out_dir / ses_dir
-    out_dir = out_dir / 'func'
-    out_dir.mkdir(parents=True, exist_ok=True)
 
-    fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
-          f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
+    if model_type == 'session-shift':
+        from abstract_values.encoding_models.models import SessionShiftedLogGaussianPRF
 
-    for param in ['mu', 'sd', 'amplitude', 'baseline']:
-        masker.inverse_transform(pars[param]).to_filename(
-            str(out_dir / fn.format(desc=param)))
+        model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=True)
+        fitter = ParameterFitter(model, data, paradigm)
 
-    # ── FWHM in natural (CHF) space ───────────────────────────────────────────
-    # For LogGaussianPRF(mu_sd_natural): σ_log = sqrt(log(1 + (sd/mu)²))
-    # Half-max points: exp(μ_log ± σ_log·sqrt(2·log2)), μ_log = log(mu) - σ_log²/2
-    sigma_log = np.sqrt(np.log(1 + (pars['sd'] / pars['mu'].clip(1e-6)) ** 2))
-    mu_log    = np.log(pars['mu'].clip(1e-6)) - 0.5 * sigma_log ** 2
-    k         = sigma_log * np.sqrt(2 * np.log(2))
-    fwhm      = np.exp(mu_log + k) - np.exp(mu_log - k)
-    masker.inverse_transform(fwhm).to_filename(str(out_dir / fn.format(desc='fwhm')))
+        n_mode = 8 if debug else 15
+        n_fwhm = 6 if debug else 10
+        modes      = np.linspace(value_min, value_max, n_mode).astype(np.float32)
+        fwhms      = np.linspace(1.0, value_max - value_min, n_fwhm).astype(np.float32)
+        amplitudes = np.array([1.0], dtype=np.float32)
+        baselines  = np.array([0.0], dtype=np.float32)
 
-    masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
+        print(f'  grid search ({n_mode}×{n_mode}×{n_fwhm} = {n_mode*n_mode*n_fwhm} points)...')
+        grid_pars = fitter.fit_grid(modes, modes, fwhms, amplitudes, baselines,
+                                    use_correlation_cost=True)
+        grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
 
-    print(f'  saved to {out_dir}')
+        print(f'  gradient descent ({n_iterations} iterations)...')
+        pars = fitter.fit(max_n_iterations=n_iterations, init_pars=grid_pars)
+
+        pred = model.predict(parameters=pars, paradigm=paradigm)
+        r2   = get_rsq(data, pred)
+        print(f'  mean R²={float(r2.mean()):.4f}')
+
+        if not _skip_save:
+            out_dir = (bids_folder / 'derivatives' / 'encoding_models'
+                       / 'aprf-session-shift' / f'sub-{subject}')
+            if ses_dir:
+                out_dir = out_dir / ses_dir
+            out_dir = out_dir / 'func'
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+                  f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
+
+            for param in ['mu_1', 'mu_2', 'sd', 'amplitude', 'baseline']:
+                masker.inverse_transform(pars[param]).to_filename(
+                    str(out_dir / fn.format(desc=param)))
+            masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
+
+            print(f'  saved to {out_dir}')
+
+    else:  # standard LogGaussianPRF
+        model  = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mode_fwhm_natural')
+        fitter = ParameterFitter(model, data, paradigm)
+
+        n_mode = 12 if debug else 20
+        n_fwhm = 8  if debug else 15
+        modes      = np.linspace(value_min, value_max, n_mode).astype(np.float32)
+        fwhms      = np.linspace(1.0, value_max - value_min, n_fwhm).astype(np.float32)
+        amplitudes = np.array([1.0], dtype=np.float32)
+        baselines  = np.array([0.0], dtype=np.float32)
+
+        print(f'  grid search ({n_mode}×{n_fwhm} = {n_mode*n_fwhm} points)...')
+        grid_pars = fitter.fit_grid(modes, fwhms, amplitudes, baselines,
+                                    use_correlation_cost=True)
+        grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
+
+        print(f'  gradient descent ({n_iterations} iterations)...')
+        pars = fitter.fit(max_n_iterations=n_iterations, init_pars=grid_pars)
+
+        pred = model.predict(parameters=pars, paradigm=paradigm)
+        r2   = get_rsq(data, pred)
+        print(f'  mean R²={float(r2.mean()):.4f}')
+
+        if not _skip_save:
+            out_dir = (bids_folder / 'derivatives' / 'encoding_models'
+                       / 'aprf' / f'sub-{subject}')
+            if ses_dir:
+                out_dir = out_dir / ses_dir
+            out_dir = out_dir / 'func'
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+                  f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
+
+            for param in ['mode', 'fwhm', 'amplitude', 'baseline']:
+                masker.inverse_transform(pars[param]).to_filename(
+                    str(out_dir / fn.format(desc=param)))
+            masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
+
+            print(f'  saved to {out_dir}')
 
 
 if __name__ == '__main__':
@@ -155,6 +233,9 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--sessions', type=int, nargs='+', default=None)
+    parser.add_argument('--model', default='standard',
+                        choices=['standard', 'session-shift'],
+                        help='Model type (default: standard)')
     parser.add_argument('--mask', default=None,
                         help='Brain mask NIfTI (default: fmriprep brain mask)')
     parser.add_argument('--n-iterations', type=int, default=1000,
@@ -164,10 +245,10 @@ if __name__ == '__main__':
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--debug', action='store_true',
-                        help='Run only 100 gradient descent iterations (fast test)')
+                        help='Fast local test: 50 iterations, 500 voxels, small grid')
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, mask=args.mask,
-         n_iterations=args.n_iterations, bids_folder=args.bids_folder,
-         fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
-         debug=args.debug)
+         n_iterations=args.n_iterations, model_type=args.model,
+         bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
+         smoothed=args.smoothed, debug=args.debug)

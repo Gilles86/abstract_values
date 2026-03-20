@@ -256,8 +256,15 @@ class Subject:
                   f'_space-T1w_desc-{desc}_pe.nii.gz',
             ]
             if len(sessions) == 1:
+                # legacy path with fmriprep_deriv component
                 legacy_candidates.append(
                     legacy_base / f'ses-{sessions[0]}' / 'func'
+                    / f'sub-{self.subject_id}_ses-{sessions[0]}_task-abstractvalue'
+                      f'_space-T1w_desc-{desc}_pe.nii.gz'
+                )
+                # session subdir directly under sub_dir (no fmriprep_deriv component)
+                legacy_candidates.append(
+                    sub_dir / f'ses-{sessions[0]}' / 'func'
                     / f'sub-{self.subject_id}_ses-{sessions[0]}_task-abstractvalue'
                       f'_space-T1w_desc-{desc}_pe.nii.gz'
                 )
@@ -391,7 +398,7 @@ class Subject:
         out_dir = out_dir / 'func'
 
         result = {}
-        for param in ['mu', 'sd', 'amplitude', 'baseline', 'r2', 'fwhm']:
+        for param in ['mode', 'fwhm', 'amplitude', 'baseline', 'r2']:
             fn = (out_dir / f'sub-{self.subject_id}{ses_entity}_task-abstractvalue'
                             f'_space-T1w_desc-{param}{smooth_label}_pe.nii.gz')
             if not fn.exists():

@@ -91,8 +91,8 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
     # ── load already-fitted aPRF parameters ───────────────────────────────────
     pars_imgs = sub.get_prf_parameters(sessions, smoothed=smoothed)
     pars_df = pd.DataFrame({
-        'mu':        masker.transform(pars_imgs['mu']).squeeze().astype(np.float32),
-        'sd':        masker.transform(pars_imgs['sd']).squeeze().astype(np.float32),
+        'mode':      masker.transform(pars_imgs['mode']).squeeze().astype(np.float32),
+        'fwhm':      masker.transform(pars_imgs['fwhm']).squeeze().astype(np.float32),
         'amplitude': masker.transform(pars_imgs['amplitude']).squeeze().astype(np.float32),
         'baseline':  masker.transform(pars_imgs['baseline']).squeeze().astype(np.float32),
     })
@@ -113,7 +113,7 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
     # apply_mask sets model.parameters to the selected voxels, then
     # init_pseudoWWT is called with those parameters so the WWT shape
     # (n_sel_voxels × n_sel_voxels) matches omega.
-    model = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mu_sd_natural')
+    model = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mode_fwhm_natural')
     model.parameters = pars_df          # all ROI voxels
     model.apply_mask(sel)               # keeps only selected voxels
     model.init_pseudoWWT(paradigm['x'].values, model.parameters)
