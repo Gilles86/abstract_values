@@ -39,7 +39,7 @@ import pandas as pd
 from nilearn import image
 from nilearn.maskers import NiftiMasker
 
-from braincoder.models import VonMisesPRF
+from braincoder.models import AxialVonMisesPRF
 from braincoder.optimize import WeightFitter
 from braincoder.utils import get_rsq
 
@@ -109,7 +109,7 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
     print(f'  basis mus (deg): {np.rad2deg(basis_pars["mu"].values).round(1).tolist()}')
 
     # ── fit weights ───────────────────────────────────────────────────────────
-    model = VonMisesPRF()
+    model = AxialVonMisesPRF()
     weights = WeightFitter(model, basis_pars, data, paradigm).fit()
     # weights: DataFrame (n_basis, n_voxels)
 

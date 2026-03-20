@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
 
-from braincoder.models import VonMisesPRF
+from braincoder.models import AxialVonMisesPRF
 from braincoder.optimize import WeightFitter
 from braincoder.utils import get_rsq
 
@@ -103,7 +103,7 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
 
     # ── basis parameters (fixed across folds) ─────────────────────────────────
     basis_pars = make_basis_parameters(n_basis, kappa)
-    model      = VonMisesPRF()
+    model      = AxialVonMisesPRF()
 
     # ── output directory ──────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''

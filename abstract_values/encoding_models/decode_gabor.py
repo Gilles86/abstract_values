@@ -45,7 +45,7 @@ import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
 
-from braincoder.models import VonMisesPRF
+from braincoder.models import AxialVonMisesPRF
 from braincoder.optimize import WeightFitter, ResidualFitter
 from braincoder.utils import get_rsq
 
@@ -160,7 +160,7 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
         test_data      = data.loc[test_idx]
 
         # ── fit basis weights (ridge regression) ──────────────────────────────
-        model = VonMisesPRF(allow_neg_amplitudes=True)
+        model = AxialVonMisesPRF(allow_neg_amplitudes=True)
         weights = WeightFitter(model, basis_pars, train_data, train_paradigm).fit(alpha=weight_alpha)
         # weights: DataFrame (n_basis × n_voxels)
 

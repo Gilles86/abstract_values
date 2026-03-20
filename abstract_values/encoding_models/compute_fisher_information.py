@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
 
-from braincoder.models import VonMisesPRF
+from braincoder.models import AxialVonMisesPRF
 from braincoder.optimize import WeightFitter, ResidualFitter
 from braincoder.utils import get_rsq
 
@@ -99,7 +99,7 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
     print(f'  {n_basis} Von Mises basis functions  kappa={kappa}')
 
     # ── fit weights on all data ───────────────────────────────────────────────
-    model = VonMisesPRF()
+    model = AxialVonMisesPRF()
     weights = WeightFitter(model, basis_pars, data, paradigm).fit()
 
     # ── voxel selection by R² ─────────────────────────────────────────────────
