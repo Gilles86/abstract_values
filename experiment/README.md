@@ -50,8 +50,8 @@ BDM auction task without feedback. Participants bid on gabors. Each bid is compa
 
 - **Runs:** 8 runs (behavioral and fMRI)
 - **Trials per run:** 20 (behavioral) / 23 (fMRI — all orientations exactly once)
-- **Trial timeline:** green fixation (0.3 s) → white fixation (0.7 s) → gabor (1.5 s) → ISI (4.0–5.5 s, jittered) → slider response (3.5 s) → feedback (1.0 s) → ITI (1.5 s)
-- **Fixed trial duration:** the ITI is automatically shortened when the participant responds early, so each trial always lasts exactly **8.5 s + ISI**
+- **Trial timeline:** green fixation (0.3 s) → white fixation (0.7 s) → gabor (1.5 s) → ISI (4.0–5.5 s, jittered) → slider response (3.0 s behavioral / 3.5 s fMRI) → feedback (1.0 s) → ITI (1.5 s)
+- **Fixed trial duration:** the ITI is automatically shortened when the participant responds early, so each trial always lasts exactly **8.0 s + ISI** (behavioral) / **8.5 s + ISI** (fMRI)
 - **ISI jitter (behavioral):** the 4 ISI values [4.0, 4.5, 5.0, 5.5 s] each occur **exactly 5 times** per run (20 trials = 4 × 5), guaranteeing a fixed run duration of 255 s
 - **ISI jitter (fMRI):** ISI is drawn randomly from [4.0, 4.5, 5.0, 5.5 s] per trial; run duration is variable (~347 s expected)
 - **Wait trials (fMRI only):** two 10 s fixation-only rest periods inserted after trial 7 and trial 15, controlled by `main_task.wait_duration`
@@ -61,9 +61,9 @@ BDM auction task without feedback. Participants bid on gabors. Each bid is compa
 
 | Component | Duration |
 |---|---|
-| 20 trials × 8.5 s base | 170.0 s |
+| 20 trials × 8.0 s base | 160.0 s |
 | 5 × each ISI (4.0 + 4.5 + 5.0 + 5.5) s | 95.0 s |
-| **Total** | **265 s (4:25)** |
+| **Total** | **255 s (4:15)** |
 
 Each behavioral run starts with a self-paced instruction screen (click to continue).
 
@@ -88,7 +88,7 @@ Each fMRI run starts with a `DummyWaiterTrial` that counts sync triggers before 
 
 | Setup | Settings file | Runs | Per run | Total |
 |---|---|---|---|---|
-| Behavioral | `sns_multisubject` | 8 | 265 s (exact) | **35:20 min** |
+| Behavioral | `sns_multisubject` | 8 | 255 s (exact) | **34:00 min** |
 | fMRI | `sns_fmri` | 8 | ~365 s (variable) | **~49 min** |
 
 fMRI run structure:
