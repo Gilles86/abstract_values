@@ -62,7 +62,7 @@ durations:
   white_fixation: 0.7
   gabor: 1.5
   isi: 4
-  response_bar: 3
+  response_bar: 3.5
   feedback: 1
   iti: 1.5
 

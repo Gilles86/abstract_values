@@ -20,7 +20,7 @@ mri:
   simulate: False
   TR: 0.996  # seconds between volume acquisitions
   TA: 0.996  # seconds to acquire one volume
-  volumes: 355  # mean: 20 dummy + 23 trials × 12.75 s (mean ISI 4.75) + 2×10 + 20 s post ≈ 353 s / 0.996
+  volumes: 367  # mean: 20 dummy + 23 trials × 13.25 s (mean ISI 4.75) + 2×10 + 20 s post ≈ 365 s / 0.996
   sync: '5'  # character used as flag for sync timing, default='5'
   skip: 0  # how many frames to silently omit initially during T1 stabilization, no sync pulse.
   sound: False  # simulate scanner noise
@@ -62,7 +62,7 @@ durations:
   white_fixation: 0.7
   gabor: 1.5
   isi: 4
-  response_bar: 3
+  response_bar: 3.5
   feedback: 1
   iti: 1.5
 

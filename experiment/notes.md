@@ -64,24 +64,24 @@ Trial phases:
 4. ISI (4000-5500 ms, randomly 4.0/4.5/5.0/5.5 seconds, equally distributed)
     - Inter-stimulus interval before response.
 
-5. Response window (3000 ms, fixed)  
+5. Response window (3500 ms, fixed)
     - Participant places bid using the slider.
     - Trial duration is fixed (early responses extend the ITI).
 
-6. Feedback (1000 ms)  
+6. Feedback (1000 ms)
     - Display outcome and reward earned (if feedback enabled).
 
-7. Inter-trial interval (1500 ms, variable to maintain fixed trial duration)  
+7. Inter-trial interval (1500 ms, variable to maintain fixed trial duration)
     - Blank screen before next trial begins.
 
-**Single trial duration:** 11.0-13.5 seconds (fixed per-trial despite variable ISI)
-- With ISI=4.0s: 12.0 seconds (300 + 700 + 1500 + 4000 + 3000 + 1000 + 1500 ms)
-- With ISI=4.5s: 12.5 seconds 
-- With ISI=5.0s: 13.0 seconds
-- With ISI=5.5s: 13.5 seconds
-- **Mean: 12.75 seconds per trial**
+**Single trial duration:** 11.5-14.0 seconds (fixed per-trial despite variable ISI)
+- With ISI=4.0s: 12.5 seconds (300 + 700 + 1500 + 4000 + 3500 + 1000 + 1500 ms)
+- With ISI=4.5s: 13.0 seconds
+- With ISI=5.0s: 13.5 seconds
+- With ISI=5.5s: 14.0 seconds
+- **Mean: 13.25 seconds per trial**
 
-**Per run:** 23 trials × 12.75s = 293 seconds (~4.9 minutes)
+**Per run:** 23 trials × 13.25s = 304.75 seconds (~5.1 minutes)
 
 **8 runs total:** ~39 minutes of trials + instructions/breaks = **~45 minutes total**
 
