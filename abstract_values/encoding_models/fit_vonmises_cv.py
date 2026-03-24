@@ -113,7 +113,9 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
     out_dir = out_dir / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fn_run  = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+    # Per-fold filenames always include session entity (avoids collision when
+    # multiple sessions share the same run numbers).
+    fn_run  = (f'sub-{subject}_ses-{{ses}}_task-abstractvalue'
                f'_space-T1w_run-{{run}}_desc-cvr2{smooth_label}_pe.nii.gz')
     fn_mean = (f'sub-{subject}{ses_entity}_task-abstractvalue'
                f'_space-T1w_desc-cvr2{smooth_label}_pe.nii.gz')
@@ -148,7 +150,7 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
         print(f'    mean CV R² = {float(cv_r2.mean()):.4f}')
 
         masker.inverse_transform(cv_r2).to_filename(
-            str(out_dir / fn_run.format(run=test_run)))
+            str(out_dir / fn_run.format(ses=test_session, run=test_run)))
         all_cvr2.append(cv_r2)
 
     # ── mean CV R² ────────────────────────────────────────────────────────────
