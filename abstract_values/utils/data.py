@@ -44,6 +44,23 @@ class Subject:
 
     # ── sessions ───────────────────────────────────────────────────────────────
 
+    def get_mapping(self, session):
+        """Return value-orientation mapping name for this subject and session.
+
+        The assignment alternates by subject parity:
+          Even subject number → ses-1 = 'cdf',         ses-2 = 'inverse_cdf'
+          Odd  subject number → ses-1 = 'inverse_cdf', ses-2 = 'cdf'
+
+        Returns
+        -------
+        str
+            ``'cdf'`` or ``'inverse_cdf'``
+        """
+        num = int(''.join(c for c in self.subject_id if c.isdigit()))
+        if num % 2 == 0:
+            return 'cdf' if session == 1 else 'inverse_cdf'
+        return 'inverse_cdf' if session == 1 else 'cdf'
+
     def get_sessions(self):
         """Return sorted list of session numbers available in fmriprep output."""
         sub_dir = self._fmriprep_dir / f'sub-{self.subject_id}'
