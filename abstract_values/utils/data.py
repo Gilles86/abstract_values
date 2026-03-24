@@ -214,8 +214,7 @@ class Subject:
                                    zscore_sessions=False):
         """Return single-trial beta image from GLMsingle.
 
-        GLMsingle is fitted once across all sessions. The canonical output path
-        is::
+        GLMsingle is fitted once across all sessions. Output path::
 
             derivatives/glmsingle[.smoothed]/sub-{subject}/func/
                 sub-{subject}_task-abstractvalue_space-T1w_desc-{desc}_pe.nii.gz
@@ -223,10 +222,6 @@ class Subject:
         When ``sessions`` is a strict subset of all sessions, the full image is
         loaded and only the trials belonging to the requested sessions are
         returned (trial order: session → run → gabor event sorted by onset).
-
-        Falls back to the legacy path layout
-        (``glmsingle/{fmriprep_deriv}/sub-{subject}/ses-{label}/func/``)
-        if the canonical file does not exist yet.
 
         Parameters
         ----------
@@ -246,43 +241,15 @@ class Subject:
         sub_dir = (self.bids_folder / 'derivatives' / glmsingle_deriv
                    / f'sub-{self.subject_id}')
 
-        # ── canonical (new) path ──────────────────────────────────────────────
         fn = (sub_dir / 'func'
               / f'sub-{self.subject_id}_task-abstractvalue'
                 f'_space-T1w_desc-{desc}_pe.nii.gz')
 
-        # ── legacy fallback ───────────────────────────────────────────────────
         if not fn.exists():
-            legacy_base = (self.bids_folder / 'derivatives' / glmsingle_deriv
-                           / self.fmriprep_deriv / f'sub-{self.subject_id}')
-            legacy_candidates = [
-                # ses-all across all sessions (most complete; preferred for subsetting)
-                legacy_base / 'ses-all' / 'func'
-                / f'sub-{self.subject_id}_ses-all_task-abstractvalue'
-                  f'_space-T1w_desc-{desc}_pe.nii.gz',
-            ]
-            if len(sessions) == 1:
-                # legacy path with fmriprep_deriv component
-                legacy_candidates.append(
-                    legacy_base / f'ses-{sessions[0]}' / 'func'
-                    / f'sub-{self.subject_id}_ses-{sessions[0]}_task-abstractvalue'
-                      f'_space-T1w_desc-{desc}_pe.nii.gz'
-                )
-                # session subdir directly under sub_dir (no fmriprep_deriv component)
-                legacy_candidates.append(
-                    sub_dir / f'ses-{sessions[0]}' / 'func'
-                    / f'sub-{self.subject_id}_ses-{sessions[0]}_task-abstractvalue'
-                      f'_space-T1w_desc-{desc}_pe.nii.gz'
-                )
-            for candidate in legacy_candidates:
-                if candidate.exists():
-                    fn = candidate
-                    break
-            else:
-                raise FileNotFoundError(
-                    f'No GLMsingle output ({desc}) for sub-{self.subject_id}.\n'
-                    f'Tried: {sub_dir / "func" / "..."}\n'
-                    f'  and legacy paths under {sub_dir / self.fmriprep_deriv}')
+            raise FileNotFoundError(
+                f'No GLMsingle output ({desc}) for sub-{self.subject_id}: {fn}\n'
+                f'Run fit_glmsingle.sh ({"smoothed" if smoothed else "unsmoothed"}) '
+                f'for all sessions.')
 
         im = image.load_img(str(fn))
 
