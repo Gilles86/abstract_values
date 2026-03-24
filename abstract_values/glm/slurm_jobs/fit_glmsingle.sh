@@ -7,14 +7,15 @@
 #SBATCH --time=04:00:00
 
 # Fit GLMsingle single-trial betas for the abstract values fMRI task.
+# Fits all sessions jointly by default — single-session fitting is a corner
+# case and should be avoided unless there is a specific reason.
 #
 # Usage:
 #   sbatch --export=PARTICIPANT_LABEL=pil02 fit_glmsingle.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil02,FMRIPREP_DERIV=fmriprep-t2w fit_glmsingle.sh
 #
 # Optional overrides (--export key=value):
-#   SESSION         session number(s), space-separated (default: all sessions)
-#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
+#   SESSION         space-separated session numbers; omit to fit all sessions
+#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to smooth BOLD before fitting (default: off)
 #   DEBUG           set to "1" to write all 4 model steps + figures (default: off)
 
