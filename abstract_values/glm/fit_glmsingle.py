@@ -33,9 +33,8 @@ Three 4-D NIfTI images are saved (x × y × z × n_trials):
   desc-R2_pe.nii.gz       — cross-validated R² of the final GLMsingle model
 
 Output is written to:
-  derivatives/glmsingle/<fmriprep_deriv>/sub-<subject>/<ses_label>/func/
-
-where <ses_label> is ses-<N> for a single session or ses-all for a joint fit.
+  derivatives/glmsingle/sub-<subject>/func/           (all sessions, no ses- entity)
+  derivatives/glmsingle/sub-<subject>/ses-<N>/func/   (single session)
 
 Sessions
 --------
@@ -134,8 +133,9 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
     if sessions is None:
         sessions = sub.get_sessions()
 
-    ses_label = f'ses-{sessions[0]}' if len(sessions) == 1 else 'ses-all'
-    print(f'sub-{subject}  {ses_label}  [{fmriprep_deriv}]')
+    is_single_session = len(sessions) == 1
+    ses_entity = f'_ses-{sessions[0]}' if is_single_session else ''
+    print(f'sub-{subject}  {"ses-" + str(sessions[0]) if is_single_session else "all-sessions"}  [{fmriprep_deriv}]')
 
     # First pass: collect all events to build a globally consistent condition map.
     # GLMsingle uses column index as condition ID, so the same orientation/response
@@ -191,8 +191,8 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
 
     from pathlib import Path
     glmsingle_deriv = 'glmsingle.smoothed' if smoothed else 'glmsingle'
-    out_dir = (Path(bids_folder) / 'derivatives' / glmsingle_deriv / fmriprep_deriv
-               / f'sub-{subject}' / ses_label / 'func')
+    sub_dir = Path(bids_folder) / 'derivatives' / glmsingle_deriv / f'sub-{subject}'
+    out_dir = sub_dir / (f'ses-{sessions[0]}' if is_single_session else '') / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fig_dir = out_dir.parent / 'figures'
@@ -206,7 +206,7 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
     gabor_idx    = [i for i, t in enumerate(all_trial_types) if t.startswith('orientation')]
     response_idx = [i for i, t in enumerate(all_trial_types) if t.startswith('response')]
 
-    fn = (f'sub-{subject}_{ses_label}_task-abstractvalue'
+    fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
           f'_space-T1w_desc-{{desc}}_pe.nii.gz')
     image.new_img_like(ref_bold, betas[..., gabor_idx]).to_filename(
         str(out_dir / fn.format(desc='gabor')))
