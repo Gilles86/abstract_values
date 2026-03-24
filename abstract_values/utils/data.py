@@ -286,10 +286,28 @@ class Subject:
 
         im = image.load_img(str(fn))
 
+        # ── sanity-check volume count ─────────────────────────────────────────
+        # Compute expected trial count for *all* sessions so we can warn early
+        # when a stale single-session file sits at the canonical all-sessions path.
+        all_sessions = sorted(self.get_sessions())
+        expected_total = 0
+        for ses in all_sessions:
+            runs = self.get_runs(ses)
+            events = self.get_events(ses, runs)
+            for run in runs:
+                run_ev = events.loc[run].reset_index().sort_values('onset')
+                expected_total += len(run_ev[run_ev['event_type'] == 'gabor'])
+        if im.shape[3] < expected_total and sessions == all_sessions:
+            raise ValueError(
+                f'Loaded {im.shape[3]} volumes from {fn} but expected '
+                f'{expected_total} (all {len(all_sessions)} sessions). '
+                f'The file may be a stale single-session output. '
+                f'Re-run GLMsingle ({"smoothed" if smoothed else "unsmoothed"}) '
+                f'for all sessions and it will overwrite this file.')
+
         # ── session subsetting ────────────────────────────────────────────────
         # When loading the all-sessions image but only a subset is requested,
         # select the matching trial indices.
-        all_sessions = sorted(self.get_sessions())
         if sessions != all_sessions:
             trial_indices = []
             cumulative = 0
