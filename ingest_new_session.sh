@@ -8,10 +8,12 @@
 #
 # Cluster SLURM chain (all chained with --dependency=afterok):
 #   4. fmriprep          (full subject, all sessions)
-#   5. GLMsingle         (new session only, after fmriprep)
-#   6. fit_aprf          (all sessions, after GLMsingle)
-#   7. fit_aprf_cv       (all sessions, after GLMsingle)
-#   8. fit_aprf_shift_cv (all sessions, after GLMsingle; only when session ≥ 2)
+#   5. GLMsingle         (all sessions jointly, after fmriprep)
+#   6. fit_aprf          (all sessions, after GLMsingle)  ─┐
+#   7. fit_aprf_cv       (all sessions, after GLMsingle)   │
+#   8. fit_aprf_shift_cv (after GLMsingle; only session≥2) ├─ parallel
+#   9. fit_vonmises      (all sessions, after GLMsingle)   │
+#  10. fit_vonmises_cv   (all sessions, after GLMsingle)  ─┘
 #
 # Usage:
 #   ./ingest_new_session.sh --subject pil02 --session 2
@@ -106,7 +108,7 @@ else
 fi
 
 # ── steps 4–8: SLURM chain on cluster ────────────────────────────────────────
-log "Steps 4–8: submitting SLURM chain on ${CLUSTER}"
+log "Steps 4–10: submitting SLURM chain on ${CLUSTER}"
 
 SLURM_OUTPUT=$(ssh "${CLUSTER}" bash <<EOF
 set -euo pipefail
@@ -154,6 +156,20 @@ if [[ ${SESSION} -ge 2 ]]; then
         "\$APRF_DIR/fit_aprf_shift_cv.sh")
     echo "fit_aprf_shift_cv:\$APRF_SHIFT_JOB"
 fi
+
+# 9. fit_vonmises — all sessions (parallel with aPRF jobs)
+VONMISES_JOB=\$(sbatch --parsable \
+    --dependency=afterok:\$GLMSINGLE_JOB \
+    --export=PARTICIPANT_LABEL=${SUBJECT} \
+    "\$APRF_DIR/fit_vonmises.sh")
+echo "fit_vonmises:\$VONMISES_JOB"
+
+# 10. fit_vonmises_cv — all sessions (parallel with aPRF jobs)
+VONMISES_CV_JOB=\$(sbatch --parsable \
+    --dependency=afterok:\$GLMSINGLE_JOB \
+    --export=PARTICIPANT_LABEL=${SUBJECT} \
+    "\$APRF_DIR/fit_vonmises_cv.sh")
+echo "fit_vonmises_cv:\$VONMISES_CV_JOB"
 EOF
 )
 

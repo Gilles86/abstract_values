@@ -13,7 +13,7 @@
 #
 # Optional overrides (--export key=value):
 #   SESSION         session number (default: all sessions)
-#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
+#   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
