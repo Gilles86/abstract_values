@@ -22,7 +22,7 @@
 #   SMOOTHED      set to "1" to use spatially smoothed betas (default: off)
 #   SPHERICAL     set to "1" for spherical (diagonal) noise model (default: full)
 #   N_VOXELS      top voxels to decode with (default: 100)
-#   LAMBD         ResidualFitter regularisation λ (default: 0.0)
+#   LAMBD         ResidualFitter regularisation λ (default: 0.1)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
 #
 # Example — V1 bilateral, full noise model, pilot ses-1:
@@ -43,7 +43,7 @@ SESSION="${SESSION:-}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-0}"
 N_VOXELS="${N_VOXELS:-100}"
-LAMBD="${LAMBD:-0.0}"
+LAMBD="${LAMBD:-0.1}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
