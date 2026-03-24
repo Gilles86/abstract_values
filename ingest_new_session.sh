@@ -154,110 +154,121 @@ GLMSINGLE_JOB=\$(sbatch --parsable \
     "\$GLMSINGLE_DIR/fit_glmsingle.sh")
 echo "glmsingle:\$GLMSINGLE_JOB"
 
-# 6. fit_aprf standard — all sessions
-APRF_JOB=\$(sbatch --parsable \
-    --dependency=afterok:\$GLMSINGLE_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT} \
-    "\$APRF_DIR/fit_aprf.sh")
-echo "fit_aprf:\$APRF_JOB"
-
-# 7. fit_aprf_cv — all sessions (parallel with 6)
-APRF_CV_JOB=\$(sbatch --parsable \
-    --dependency=afterok:\$GLMSINGLE_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT} \
-    "\$APRF_DIR/fit_aprf_cv.sh")
-echo "fit_aprf_cv:\$APRF_CV_JOB"
-
-# 8+9. session-shift model (requires ≥2 sessions)
-if [[ ${SESSION} -ge 2 ]]; then
-    APRF_SHIFT_JOB=\$(sbatch --parsable \
-        --dependency=afterok:\$GLMSINGLE_JOB \
-        --export=PARTICIPANT_LABEL=${SUBJECT},MODEL=session-shift \
-        "\$APRF_DIR/fit_aprf.sh")
-    echo "fit_aprf_shift:\$APRF_SHIFT_JOB"
-
-    APRF_SHIFT_CV_JOB=\$(sbatch --parsable \
-        --dependency=afterok:\$GLMSINGLE_JOB \
-        --export=PARTICIPANT_LABEL=${SUBJECT} \
-        "\$APRF_DIR/fit_aprf_shift_cv.sh")
-    echo "fit_aprf_shift_cv:\$APRF_SHIFT_CV_JOB"
-fi
-
-# 10. fit_aprf_weighted
-APRF_W_JOB=\$(sbatch --parsable \
-    --dependency=afterok:\$GLMSINGLE_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT} \
-    "\$APRF_DIR/fit_aprf_weighted.sh")
-echo "fit_aprf_weighted:\$APRF_W_JOB"
-
-# 11. fit_aprf_weighted_cv
-APRF_W_CV_JOB=\$(sbatch --parsable \
-    --dependency=afterok:\$GLMSINGLE_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT} \
-    "\$APRF_DIR/fit_aprf_weighted_cv.sh")
-echo "fit_aprf_weighted_cv:\$APRF_W_CV_JOB"
-
-# 12. fit_vonmises
-VONMISES_JOB=\$(sbatch --parsable \
-    --dependency=afterok:\$GLMSINGLE_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT} \
-    "\$APRF_DIR/fit_vonmises.sh")
-echo "fit_vonmises:\$VONMISES_JOB"
-
-# 13. fit_vonmises_cv
-VONMISES_CV_JOB=\$(sbatch --parsable \
-    --dependency=afterok:\$GLMSINGLE_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT} \
-    "\$APRF_DIR/fit_vonmises_cv.sh")
-echo "fit_vonmises_cv:\$VONMISES_CV_JOB"
-
-# 14+15. decode_gabor + decode_value — per ROI in DECODE_ROIS
-MASK_BASE="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/anat"
-for roi_hemi in ${DECODE_ROIS}; do
-    desc=\${roi_hemi%%:*}
-    hemi=\${roi_hemi##*:}
-    if [[ "\$hemi" == "None" ]]; then
-        mask_file="\${MASK_BASE}/sub-${SUBJECT}_space-T1w_desc-\${desc}_mask.nii.gz"
-    else
-        mask_file="\${MASK_BASE}/sub-${SUBJECT}_space-T1w_hemi-\${hemi}_desc-\${desc}_mask.nii.gz"
+# Steps 6–17 run twice: unsmoothed (SMOOTHED=0) then smoothed (SMOOTHED=1)
+MASK_BASE="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/ses-1/anat"
+for smoothed in 0 1; do
+    smooth_export=""
+    smooth_label=""
+    if [[ "\$smoothed" = "1" ]]; then
+        smooth_export=",SMOOTHED=1"
+        smooth_label="_smoothed"
     fi
 
-    DECODE_GABOR_JOB=\$(sbatch --parsable \
+    # 6. fit_aprf standard — all sessions
+    APRF_JOB=\$(sbatch --parsable \
         --dependency=afterok:\$GLMSINGLE_JOB \
-        --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc} \
-        "\$APRF_DIR/decode_gabor.sh")
-    echo "decode_gabor_\${desc}:\$DECODE_GABOR_JOB"
+        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
+        "\$APRF_DIR/fit_aprf.sh")
+    echo "fit_aprf\${smooth_label}:\$APRF_JOB"
 
-    DECODE_VALUE_JOB=\$(sbatch --parsable \
+    # 7. fit_aprf_cv
+    APRF_CV_JOB=\$(sbatch --parsable \
         --dependency=afterok:\$GLMSINGLE_JOB \
-        --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc} \
-        "\$APRF_DIR/decode_value.sh")
-    echo "decode_value_\${desc}:\$DECODE_VALUE_JOB"
-done
+        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
+        "\$APRF_DIR/fit_aprf_cv.sh")
+    echo "fit_aprf_cv\${smooth_label}:\$APRF_CV_JOB"
 
-# 16. compute_fisher_information (Von Mises) — per ROI in FI_ROIS_VONMISES
-for roi_hemi in ${FI_ROIS_VONMISES}; do
-    desc=\${roi_hemi%%:*}
-    hemi=\${roi_hemi##*:}
+    # 8+9. session-shift model (requires ≥2 sessions)
+    if [[ ${SESSION} -ge 2 ]]; then
+        APRF_SHIFT_JOB=\$(sbatch --parsable \
+            --dependency=afterok:\$GLMSINGLE_JOB \
+            --export=PARTICIPANT_LABEL=${SUBJECT},MODEL=session-shift\${smooth_export} \
+            "\$APRF_DIR/fit_aprf.sh")
+        echo "fit_aprf_shift\${smooth_label}:\$APRF_SHIFT_JOB"
 
-    FI_VONMISES_JOB=\$(sbatch --parsable \
+        APRF_SHIFT_CV_JOB=\$(sbatch --parsable \
+            --dependency=afterok:\$GLMSINGLE_JOB \
+            --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
+            "\$APRF_DIR/fit_aprf_shift_cv.sh")
+        echo "fit_aprf_shift_cv\${smooth_label}:\$APRF_SHIFT_CV_JOB"
+    fi
+
+    # 10. fit_aprf_weighted
+    APRF_W_JOB=\$(sbatch --parsable \
         --dependency=afterok:\$GLMSINGLE_JOB \
-        --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi} \
-        "\$APRF_DIR/compute_fisher_information.sh")
-    echo "fi_vonmises_\${desc}:\$FI_VONMISES_JOB"
-done
+        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
+        "\$APRF_DIR/fit_aprf_weighted.sh")
+    echo "fit_aprf_weighted\${smooth_label}:\$APRF_W_JOB"
 
-# 17. compute_fisher_information_aprf — per ROI in FI_ROIS_APRF, after fit_aprf
-for roi_hemi in ${FI_ROIS_APRF}; do
-    desc=\${roi_hemi%%:*}
-    hemi=\${roi_hemi##*:}
+    # 11. fit_aprf_weighted_cv
+    APRF_W_CV_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$GLMSINGLE_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
+        "\$APRF_DIR/fit_aprf_weighted_cv.sh")
+    echo "fit_aprf_weighted_cv\${smooth_label}:\$APRF_W_CV_JOB"
 
-    FI_APRF_JOB=\$(sbatch --parsable \
-        --dependency=afterok:\$APRF_JOB \
-        --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi} \
-        "\$APRF_DIR/compute_fisher_information_aprf.sh")
-    echo "fi_aprf_\${desc}:\$FI_APRF_JOB"
-done
+    # 12. fit_vonmises
+    VONMISES_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$GLMSINGLE_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
+        "\$APRF_DIR/fit_vonmises.sh")
+    echo "fit_vonmises\${smooth_label}:\$VONMISES_JOB"
+
+    # 13. fit_vonmises_cv
+    VONMISES_CV_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$GLMSINGLE_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
+        "\$APRF_DIR/fit_vonmises_cv.sh")
+    echo "fit_vonmises_cv\${smooth_label}:\$VONMISES_CV_JOB"
+
+    # 14+15. decode_gabor + decode_value — per ROI in DECODE_ROIS
+    for roi_hemi in ${DECODE_ROIS}; do
+        desc=\${roi_hemi%%:*}
+        hemi=\${roi_hemi##*:}
+        if [[ "\$hemi" = "None" ]]; then
+            mask_file="\${MASK_BASE}/sub-${SUBJECT}_ses-1_space-T1w_desc-\${desc}_mask.nii.gz"
+        else
+            mask_file="\${MASK_BASE}/sub-${SUBJECT}_ses-1_space-T1w_hemi-\${hemi}_desc-\${desc}_mask.nii.gz"
+        fi
+
+        DECODE_GABOR_JOB=\$(sbatch --parsable \
+            --dependency=afterok:\$GLMSINGLE_JOB \
+            --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc}\${smooth_export} \
+            "\$APRF_DIR/decode_gabor.sh")
+        echo "decode_gabor_\${desc}\${smooth_label}:\$DECODE_GABOR_JOB"
+
+        DECODE_VALUE_JOB=\$(sbatch --parsable \
+            --dependency=afterok:\$GLMSINGLE_JOB \
+            --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc}\${smooth_export} \
+            "\$APRF_DIR/decode_value.sh")
+        echo "decode_value_\${desc}\${smooth_label}:\$DECODE_VALUE_JOB"
+    done
+
+    # 16. compute_fisher_information (Von Mises) — per ROI in FI_ROIS_VONMISES
+    for roi_hemi in ${FI_ROIS_VONMISES}; do
+        desc=\${roi_hemi%%:*}
+        hemi=\${roi_hemi##*:}
+
+        FI_VONMISES_JOB=\$(sbatch --parsable \
+            --dependency=afterok:\$GLMSINGLE_JOB \
+            --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
+            "\$APRF_DIR/compute_fisher_information.sh")
+        echo "fi_vonmises_\${desc}\${smooth_label}:\$FI_VONMISES_JOB"
+    done
+
+    # 17. compute_fisher_information_aprf — per ROI in FI_ROIS_APRF, after fit_aprf
+    for roi_hemi in ${FI_ROIS_APRF}; do
+        desc=\${roi_hemi%%:*}
+        hemi=\${roi_hemi##*:}
+
+        FI_APRF_JOB=\$(sbatch --parsable \
+            --dependency=afterok:\$APRF_JOB \
+            --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
+            "\$APRF_DIR/compute_fisher_information_aprf.sh")
+        echo "fi_aprf_\${desc}\${smooth_label}:\$FI_APRF_JOB"
+    done
+
+done  # smoothed loop
 EOF
 )
 
