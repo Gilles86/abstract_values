@@ -125,10 +125,10 @@ FMRIPREP_JOB=\$(sbatch --parsable \
     "\$FMRIPREP_DIR/fmriprep.sh")
 echo "fmriprep:\$FMRIPREP_JOB"
 
-# 5. GLMsingle — new session only
+# 5. GLMsingle — all sessions jointly (better noise estimates)
 GLMSINGLE_JOB=\$(sbatch --parsable \
     --dependency=afterok:\$FMRIPREP_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT},SESSION=${SESSION},FMRIPREP_DERIV=${GLMSINGLE_DERIV} \
+    --export=PARTICIPANT_LABEL=${SUBJECT},FMRIPREP_DERIV=${GLMSINGLE_DERIV} \
     "\$GLMSINGLE_DIR/fit_glmsingle.sh")
 echo "glmsingle:\$GLMSINGLE_JOB"
 
