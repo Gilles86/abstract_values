@@ -53,3 +53,15 @@ apptainer run \
   --omp-nthreads 16 \
   --low-mem \
   --no-submm-recon
+APPTAINER_RC=$?
+
+# apptainer ≥ 1.4 occasionally exits 1 on a clean fmriprep run.
+# Trust fmriprep's own verdict from the log rather than the container exit code.
+if [[ $APPTAINER_RC -ne 0 ]]; then
+    LOGFILE="/home/gdehol/logs/abstractvalue_fmriprep_${SLURM_JOB_ID}-${SLURM_ARRAY_TASK_ID:-4294967294}.txt"
+    if grep -q 'fMRIPrep finished successfully' "$LOGFILE" 2>/dev/null; then
+        echo "apptainer exited $APPTAINER_RC but fMRIPrep reported success — treating as clean exit."
+        exit 0
+    fi
+    exit $APPTAINER_RC
+fi
