@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+import nibabel as nib
 import numpy as np
 import pandas as pd
 from nilearn import image
@@ -167,14 +168,19 @@ class Subject:
     # ── brain mask ─────────────────────────────────────────────────────────────
 
     def get_brain_mask(self, session, run=1):
-        """Return brain mask NIfTI image (T1w space) from a given run."""
+        """Return brain mask NIfTI image (T1w space) from a given run.
+
+        Returned as float32 so that NiftiMasker.inverse_transform produces
+        float images rather than inheriting the on-disk uint8 dtype.
+        """
         func_dir = self._func_dir(session)
         fn = (func_dir /
               f'sub-{self.subject_id}_ses-{session}'
               f'_task-abstractvalue_run-{run}_space-T1w_desc-brain_mask.nii.gz')
         if not fn.exists():
             raise FileNotFoundError(f'No brain mask: {fn}')
-        return image.load_img(str(fn))
+        mask = image.load_img(str(fn))
+        return nib.Nifti1Image(mask.get_fdata().astype(np.float32), mask.affine)
 
     # ── ROI masks ──────────────────────────────────────────────────────────────
 

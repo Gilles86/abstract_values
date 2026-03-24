@@ -4,19 +4,31 @@
 # Local steps:
 #   1. rsync source data  →  local BIDS sourcedata
 #   2. BIDS conversion (dry-run preview, then real)
-#   3. rsync BIDS session  →  cluster
+#   3. rsync BIDS session + behavior  →  cluster
 #
 # Cluster SLURM chain (all chained with --dependency=afterok):
 #   4. fmriprep              (full subject, all sessions)
 #   5. GLMsingle             (all sessions jointly, after fmriprep)
-#   6.  fit_aprf             (standard)            ─┐
-#   7.  fit_aprf_cv          (standard CV)          │
-#   8.  fit_aprf session-shift   (only ses≥2)       │
-#   9.  fit_aprf_shift_cv        (only ses≥2)       ├─ all parallel after GLMsingle
-#  10.  fit_aprf_weighted                           │
-#  11.  fit_aprf_weighted_cv                        │
-#  12.  fit_vonmises                                │
-#  13.  fit_vonmises_cv                            ─┘
+#
+#   After GLMsingle (all parallel):
+#   6.  fit_aprf             (standard)
+#   7.  fit_aprf_cv
+#   8.  fit_aprf session-shift   (only ses≥2)
+#   9.  fit_aprf_shift_cv        (only ses≥2)
+#  10.  fit_aprf_weighted
+#  11.  fit_aprf_weighted_cv
+#  12.  fit_vonmises
+#  13.  fit_vonmises_cv
+#  14.  decode_gabor         (per ROI in DECODE_ROIS)
+#  15.  decode_value         (per ROI in DECODE_ROIS)
+#  16.  compute_fisher_information  (Von Mises FI, per ROI in FI_ROIS_VONMISES)
+#
+#   After fit_aprf:
+#  17.  compute_fisher_information_aprf  (per ROI in FI_ROIS_APRF)
+#
+# Prerequisites:
+#   ROI masks must exist under derivatives/masks/sub-<subject>/ses-1/anat/
+#   before the pipeline is submitted (run get_surface_roi_mask.py after fmriprep).
 #
 # Usage:
 #   ./ingest_new_session.sh --subject pil02 --session 2
@@ -28,7 +40,7 @@
 #   --subject LABEL       participant label, e.g. pil02 or 01 (required)
 #   --session N           session number (required)
 #   --source-dir PATH     source ses-N directory (default: network drive)
-#   --glmsingle-deriv L   fmriprep derivative for GLMsingle (default: fmriprep-flair)
+#   --glmsingle-deriv L   fmriprep derivative for GLMsingle (default: fmriprep)
 #   --dry-run             show BIDS conversion preview; skip all writes and cluster jobs
 
 set -euo pipefail
@@ -42,6 +54,11 @@ CLUSTER="sciencecluster"
 CLUSTER_BIDS="/shares/zne.uzh/gdehol/ds-abstractvalue"
 GLMSINGLE_DERIV="fmriprep"
 DRY_RUN=0
+
+# ROIs for decode and FI jobs — format: "DESC:HEMI" (HEMI=None omits hemi entity)
+DECODE_ROIS="BensonV1:LR NPCr:None"
+FI_ROIS_VONMISES="BensonV1:LR"
+FI_ROIS_APRF="NPCr:None"
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 SUBJECT=""
@@ -111,7 +128,7 @@ else
 fi
 
 # ── steps 4–8: SLURM chain on cluster ────────────────────────────────────────
-log "Steps 4–13: submitting SLURM chain on ${CLUSTER}"
+log "Steps 4–17: submitting SLURM chain on ${CLUSTER}"
 
 SLURM_OUTPUT=$(ssh "${CLUSTER}" bash <<EOF
 set -euo pipefail
@@ -193,6 +210,54 @@ VONMISES_CV_JOB=\$(sbatch --parsable \
     --export=PARTICIPANT_LABEL=${SUBJECT} \
     "\$APRF_DIR/fit_vonmises_cv.sh")
 echo "fit_vonmises_cv:\$VONMISES_CV_JOB"
+
+# 14+15. decode_gabor + decode_value — per ROI in DECODE_ROIS
+MASK_BASE="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/anat"
+for roi_hemi in ${DECODE_ROIS}; do
+    desc=\${roi_hemi%%:*}
+    hemi=\${roi_hemi##*:}
+    if [[ "\$hemi" == "None" ]]; then
+        mask_file="\${MASK_BASE}/sub-${SUBJECT}_space-T1w_desc-\${desc}_mask.nii.gz"
+    else
+        mask_file="\${MASK_BASE}/sub-${SUBJECT}_space-T1w_hemi-\${hemi}_desc-\${desc}_mask.nii.gz"
+    fi
+
+    DECODE_GABOR_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$GLMSINGLE_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc} \
+        "\$APRF_DIR/decode_gabor.sh")
+    echo "decode_gabor_\${desc}:\$DECODE_GABOR_JOB"
+
+    DECODE_VALUE_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$GLMSINGLE_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc} \
+        "\$APRF_DIR/decode_value.sh")
+    echo "decode_value_\${desc}:\$DECODE_VALUE_JOB"
+done
+
+# 16. compute_fisher_information (Von Mises) — per ROI in FI_ROIS_VONMISES
+for roi_hemi in ${FI_ROIS_VONMISES}; do
+    desc=\${roi_hemi%%:*}
+    hemi=\${roi_hemi##*:}
+
+    FI_VONMISES_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$GLMSINGLE_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi} \
+        "\$APRF_DIR/compute_fisher_information.sh")
+    echo "fi_vonmises_\${desc}:\$FI_VONMISES_JOB"
+done
+
+# 17. compute_fisher_information_aprf — per ROI in FI_ROIS_APRF, after fit_aprf
+for roi_hemi in ${FI_ROIS_APRF}; do
+    desc=\${roi_hemi%%:*}
+    hemi=\${roi_hemi##*:}
+
+    FI_APRF_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$APRF_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi} \
+        "\$APRF_DIR/compute_fisher_information_aprf.sh")
+    echo "fi_aprf_\${desc}:\$FI_APRF_JOB"
+done
 EOF
 )
 

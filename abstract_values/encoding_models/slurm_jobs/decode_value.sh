@@ -44,7 +44,7 @@ SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-0}"
 N_VOXELS="${N_VOXELS:-100}"
 LAMBD="${LAMBD:-0.0}"
-FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep-flair}"
+FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
