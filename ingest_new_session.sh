@@ -7,13 +7,16 @@
 #   3. rsync BIDS session  →  cluster
 #
 # Cluster SLURM chain (all chained with --dependency=afterok):
-#   4. fmriprep          (full subject, all sessions)
-#   5. GLMsingle         (all sessions jointly, after fmriprep)
-#   6. fit_aprf          (all sessions, after GLMsingle)  ─┐
-#   7. fit_aprf_cv       (all sessions, after GLMsingle)   │
-#   8. fit_aprf_shift_cv (after GLMsingle; only session≥2) ├─ parallel
-#   9. fit_vonmises      (all sessions, after GLMsingle)   │
-#  10. fit_vonmises_cv   (all sessions, after GLMsingle)  ─┘
+#   4. fmriprep              (full subject, all sessions)
+#   5. GLMsingle             (all sessions jointly, after fmriprep)
+#   6.  fit_aprf             (standard)            ─┐
+#   7.  fit_aprf_cv          (standard CV)          │
+#   8.  fit_aprf session-shift   (only ses≥2)       │
+#   9.  fit_aprf_shift_cv        (only ses≥2)       ├─ all parallel after GLMsingle
+#  10.  fit_aprf_weighted                           │
+#  11.  fit_aprf_weighted_cv                        │
+#  12.  fit_vonmises                                │
+#  13.  fit_vonmises_cv                            ─┘
 #
 # Usage:
 #   ./ingest_new_session.sh --subject pil02 --session 2
@@ -108,7 +111,7 @@ else
 fi
 
 # ── steps 4–8: SLURM chain on cluster ────────────────────────────────────────
-log "Steps 4–10: submitting SLURM chain on ${CLUSTER}"
+log "Steps 4–13: submitting SLURM chain on ${CLUSTER}"
 
 SLURM_OUTPUT=$(ssh "${CLUSTER}" bash <<EOF
 set -euo pipefail
@@ -148,23 +151,43 @@ APRF_CV_JOB=\$(sbatch --parsable \
     "\$APRF_DIR/fit_aprf_cv.sh")
 echo "fit_aprf_cv:\$APRF_CV_JOB"
 
-# 8. fit_aprf_shift_cv — all sessions (parallel with 6+7; requires ≥2 sessions)
+# 8+9. session-shift model (requires ≥2 sessions)
 if [[ ${SESSION} -ge 2 ]]; then
     APRF_SHIFT_JOB=\$(sbatch --parsable \
         --dependency=afterok:\$GLMSINGLE_JOB \
+        --export=PARTICIPANT_LABEL=${SUBJECT},MODEL=session-shift \
+        "\$APRF_DIR/fit_aprf.sh")
+    echo "fit_aprf_shift:\$APRF_SHIFT_JOB"
+
+    APRF_SHIFT_CV_JOB=\$(sbatch --parsable \
+        --dependency=afterok:\$GLMSINGLE_JOB \
         --export=PARTICIPANT_LABEL=${SUBJECT} \
         "\$APRF_DIR/fit_aprf_shift_cv.sh")
-    echo "fit_aprf_shift_cv:\$APRF_SHIFT_JOB"
+    echo "fit_aprf_shift_cv:\$APRF_SHIFT_CV_JOB"
 fi
 
-# 9. fit_vonmises — all sessions (parallel with aPRF jobs)
+# 10. fit_aprf_weighted
+APRF_W_JOB=\$(sbatch --parsable \
+    --dependency=afterok:\$GLMSINGLE_JOB \
+    --export=PARTICIPANT_LABEL=${SUBJECT} \
+    "\$APRF_DIR/fit_aprf_weighted.sh")
+echo "fit_aprf_weighted:\$APRF_W_JOB"
+
+# 11. fit_aprf_weighted_cv
+APRF_W_CV_JOB=\$(sbatch --parsable \
+    --dependency=afterok:\$GLMSINGLE_JOB \
+    --export=PARTICIPANT_LABEL=${SUBJECT} \
+    "\$APRF_DIR/fit_aprf_weighted_cv.sh")
+echo "fit_aprf_weighted_cv:\$APRF_W_CV_JOB"
+
+# 12. fit_vonmises
 VONMISES_JOB=\$(sbatch --parsable \
     --dependency=afterok:\$GLMSINGLE_JOB \
     --export=PARTICIPANT_LABEL=${SUBJECT} \
     "\$APRF_DIR/fit_vonmises.sh")
 echo "fit_vonmises:\$VONMISES_JOB"
 
-# 10. fit_vonmises_cv — all sessions (parallel with aPRF jobs)
+# 13. fit_vonmises_cv
 VONMISES_CV_JOB=\$(sbatch --parsable \
     --dependency=afterok:\$GLMSINGLE_JOB \
     --export=PARTICIPANT_LABEL=${SUBJECT} \
