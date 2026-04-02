@@ -63,6 +63,7 @@ class DummyWaiterTrial(Trial):
             if label is not None:
                 self.waiting_text.text = label
                 self.waiting_text.draw()
+                return
         self.session.fixation_stimulus.set_color((1, 1, 1))
         self.session.fixation_stimulus.draw()
 
