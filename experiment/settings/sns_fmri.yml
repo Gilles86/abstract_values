@@ -109,6 +109,7 @@ eyetracker:
     active_eye: RIGHT
     sample_rate: 500
     calibration_type: HV5
+    calibration_area_proportion: "0.5 0.5"
 
 various:
   text_height: .75
