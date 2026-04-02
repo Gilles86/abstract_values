@@ -47,15 +47,22 @@ class DummyWaiterTrial(Trial):
         txt_color = self.session.settings['various'].get('text_color', (1, 1, 1))
         self.waiting_text = TextStim(
             session.win,
-            text=self._waiting_msg(),
+            text='',
             pos=(0.0, 0.0), height=txt_height, color=txt_color)
 
-    def _waiting_msg(self):
-        return f'Waiting for scanner...\n({self.n_triggers_received}/{self.n_triggers} triggers received)'
+    def _run_label(self):
+        run = self.session.settings.get('run')
+        n_runs = self.session.settings.get('main_task', {}).get('n_blocks')
+        if run is not None and n_runs is not None:
+            return f'Run {run}/{n_runs}'
+        return None
 
     def draw(self):
-        self.waiting_text.text = self._waiting_msg()
-        self.waiting_text.draw()
+        if self.n_triggers_received == 0:
+            label = self._run_label()
+            if label is not None:
+                self.waiting_text.text = label
+                self.waiting_text.draw()
         self.session.fixation_stimulus.set_color((1, 1, 1))
         self.session.fixation_stimulus.draw()
 
@@ -67,6 +74,10 @@ class DummyWaiterTrial(Trial):
                 print(f'Dummy scan {self.n_triggers_received}/{self.n_triggers}')
                 if self.n_triggers_received >= self.n_triggers:
                     self.stop_phase()
+            elif key == 'c' and getattr(self.session, 'eyetracker_on', False):
+                if hasattr(self.session, 'calibrate_eyetracker'):
+                    print('Calibration triggered by operator (c key).')
+                    self.session.calibrate_eyetracker()
 
 
 class InstructionTrial(Trial):

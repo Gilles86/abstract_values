@@ -98,6 +98,15 @@ class TrainingSession(Session):
             for ori in self.orientations[start_idx:end_idx]:
                 self.trials.append(TrainingTrial(self, trial_nr=len(self.trials) + 1, orientation=ori))
 
+        self.trials.append(InstructionTrial(
+            self,
+            trial_nr=len(self.trials) + 1,
+            txt='Please do not move while the scanner is making noises.',
+            bottom_txt='',
+            keys=['space', 'q'],
+            phase_durations=[np.inf],
+        ))
+
 
 class TrainingTrial(Trial):
     def __init__(self, session, trial_nr, orientation=0):

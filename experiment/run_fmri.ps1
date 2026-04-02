@@ -37,7 +37,7 @@ Write-Host ("Running fMRI experiment for subject {0}, session {1}: {2}" -f $subj
 
 # Practice run during anatomical scan (~5 min, no scanner trigger needed)
 Write-Host "Running practice run during anatomical scan (~5 min)..."
-& $python "$expDir\training.py" $subject_id $session_id $mapping --settings sns_fmri --n_trials 30
+& $python "$expDir\training.py" $subject_id $session_id $mapping --settings sns_fmri --n_trials 36
 
 # Run the main task for 8 runs
 for ($run = 1; $run -le 8; $run++) {

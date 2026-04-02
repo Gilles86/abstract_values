@@ -56,7 +56,7 @@ class TaskSession(_TaskBase):
                                          text_height=self.settings['slider'].get('text_height'),
                                          precision=0.5)
     def run(self):
-        if self.eyetracker_on:
+        if self.eyetracker_on and self.settings['run'] == 1:
             self.calibrate_eyetracker()
 
         self.start_experiment()
@@ -79,11 +79,17 @@ class TaskSession(_TaskBase):
         with open(reward_file, 'w') as f:
             f.write(f'{total_reward:.2f}\n')
 
+        # sum earnings across all runs completed so far this session
+        all_reward_files = sorted(Path(self.output_dir).glob(
+            f'reward_{self.settings["subject"]}_{self.settings["session"]}_*.txt'))
+        cumulative_reward = sum(float(rf.read_text().strip()) for rf in all_reward_files)
+
         reward_trial = InstructionTrial(self,
                                         trial_nr=self.n_trials + 1,
-                                        txt=f'You have earned a total of {total_reward:.2f} CHF in this run.',
-                                        bottom_txt='Press SPACE BAR to continue.',
-                                        keys=['space'])
+                                        txt=(f'This run: {total_reward:.2f} CHF\n\n'
+                                             f'Total so far ({len(all_reward_files)}/8 runs): {cumulative_reward:.2f} CHF'),
+                                        bottom_txt='',
+                                        keys=['space', 'q'])
         reward_trial.run()
 
         self.close()
@@ -154,6 +160,7 @@ class FixationTrial(Trial):
     def draw(self):
         self.session.fixation_stimulus.set_color((1, 1, 1))
         self.session.fixation_stimulus.draw()
+
 
 
 class TaskTrial(Trial):
