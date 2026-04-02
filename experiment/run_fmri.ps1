@@ -50,8 +50,8 @@ Write-Host "Displaying total earnings..."
 & $python "$expDir\earnings.py" $subject_id $session_id --settings sns_fmri
 
 # Copy logs to network drive
-Write-Host "Copying logs to T:\scratch\Gilles de Hollander\fMRI..."
-Copy-Item -Path "$expDir\logs\sub-*" -Destination "T:\scratch\Gilles de Hollander\fMRI\" -Recurse -Force
+Write-Host "Copying logs to T:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior..."
+Copy-Item -Path "$expDir\logs\sub-*" -Destination "T:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior\" -Recurse -Force
 Write-Host "Logs copied successfully!"
 
 Read-Host
