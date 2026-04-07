@@ -54,7 +54,9 @@ class DummyWaiterTrial(Trial):
         run = self.session.settings.get('run')
         n_runs = self.session.settings.get('main_task', {}).get('n_blocks')
         if run is not None and n_runs is not None:
-            return f'Run {run}/{n_runs}'
+            return (f'Run {run}/{n_runs}\n\n'
+                    f'Please keep your eyes on the\n'
+                    f'fixation cross while the Gabors appear')
         return None
 
     def draw(self):
