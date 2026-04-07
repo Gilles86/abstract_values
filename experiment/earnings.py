@@ -52,14 +52,16 @@ class EarningsSession(Session):
             message = f'No reward files found for subject {self.subject}, session {self.session}.'
         else:
             print(f'\nTotal variable reward: {total_earnings:.2f} CHF')
-            total_payment = 30.0 + total_earnings
+            n_sessions = int(self.session)
+            show_up_total = 30.0 * n_sessions
+            total_payment = show_up_total + total_earnings
             error_note = f'\n\nNote: {len(read_errors)} file(s) could not be read.' if read_errors else ''
 
             if prev_earnings > 0.0:
                 message = (
                     f'Congratulations!\n\n'
                     f'You have completed the experiment.\n\n'
-                    f'Show-up fee: 30.00 CHF\n'
+                    f'Show-up fee: {show_up_total:.0f} CHF ({n_sessions} sessions)\n'
                     f'Session 1 reward: {prev_earnings:.2f} CHF\n'
                     f'Session 2 reward: {current_earnings:.2f} CHF\n'
                     f'Total variable reward: {total_earnings:.2f} CHF\n\n'
