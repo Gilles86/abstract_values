@@ -177,9 +177,7 @@ GLMSINGLE_S_JOB=\$(sbatch --parsable \
 echo "glmsingle_smoothed:\$GLMSINGLE_S_JOB"
 
 # Steps 6–17 run twice: unsmoothed (SMOOTHED=0) then smoothed (SMOOTHED=1)
-# Two mask directories: atlas masks (Benson, exvivo) have ses-1; NPC masks do not
-MASK_BASE_SES="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/ses-1/anat"
-MASK_BASE_NOSES="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/anat"
+MASK_BASE="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/anat"
 for smoothed in 0 1; do
     smooth_export=""
     smooth_label=""
@@ -253,12 +251,10 @@ for smoothed in 0 1; do
         desc=\${roi_hemi%%:*}
         hemi=\${roi_hemi##*:}
         if [[ "\$hemi" = "None" ]]; then
-            # NPC masks: no session in path/filename, depend on NPC mask job
-            mask_file="\${MASK_BASE_NOSES}/sub-${SUBJECT}_space-T1w_desc-\${desc}_mask.nii.gz"
+            mask_file="\${MASK_BASE}/sub-${SUBJECT}_space-T1w_desc-\${desc}_mask.nii.gz"
             mask_dep="\$NPC_MASKS_JOB"
         else
-            # Atlas masks (Benson etc): session in path, depend on atlas mask job
-            mask_file="\${MASK_BASE_SES}/sub-${SUBJECT}_ses-1_space-T1w_hemi-\${hemi}_desc-\${desc}_mask.nii.gz"
+            mask_file="\${MASK_BASE}/sub-${SUBJECT}_space-T1w_hemi-\${hemi}_desc-\${desc}_mask.nii.gz"
             mask_dep="\$MASKS_JOB"
         fi
 

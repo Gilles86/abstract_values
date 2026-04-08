@@ -22,10 +22,10 @@ Default: all three sources.
 
 Output
 ------
-  derivatives/masks/sub-<subject>/ses-<session>/anat/
-    sub-<subject>_ses-<session>_space-T1w_hemi-L_desc-<roi>_mask.nii.gz
-    sub-<subject>_ses-<session>_space-T1w_hemi-R_desc-<roi>_mask.nii.gz
-    sub-<subject>_ses-<session>_space-T1w_hemi-LR_desc-<roi>_mask.nii.gz  ← bilateral
+  derivatives/masks/sub-<subject>/anat/
+    sub-<subject>_space-T1w_hemi-L_desc-<roi>_mask.nii.gz
+    sub-<subject>_space-T1w_hemi-R_desc-<roi>_mask.nii.gz
+    sub-<subject>_space-T1w_hemi-LR_desc-<roi>_mask.nii.gz  ← bilateral
 
 Usage
 -----
@@ -160,7 +160,7 @@ def make_roi_masks(subject_id, session, bids_folder=BIDS_FOLDER,
             raise FileNotFoundError(f'Required file not found: {f}')
 
     out_dir = (bids_folder / 'derivatives' / 'masks'
-               / f'sub-{subject_id}' / f'ses-{session}' / 'anat')
+               / f'sub-{subject_id}' / 'anat')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if atlases is None:
@@ -171,7 +171,7 @@ def make_roi_masks(subject_id, session, bids_folder=BIDS_FOLDER,
 
     with tempfile.TemporaryDirectory() as _tmpdir:
         tmpdir = Path(_tmpdir)
-        fn_prefix = f'sub-{subject_id}_ses-{session}_space-T1w'
+        fn_prefix = f'sub-{subject_id}_space-T1w'
 
         # ── exvivo + VPNL atlas (pre-existing .label files) ──────────────────
         label_roi_names = []
