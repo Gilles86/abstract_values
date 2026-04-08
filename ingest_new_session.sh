@@ -155,6 +155,13 @@ MASKS_JOB=\$(sbatch --parsable \
     "\$PREPARE_DIR/create_roi_masks.sh")
 echo "create_masks:\$MASKS_JOB"
 
+# 4c. NPC masks — after fmriprep (project NPC group atlas to subject T1w)
+NPC_MASKS_JOB=\$(sbatch --parsable \
+    --dependency=afterok:\$FMRIPREP_JOB \
+    --export=PARTICIPANT_LABEL=${SUBJECT},FMRIPREP_DERIV=${GLMSINGLE_DERIV} \
+    "\$PREPARE_DIR/create_npc_masks.sh")
+echo "create_npc_masks:\$NPC_MASKS_JOB"
+
 # 5a. GLMsingle — all sessions jointly, unsmoothed
 GLMSINGLE_JOB=\$(sbatch --parsable \
     --dependency=afterok:\$FMRIPREP_JOB \
