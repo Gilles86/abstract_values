@@ -219,11 +219,13 @@ def _main_session_shift(subject, sub, sessions, masker, mask_desc,
     base_arr = masker.transform(load_param('baseline')).squeeze().astype(np.float32)
     r2       = pd.Series(masker.transform(load_param('r2')).squeeze().astype(np.float32))
 
-    # mode must be > 0 for all sessions (log-Gaussian is undefined at mode ≤ 0)
+    # Filter voxels with invalid parameters:
+    # - mode must be > 0 (log-Gaussian undefined at mode ≤ 0)
+    # - fwhm must be > 0 (zero fwhm = flat tuning = zero gradient = zero FI)
     mode_descs = [f'mode_{i}' for i in range(1, len(sessions) + 1)]
     mode_arrays = {md: masker.transform(load_param(md)).squeeze().astype(np.float32)
                    for md in mode_descs}
-    valid = np.ones(len(r2), dtype=bool)
+    valid = (fwhm_arr > 0) & (amp_arr != 0)
     for arr in mode_arrays.values():
         valid &= arr > 0
     r2_valid = r2[valid]
