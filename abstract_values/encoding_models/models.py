@@ -2,10 +2,9 @@
 Custom braincoder model classes for the abstract-values project.
 """
 
-import numpy as np
+import tensorflow as tf
 from braincoder.models.prf_1d import GaussianPRF
 from braincoder.utils.math import lognormal_pdf_mode_fwhm
-from braincoder.stimuli import OneDimensionalStimulusWithAmplitude
 
 
 class SessionShiftedLogGaussianPRF(GaussianPRF):
@@ -18,7 +17,7 @@ class SessionShiftedLogGaussianPRF(GaussianPRF):
     mode_1    : mode (peak) of the log-Gaussian in session 1 (CHF; softplus → positive)
     mode_2    : mode (peak) of the log-Gaussian in session 2 (CHF; softplus → positive)
     fwhm      : full width at half maximum in natural (CHF) space (softplus → positive)
-    amplitude : peak response amplitude  (identity; allow_neg_amplitudes=True)
+    amplitude : peak response amplitude  (softplus → positive when allow_neg_amplitudes=False)
     baseline  : additive offset           (identity)
 
     Paradigm
@@ -30,7 +29,7 @@ class SessionShiftedLogGaussianPRF(GaussianPRF):
     Prediction
     ----------
     amplitude * LogNormal_mode_fwhm(x; mode_eff, fwhm)  +  baseline
-    where  mode_eff = (1 − session) * mode_1  +  session * mode_2
+    where  mode_eff = mode_1 if session == 0 else mode_2
 
     Notes
     -----
@@ -62,7 +61,7 @@ class SessionShiftedLogGaussianPRF(GaussianPRF):
 
     # ------------------------------------------------------------------
     def _session_predict(self, paradigm, parameters):
-        """Core prediction with session-interpolated mode.
+        """Core prediction with session-switched mode.
 
         Parameters
         ----------
@@ -78,6 +77,6 @@ class SessionShiftedLogGaussianPRF(GaussianPRF):
         amplitude = parameters[:, None, :, 3]
         baseline  = parameters[:, None, :, 4]
 
-        mode = mode_1 * (1.0 - session) + mode_2 * session
+        mode = tf.where(session < 0.5, mode_1, mode_2)
 
         return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
