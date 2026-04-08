@@ -71,6 +71,11 @@ class SessionShiftedLogGaussianPRF(GaussianPRF):
         x       = paradigm[..., None, 0]   # (batch, n_trials, 1)
         session = paradigm[..., None, 1]   # (batch, n_trials, 1)
 
+        # Session must be exactly 0 or 1 — anything else is a bug.
+        tf.debugging.assert_equal(
+            tf.reduce_all((session == 0.0) | (session == 1.0)), True,
+            message='Session column must contain only 0 and 1')
+
         mode_1    = parameters[:, None, :, 0]  # (batch, 1, n_voxels)
         mode_2    = parameters[:, None, :, 1]
         fwhm      = parameters[:, None, :, 2]

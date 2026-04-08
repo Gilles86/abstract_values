@@ -89,9 +89,16 @@ def get_value_session_paradigm(sub, sessions):
             for _, row in run_ev[run_ev['event_type'] == 'gabor'].iterrows():
                 xs.append(float(row['value']))
                 session_ids.append(float(session_idx))
+    session_arr = np.array(session_ids, dtype=np.float32)
+    unique_sessions = set(session_arr)
+    if not unique_sessions <= {0.0, 1.0}:
+        raise ValueError(
+            f'Session column must contain only 0 and 1, got {unique_sessions}. '
+            f'SessionShiftedLogGaussianPRF uses session=0 for the first session '
+            f'and session=1 for the second.')
     return pd.DataFrame({
-        'x':       np.array(xs,          dtype=np.float32),
-        'session': np.array(session_ids, dtype=np.float32),
+        'x':       np.array(xs, dtype=np.float32),
+        'session': session_arr,
     })
 
 
