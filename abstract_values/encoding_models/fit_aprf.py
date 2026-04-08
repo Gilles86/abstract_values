@@ -152,7 +152,7 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
     if model_type == 'session-shift':
         from abstract_values.encoding_models.models import SessionShiftedLogGaussianPRF
 
-        model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=True)
+        model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=False)
         fitter = ParameterFitter(model, data, paradigm)
 
         n_mode = 8 if debug else 15
@@ -193,7 +193,7 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
             print(f'  saved to {out_dir}')
 
     else:  # standard LogGaussianPRF
-        model  = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mode_fwhm_natural')
+        model  = LogGaussianPRF(allow_neg_amplitudes=False, parameterisation='mode_fwhm_natural')
         fitter = ParameterFitter(model, data, paradigm)
 
         n_mode = 12 if debug else 20
