@@ -177,7 +177,9 @@ GLMSINGLE_S_JOB=\$(sbatch --parsable \
 echo "glmsingle_smoothed:\$GLMSINGLE_S_JOB"
 
 # Steps 6–17 run twice: unsmoothed (SMOOTHED=0) then smoothed (SMOOTHED=1)
-MASK_BASE="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/ses-1/anat"
+# Two mask directories: atlas masks (Benson, exvivo) have ses-1; NPC masks do not
+MASK_BASE_SES="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/ses-1/anat"
+MASK_BASE_NOSES="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/anat"
 for smoothed in 0 1; do
     smooth_export=""
     smooth_label=""
@@ -246,47 +248,63 @@ for smoothed in 0 1; do
     echo "fit_vonmises_cv\${smooth_label}:\$VONMISES_CV_JOB"
 
     # 14+15. decode_gabor + decode_value — per ROI in DECODE_ROIS
+    # Depend on both GLMsingle AND mask creation
     for roi_hemi in ${DECODE_ROIS}; do
         desc=\${roi_hemi%%:*}
         hemi=\${roi_hemi##*:}
         if [[ "\$hemi" = "None" ]]; then
-            mask_file="\${MASK_BASE}/sub-${SUBJECT}_ses-1_space-T1w_desc-\${desc}_mask.nii.gz"
+            # NPC masks: no session in path/filename, depend on NPC mask job
+            mask_file="\${MASK_BASE_NOSES}/sub-${SUBJECT}_space-T1w_desc-\${desc}_mask.nii.gz"
+            mask_dep="\$NPC_MASKS_JOB"
         else
-            mask_file="\${MASK_BASE}/sub-${SUBJECT}_ses-1_space-T1w_hemi-\${hemi}_desc-\${desc}_mask.nii.gz"
+            # Atlas masks (Benson etc): session in path, depend on atlas mask job
+            mask_file="\${MASK_BASE_SES}/sub-${SUBJECT}_ses-1_space-T1w_hemi-\${hemi}_desc-\${desc}_mask.nii.gz"
+            mask_dep="\$MASKS_JOB"
         fi
 
         DECODE_GABOR_JOB=\$(sbatch --parsable \
-            --dependency=afterok:\${glmsingle_dep} \
+            --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
             --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc}\${smooth_export} \
             "\$APRF_DIR/decode_gabor.sh")
         echo "decode_gabor_\${desc}\${smooth_label}:\$DECODE_GABOR_JOB"
 
         DECODE_VALUE_JOB=\$(sbatch --parsable \
-            --dependency=afterok:\${glmsingle_dep} \
+            --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
             --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc}\${smooth_export} \
             "\$APRF_DIR/decode_value.sh")
         echo "decode_value_\${desc}\${smooth_label}:\$DECODE_VALUE_JOB"
     done
 
     # 16. compute_fisher_information (Von Mises) — per ROI in FI_ROIS_VONMISES
+    # Depend on both GLMsingle AND mask creation
     for roi_hemi in ${FI_ROIS_VONMISES}; do
         desc=\${roi_hemi%%:*}
         hemi=\${roi_hemi##*:}
+        if [[ "\$hemi" = "None" ]]; then
+            mask_dep="\$NPC_MASKS_JOB"
+        else
+            mask_dep="\$MASKS_JOB"
+        fi
 
         FI_VONMISES_JOB=\$(sbatch --parsable \
-            --dependency=afterok:\${glmsingle_dep} \
+            --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
             --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
             "\$APRF_DIR/compute_fisher_information.sh")
         echo "fi_vonmises_\${desc}\${smooth_label}:\$FI_VONMISES_JOB"
     done
 
-    # 17. compute_fisher_information_aprf — per ROI in FI_ROIS_APRF, after fit_aprf
+    # 17. compute_fisher_information_aprf — per ROI in FI_ROIS_APRF, after fit_aprf + masks
     for roi_hemi in ${FI_ROIS_APRF}; do
         desc=\${roi_hemi%%:*}
         hemi=\${roi_hemi##*:}
+        if [[ "\$hemi" = "None" ]]; then
+            mask_dep="\$NPC_MASKS_JOB"
+        else
+            mask_dep="\$MASKS_JOB"
+        fi
 
         FI_APRF_JOB=\$(sbatch --parsable \
-            --dependency=afterok:\$APRF_JOB \
+            --dependency=afterok:\$APRF_JOB:\${mask_dep} \
             --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
             "\$APRF_DIR/compute_fisher_information_aprf.sh")
         echo "fi_aprf_\${desc}\${smooth_label}:\$FI_APRF_JOB"
