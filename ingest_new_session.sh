@@ -138,6 +138,7 @@ REPO=\$HOME/git/abstract_values
 git -C "\$REPO" pull --ff-only
 
 FMRIPREP_DIR="\$REPO/abstract_values/prepare/cluster_preproc"
+PREPARE_DIR="\$REPO/abstract_values/prepare/slurm_jobs"
 GLMSINGLE_DIR="\$REPO/abstract_values/glm/slurm_jobs"
 APRF_DIR="\$REPO/abstract_values/encoding_models/slurm_jobs"
 
@@ -146,6 +147,13 @@ FMRIPREP_JOB=\$(sbatch --parsable \
     --export=PARTICIPANT_LABEL=${SUBJECT} \
     "\$FMRIPREP_DIR/fmriprep.sh")
 echo "fmriprep:\$FMRIPREP_JOB"
+
+# 4b. ROI masks — after fmriprep (needed by encoding models & decoding)
+MASKS_JOB=\$(sbatch --parsable \
+    --dependency=afterok:\$FMRIPREP_JOB \
+    --export=PARTICIPANT_LABEL=${SUBJECT},FMRIPREP_DERIV=${GLMSINGLE_DERIV} \
+    "\$PREPARE_DIR/create_roi_masks.sh")
+echo "create_masks:\$MASKS_JOB"
 
 # 5a. GLMsingle — all sessions jointly, unsmoothed
 GLMSINGLE_JOB=\$(sbatch --parsable \

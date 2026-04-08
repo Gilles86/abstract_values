@@ -153,6 +153,78 @@ derivatives/surface_masks/desc-{roi}_{hemi}_space-fsaverage_hemi-{lh|rh}.label.g
 
 **Default ROI for encoding model analyses: `NPCr` (`hemi=None`).**
 
+## Data ingestion — full recipe
+
+Script: `ingest_new_session.sh` (repo root). Skill: `/ingest`.
+
+### End-to-end flow for a new subject
+
+```
+Network drive (SMB)  →  local sourcedata  →  BIDS root  →  cluster  →  SLURM chain
+```
+
+### Step-by-step
+
+**1. Rsync source MRI from network drive to local sourcedata**
+```bash
+NETWORK="/Volumes/g_econ_department$/projects/2026/dehollander_bedi_ruff_abstract_values/data/sourcedata/mri"
+rsync -av "$NETWORK/sub-{subject}/ses-{session}" /data/ds-abstractvalue/sourcedata/mri/sub-{subject}/
+```
+
+**2. BIDS conversion** (dry-run first, then real)
+```bash
+python fix_and_move_bids.py --subject {subject} --session {session} --dry-run
+python fix_and_move_bids.py --subject {subject} --session {session}
+```
+Fixes: fmap IntendedFor, task label, FLAIR acq label, run zero-padding.
+
+**3. Verify behavioral data**
+```bash
+ls /data/ds-abstractvalue/sourcedata/behavior/sub-{subject}/
+```
+Should already exist (copied by experiment script after each session).
+
+**4. Rsync BIDS + behavior to cluster**
+```bash
+rsync -av /data/ds-abstractvalue/sub-{subject}/ sciencecluster:/shares/zne.uzh/gdehol/ds-abstractvalue/sub-{subject}/
+rsync -av /data/ds-abstractvalue/sourcedata/behavior/sub-{subject}/ sciencecluster:/shares/zne.uzh/gdehol/ds-abstractvalue/sourcedata/behavior/sub-{subject}/
+```
+
+**5. Submit SLURM chain on cluster** (via `ingest_new_session.sh` or manually)
+```bash
+./ingest_new_session.sh --subject {subject} --session {max_session}
+```
+This submits (all chained with `--dependency=afterok`):
+- fmriprep (full subject, all sessions) — 24h, 16 CPU, 64G
+- GLMsingle x2 (unsmoothed + smoothed) — 4h, 16 CPU, 64G
+- Encoding models (aprf, aprf_cv, session-shift, weighted, vonmises, etc.)
+- Decoding (gabor + value, per ROI)
+- Fisher information (vonmises + aprf, per ROI)
+
+### Multi-session first-time ingestion
+
+When ingesting a subject with multiple sessions for the first time:
+1. Rsync + BIDS-convert ALL sessions first (steps 1-2 for each session)
+2. Rsync ALL data to cluster (step 4 once — rsync sends everything)
+3. Run `ingest_new_session.sh --subject {subject} --session {max_session}` — use the highest session number so session-shift models are included
+
+**Do NOT run `ingest_new_session.sh` separately per session** — that creates redundant SLURM jobs.
+
+### After fmriprep completes
+
+ROI masks must be created before encoding model jobs can succeed:
+```bash
+# on cluster, after fmriprep finishes:
+python abstract_values/prepare/create_roi_masks.py {subject} 1
+```
+
+### Monitoring
+
+```bash
+ssh sciencecluster squeue -u gdehol
+ssh sciencecluster "tail -20 ~/logs/fmriprep_*.txt"
+```
+
 ## Cluster
 
 Hostname: `sciencecluster`
