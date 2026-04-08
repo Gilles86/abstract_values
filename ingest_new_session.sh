@@ -57,6 +57,8 @@ DRY_RUN=0
 
 # ROIs for decode and FI jobs — format: "DESC:HEMI" (HEMI=None omits hemi entity)
 DECODE_ROIS="BensonV1:LR NPCr:None"
+DECODE_N_VOXELS="100 0"
+DECODE_LAMBDAS="0.0 0.1"
 FI_ROIS_VONMISES="BensonV1:LR"
 FI_ROIS_APRF="NPCr:None"
 
@@ -245,7 +247,7 @@ for smoothed in 0 1; do
         "\$APRF_DIR/fit_vonmises_cv.sh")
     echo "fit_vonmises_cv\${smooth_label}:\$VONMISES_CV_JOB"
 
-    # 14+15. decode_gabor + decode_value — per ROI in DECODE_ROIS
+    # 14+15. decode_gabor + decode_value — per ROI × n_voxels × lambda
     # Depend on both GLMsingle AND mask creation
     for roi_hemi in ${DECODE_ROIS}; do
         desc=\${roi_hemi%%:*}
@@ -258,17 +260,33 @@ for smoothed in 0 1; do
             mask_dep="\$MASKS_JOB"
         fi
 
-        DECODE_GABOR_JOB=\$(sbatch --parsable \
-            --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
-            --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc}\${smooth_export} \
-            "\$APRF_DIR/decode_gabor.sh")
-        echo "decode_gabor_\${desc}\${smooth_label}:\$DECODE_GABOR_JOB"
+        for nv in ${DECODE_N_VOXELS}; do
+            for lam in ${DECODE_LAMBDAS}; do
+                nv_label=""
+                [[ "\$nv" != "100" ]] && nv_label="_nv\${nv}"
+                lam_label=""
+                [[ "\$lam" != "0.0" ]] && lam_label="_l\${lam}"
 
-        DECODE_VALUE_JOB=\$(sbatch --parsable \
-            --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
-            --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc}\${smooth_export} \
-            "\$APRF_DIR/decode_value.sh")
-        echo "decode_value_\${desc}\${smooth_label}:\$DECODE_VALUE_JOB"
+                # n_voxels=0 value decode needs more time (nested CV)
+                time_gabor=""
+                time_value=""
+                if [[ "\$nv" = "0" ]]; then
+                    time_value="--time=04:00:00"
+                fi
+
+                DECODE_GABOR_JOB=\$(sbatch --parsable \$time_gabor \
+                    --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
+                    --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc},N_VOXELS=\${nv},LAMBD=\${lam}\${smooth_export} \
+                    "\$APRF_DIR/decode_gabor.sh")
+                echo "decode_gabor_\${desc}\${nv_label}\${lam_label}\${smooth_label}:\$DECODE_GABOR_JOB"
+
+                DECODE_VALUE_JOB=\$(sbatch --parsable \$time_value \
+                    --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
+                    --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc},N_VOXELS=\${nv},LAMBD=\${lam}\${smooth_export} \
+                    "\$APRF_DIR/decode_value.sh")
+                echo "decode_value_\${desc}\${nv_label}\${lam_label}\${smooth_label}:\$DECODE_VALUE_JOB"
+            done
+        done
     done
 
     # 16. compute_fisher_information (Von Mises) — per ROI in FI_ROIS_VONMISES
