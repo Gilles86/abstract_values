@@ -8,7 +8,9 @@ Leave-one-run-out cross-validation.  In each fold:
 
   1. Fit a Gaussian nPRF encoding model on training runs (grid search +
      gradient descent via ParameterFitter; same approach as fit_aprf.py).
-  2. Select the top n_voxels by training-set R².
+  2. Select voxels: top n_voxels by training R², or (when n_voxels=0) all
+     voxels with nested cross-validated R² > 0 (inner leave-one-run-out CV
+     within the training set — no circularity).
   3. Fit a multivariate Student-t residual noise model (ResidualFitter).
   4. Evaluate P(data | value) over the stimulus grid for each test trial.
      This unnormalised likelihood serves as the posterior PDF under a flat
@@ -171,17 +173,49 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
         grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
         pars = fitter.fit(max_n_iterations=n_iterations, init_pars=grid_pars)
 
-        # ── voxel selection by training R² ────────────────────────────────────
-        pred_train = model.predict(parameters=pars, paradigm=train_paradigm)
-        r2_train   = get_rsq(train_data, pred_train)
-
+        # ── voxel selection ────────────────────────────────────────────────────
         if n_voxels == 0:
-            sel = r2_train[r2_train > 0.0].index
-        else:
-            sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            # Nested CV: leave-one-run-out within training set to get unbiased R²
+            inner_runs = list(zip(
+                train_paradigm.index.get_level_values('session'),
+                train_paradigm.index.get_level_values('run')))
+            inner_runs = sorted(set(inner_runs))
 
-        print(f'    {len(sel)} voxels selected  '
-              f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
+            inner_r2s = []
+            for inner_ses, inner_run in inner_runs:
+                print(f'      [inner CV] hold-out ses-{inner_ses} run-{inner_run}')
+                inner_test_idx = (
+                    (train_paradigm.index.get_level_values('session') == inner_ses) &
+                    (train_paradigm.index.get_level_values('run') == inner_run))
+                inner_train_paradigm = train_paradigm.loc[~inner_test_idx]
+                inner_test_paradigm  = train_paradigm.loc[inner_test_idx]
+                inner_train_data     = train_data.loc[~inner_test_idx]
+                inner_test_data      = train_data.loc[inner_test_idx]
+
+                inner_model = LogGaussianPRF(allow_neg_amplitudes=True,
+                                             parameterisation='mu_sd_natural')
+                inner_fitter = ParameterFitter(inner_model, inner_train_data,
+                                               inner_train_paradigm)
+                inner_grid = inner_fitter.fit_grid(
+                    mus, sds, amplitudes, baselines, use_correlation_cost=True)
+                inner_grid = inner_fitter.refine_baseline_and_amplitude(inner_grid)
+                inner_pars = inner_fitter.fit(max_n_iterations=n_iterations,
+                                              init_pars=inner_grid)
+
+                inner_pred = inner_model.predict(parameters=inner_pars,
+                                                  paradigm=inner_test_paradigm)
+                inner_r2s.append(get_rsq(inner_test_data, inner_pred))
+
+            cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
+            sel = cv_r2[cv_r2 > 0.0].index
+            print(f'    {len(sel)} voxels selected  '
+                  f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+        else:
+            pred_train = model.predict(parameters=pars, paradigm=train_paradigm)
+            r2_train   = get_rsq(train_data, pred_train)
+            sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            print(f'    {len(sel)} voxels selected  '
+                  f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
 
         pars_sel       = pars.loc[sel]
         train_data_sel = train_data[sel]
@@ -229,7 +263,7 @@ if __name__ == '__main__':
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--n-voxels', type=int, default=100,
-                        help='Top-N voxels by training R² (0 = all R²>0)')
+                        help='Top-N voxels by training R² (0 = nested CV R²>0)')
     parser.add_argument('--n-iterations', type=int, default=1000,
                         help='Max gradient descent iterations (default: 1000)')
     parser.add_argument('--n-stimulus-grid', type=int, default=50,

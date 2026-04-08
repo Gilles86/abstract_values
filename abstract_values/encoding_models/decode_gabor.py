@@ -8,7 +8,9 @@ Leave-one-run-out cross-validation.  In each fold:
 
   1. Fit a Von Mises basis-set encoding model on the training runs
      (WeightFitter — closed-form lstsq; basis mus/kappa are fixed).
-  2. Select the top n_voxels by training-set R² (or all R²>0 voxels).
+  2. Select voxels: top n_voxels by training R², or (when n_voxels=0) all
+     voxels with nested cross-validated R² > 0 (inner leave-one-run-out CV
+     within the training set — no circularity).
   3. Fit a multivariate Student-t residual noise model (ResidualFitter) on
      the training set to get a noise covariance omega and degrees of freedom.
   4. Evaluate P(data | orientation) over all presented orientations for each
@@ -164,20 +166,46 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
         weights = WeightFitter(model, basis_pars, train_data, train_paradigm).fit(alpha=weight_alpha)
         # weights: DataFrame (n_basis × n_voxels)
 
-        # ── voxel selection by training R² ────────────────────────────────────
-        basis_pred = model.basis_predictions(train_paradigm, basis_pars)
-        pred_train = pd.DataFrame(basis_pred @ weights.values,
-                                  index=train_data.index,
-                                  columns=train_data.columns)
-        r2_train = get_rsq(train_data, pred_train)
-
+        # ── voxel selection ────────────────────────────────────────────────────
         if n_voxels == 0:
-            sel = r2_train[r2_train > 0.0].index
-        else:
-            sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            # Nested CV: leave-one-run-out within training set to get unbiased R²
+            inner_runs = list(zip(
+                train_paradigm.index.get_level_values('session'),
+                train_paradigm.index.get_level_values('run')))
+            inner_runs = sorted(set(inner_runs))
 
-        print(f'    {len(sel)} voxels selected  '
-              f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
+            inner_r2s = []
+            for inner_ses, inner_run in inner_runs:
+                inner_test_idx = (
+                    (train_paradigm.index.get_level_values('session') == inner_ses) &
+                    (train_paradigm.index.get_level_values('run') == inner_run))
+                inner_train_paradigm = train_paradigm.loc[~inner_test_idx]
+                inner_test_paradigm  = train_paradigm.loc[inner_test_idx]
+                inner_train_data     = train_data.loc[~inner_test_idx]
+                inner_test_data      = train_data.loc[inner_test_idx]
+
+                inner_model = AxialVonMisesPRF(allow_neg_amplitudes=True)
+                inner_w = WeightFitter(inner_model, basis_pars,
+                                       inner_train_data, inner_train_paradigm).fit(alpha=weight_alpha)
+                inner_bp = inner_model.basis_predictions(inner_test_paradigm, basis_pars)
+                inner_pred = pd.DataFrame(inner_bp @ inner_w.values,
+                                          index=inner_test_data.index,
+                                          columns=inner_test_data.columns)
+                inner_r2s.append(get_rsq(inner_test_data, inner_pred))
+
+            cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
+            sel = cv_r2[cv_r2 > 0.0].index
+            print(f'    {len(sel)} voxels selected  '
+                  f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+        else:
+            basis_pred = model.basis_predictions(train_paradigm, basis_pars)
+            pred_train = pd.DataFrame(basis_pred @ weights.values,
+                                      index=train_data.index,
+                                      columns=train_data.columns)
+            r2_train = get_rsq(train_data, pred_train)
+            sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            print(f'    {len(sel)} voxels selected  '
+                  f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
 
         weights_sel    = weights[sel]
         train_data_sel = train_data[sel]
@@ -224,7 +252,7 @@ if __name__ == '__main__':
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--n-voxels', type=int, default=100,
-                        help='Top-N voxels by training R² (0 = all R²>0)')
+                        help='Top-N voxels by training R² (0 = nested CV R²>0)')
     parser.add_argument('--n-basis', type=int, default=8,
                         help='Number of Von Mises basis functions (default: 8)')
     parser.add_argument('--kappa', type=float, default=2.0,
