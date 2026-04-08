@@ -143,6 +143,7 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
 
     # ── leave-one-run-out cross-validation ────────────────────────────────────
     all_pdfs = []
+    fold_meta = []   # track n_voxels_selected per fold
     all_runs = [(s, r) for s in sessions for r in sub.get_runs(s)]
 
     for test_session, test_run in all_runs:
@@ -217,6 +218,8 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
             print(f'    {len(sel)} voxels selected  '
                   f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
 
+        fold_meta.append(dict(session=test_session, run=test_run,
+                              n_voxels_selected=len(sel)))
         pars_sel       = pars.loc[sel]
         train_data_sel = train_data[sel]
         test_data_sel  = test_data[sel]
@@ -254,6 +257,11 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
     pdfs = pd.concat(all_pdfs).sort_index()
     pdfs.to_csv(out_fn, sep='\t')
     print(f'\n  saved to {out_fn}')
+
+    # Save fold metadata (n_voxels_selected per fold)
+    meta_fn = out_fn.with_name(out_fn.stem.replace('_pars', '_meta') + '.tsv')
+    pd.DataFrame(fold_meta).to_csv(meta_fn, sep='\t', index=False)
+    print(f'  meta  to {meta_fn}')
 
 
 if __name__ == '__main__':

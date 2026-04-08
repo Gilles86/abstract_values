@@ -57,7 +57,7 @@ DRY_RUN=0
 
 # ROIs for decode and FI jobs — format: "DESC:HEMI" (HEMI=None omits hemi entity)
 DECODE_ROIS="BensonV1:LR NPCr:None"
-DECODE_N_VOXELS="100 0"
+DECODE_N_VOXELS="0 50 100 250 500"
 DECODE_LAMBDAS="0.0 0.1"
 FI_ROIS_VONMISES="BensonV1:LR"
 FI_ROIS_APRF="NPCr:None"
