@@ -30,6 +30,7 @@ REPO=$HOME/git/abstract_values
 
 # FreeSurfer from the fmriprep container sandbox (no apptainer needed)
 export FREESURFER_HOME=/shares/zne.uzh/containers/fmriprep-25.2.5/opt/freesurfer
+export FS_LICENSE=$HOME/freesurfer/license.txt
 export PATH=$FREESURFER_HOME/bin:$PATH
 export SUBJECTS_DIR=$BIDS_FOLDER/derivatives/$FMRIPREP_DERIV/sourcedata/freesurfer
 
