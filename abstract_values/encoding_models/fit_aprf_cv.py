@@ -133,7 +133,7 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
         test_paradigm  = paradigm.loc[test_mask].reset_index(drop=True)[['x']]
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
-        model   = LogGaussianPRF(allow_neg_amplitudes=True,
+        model   = LogGaussianPRF(allow_neg_amplitudes=False,
                                  parameterisation='mode_fwhm_natural')
         fitter  = ParameterFitter(model, train_data, train_paradigm)
 

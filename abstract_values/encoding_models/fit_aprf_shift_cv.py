@@ -150,7 +150,7 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
         test_paradigm  = paradigm.loc[test_mask].reset_index(drop=True)[['x', 'session']]
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
-        model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=True)
+        model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=False)
         fitter = ParameterFitter(model, train_data, train_paradigm)
 
         print('    grid search...')
