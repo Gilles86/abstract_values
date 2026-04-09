@@ -289,7 +289,7 @@ for smoothed in 0 1; do
         done
     done
 
-    # 16. compute_fisher_information (Von Mises) — per ROI in FI_ROIS_VONMISES
+    # 16. compute_fisher_information (Von Mises) — per ROI, pooled + per-session
     # Depend on both GLMsingle AND mask creation
     for roi_hemi in ${FI_ROIS_VONMISES}; do
         desc=\${roi_hemi%%:*}
@@ -300,14 +300,24 @@ for smoothed in 0 1; do
             mask_dep="\$MASKS_JOB"
         fi
 
+        # Pooled (all sessions)
         FI_VONMISES_JOB=\$(sbatch --parsable \
             --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
             --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
             "\$APRF_DIR/compute_fisher_information.sh")
         echo "fi_vonmises_\${desc}\${smooth_label}:\$FI_VONMISES_JOB"
+
+        # Per-session (fit + FI on each session separately)
+        for fi_ses in $(seq 1 ${SESSION}); do
+            FI_VM_SES_JOB=\$(sbatch --parsable \
+                --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
+                --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi},SESSION=\${fi_ses}\${smooth_export} \
+                "\$APRF_DIR/compute_fisher_information.sh")
+            echo "fi_vonmises_\${desc}_ses\${fi_ses}\${smooth_label}:\$FI_VM_SES_JOB"
+        done
     done
 
-    # 17. compute_fisher_information_aprf — per ROI in FI_ROIS_APRF, after fit_aprf + masks
+    # 17. compute_fisher_information_aprf — per ROI, pooled + per-session
     for roi_hemi in ${FI_ROIS_APRF}; do
         desc=\${roi_hemi%%:*}
         hemi=\${roi_hemi##*:}
@@ -317,11 +327,21 @@ for smoothed in 0 1; do
             mask_dep="\$MASKS_JOB"
         fi
 
+        # Pooled (all sessions)
         FI_APRF_JOB=\$(sbatch --parsable \
             --dependency=afterok:\$APRF_JOB:\${mask_dep} \
             --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
             "\$APRF_DIR/compute_fisher_information_aprf.sh")
         echo "fi_aprf_\${desc}\${smooth_label}:\$FI_APRF_JOB"
+
+        # Per-session
+        for fi_ses in $(seq 1 ${SESSION}); do
+            FI_APRF_SES_JOB=\$(sbatch --parsable \
+                --dependency=afterok:\$APRF_JOB:\${mask_dep} \
+                --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi},SESSION=\${fi_ses}\${smooth_export} \
+                "\$APRF_DIR/compute_fisher_information_aprf.sh")
+            echo "fi_aprf_\${desc}_ses\${fi_ses}\${smooth_label}:\$FI_APRF_SES_JOB"
+        done
     done
 
 done  # smoothed loop
