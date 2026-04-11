@@ -33,8 +33,22 @@ from nilearn.maskers import NiftiMasker
 from braincoder.optimize import ParameterFitter
 from braincoder.utils import get_rsq
 
-from abstract_values.encoding_models.models import SessionShiftedLogGaussianPRF
+from abstract_values.encoding_models.models import (
+    SessionShiftedLogGaussianPRF,
+    SessionShiftedGaussianValuePRF,
+)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+
+
+def _build_model(model_type):
+    """Return (model, out_subdir) for a given model_type."""
+    if model_type == 'loggauss':
+        return (SessionShiftedLogGaussianPRF(allow_neg_amplitudes=False),
+                'aprf-shift.cv')
+    if model_type == 'gaussian':
+        return (SessionShiftedGaussianValuePRF(allow_neg_amplitudes=False),
+                'aprf-gauss-shift.cv')
+    raise ValueError(f'Unknown model_type: {model_type!r}')
 
 
 
@@ -72,7 +86,7 @@ def get_value_paradigm_with_runs(sub, sessions):
 
 def main(subject, sessions=None, n_iterations=1000, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False):
+         smoothed=False, debug=False, model_type='loggauss'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
@@ -120,9 +134,10 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
     print(f'  grid: {n_mode}×{n_mode}×{n_fwhm} = {n_mode*n_mode*n_fwhm} points per fold')
 
     # ── output directory ──────────────────────────────────────────────────────
+    _, out_subdir = _build_model(model_type)
     smooth_label = '_smoothed' if smoothed else ''
     out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-               / 'aprf-shift.cv' / f'sub-{subject}' / 'func')
+               / out_subdir / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Per-fold: include ses+run to avoid collisions across sessions
@@ -150,8 +165,8 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
         test_paradigm  = paradigm.loc[test_mask].reset_index(drop=True)[['x', 'session']]
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
-        model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=False)
-        fitter = ParameterFitter(model, train_data, train_paradigm)
+        model, _ = _build_model(model_type)
+        fitter   = ParameterFitter(model, train_data, train_paradigm)
 
         print('    grid search...')
         grid_pars = fitter.fit_grid(modes, modes, fwhms, amplitudes, baselines,
@@ -189,6 +204,9 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--model', default='loggauss',
+                        choices=['loggauss', 'gaussian'],
+                        help='Tuning curve family (default: loggauss)')
     parser.add_argument('--debug', action='store_true',
                         help='Only 50 GD iterations per fold, small grid (fast test)')
     args = parser.parse_args()
@@ -196,4 +214,4 @@ if __name__ == '__main__':
     main(args.subject, sessions=args.sessions, n_iterations=args.n_iterations,
          mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
-         debug=args.debug)
+         debug=args.debug, model_type=args.model)

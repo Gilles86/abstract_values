@@ -26,6 +26,7 @@ SESSION="${SESSION:-}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
 N_ITERATIONS="${N_ITERATIONS:-1000}"
+MODEL="${MODEL:-loggauss}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -39,8 +40,9 @@ ARGS=(
 
 [ -n "$SESSION" ] && ARGS+=(--sessions $SESSION)
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$MODEL" != "loggauss" ] && ARGS+=(--model "$MODEL")
 
-echo "fit_aprf_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}"
+echo "fit_aprf_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}  model=${MODEL}"
 echo "Args: ${ARGS[*]}"
 
 . $HOME/init_conda.sh

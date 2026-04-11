@@ -29,7 +29,20 @@ from braincoder.models import LogGaussianPRF
 from braincoder.optimize import ParameterFitter
 from braincoder.utils import get_rsq
 
+from abstract_values.encoding_models.models import GaussianValuePRF
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+
+
+def _build_model(model_type):
+    """Return (model, out_subdir) for a given model_type."""
+    if model_type == 'loggauss':
+        return (LogGaussianPRF(allow_neg_amplitudes=False,
+                               parameterisation='mode_fwhm_natural'),
+                'aprf.cv')
+    if model_type == 'gaussian':
+        return (GaussianValuePRF(allow_neg_amplitudes=False),
+                'aprf-gauss.cv')
+    raise ValueError(f'Unknown model_type: {model_type!r}')
 
 
 def get_value_paradigm_with_runs(sub, sessions):
@@ -59,7 +72,7 @@ def get_value_paradigm_with_runs(sub, sessions):
 
 def main(subject, sessions=None, n_iterations=1000, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False):
+         smoothed=False, debug=False, model_type='loggauss'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
@@ -102,8 +115,9 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
     baselines  = np.array([0.0], dtype=np.float32)
 
     # ── output directory ──────────────────────────────────────────────────────
+    _, out_subdir = _build_model(model_type)
     smooth_label = '_smoothed' if smoothed else ''
-    out_dir = bids_folder / 'derivatives' / 'encoding_models' / 'aprf.cv' / f'sub-{subject}'
+    out_dir = bids_folder / 'derivatives' / 'encoding_models' / out_subdir / f'sub-{subject}'
     if ses_dir:
         out_dir = out_dir / ses_dir
     out_dir = out_dir / 'func'
@@ -133,9 +147,8 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
         test_paradigm  = paradigm.loc[test_mask].reset_index(drop=True)[['x']]
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
-        model   = LogGaussianPRF(allow_neg_amplitudes=False,
-                                 parameterisation='mode_fwhm_natural')
-        fitter  = ParameterFitter(model, train_data, train_paradigm)
+        model, _ = _build_model(model_type)
+        fitter   = ParameterFitter(model, train_data, train_paradigm)
 
         print('    grid search...')
         grid_pars = fitter.fit_grid(modes, fwhms, amplitudes, baselines,
@@ -173,6 +186,9 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--model', default='loggauss',
+                        choices=['loggauss', 'gaussian'],
+                        help='Tuning curve family (default: loggauss)')
     parser.add_argument('--debug', action='store_true',
                         help='Only 50 GD iterations per fold (fast test)')
     args = parser.parse_args()
@@ -180,4 +196,4 @@ if __name__ == '__main__':
     main(args.subject, sessions=args.sessions, n_iterations=args.n_iterations,
          mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
-         debug=args.debug)
+         debug=args.debug, model_type=args.model)
