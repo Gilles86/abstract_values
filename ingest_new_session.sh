@@ -308,7 +308,7 @@ for smoothed in 0 1; do
         echo "fi_vonmises_\${desc}\${smooth_label}:\$FI_VONMISES_JOB"
 
         # Per-session (fit + FI on each session separately)
-        for fi_ses in $(seq 1 ${SESSION}); do
+        for fi_ses in \$(seq 1 ${SESSION}); do
             FI_VM_SES_JOB=\$(sbatch --parsable \
                 --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
                 --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi},SESSION=\${fi_ses}\${smooth_export} \
@@ -335,7 +335,7 @@ for smoothed in 0 1; do
         echo "fi_aprf_\${desc}\${smooth_label}:\$FI_APRF_JOB"
 
         # Per-session
-        for fi_ses in $(seq 1 ${SESSION}); do
+        for fi_ses in \$(seq 1 ${SESSION}); do
             FI_APRF_SES_JOB=\$(sbatch --parsable \
                 --dependency=afterok:\$APRF_JOB:\${mask_dep} \
                 --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi},SESSION=\${fi_ses}\${smooth_export} \
