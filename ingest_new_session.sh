@@ -14,7 +14,7 @@
 #   6.  fit_aprf             (standard)
 #   7.  fit_aprf_cv
 #   8.  fit_aprf session-shift   (only ses≥2)
-#   9.  fit_aprf_shift_cv        (only ses≥2)
+#   9.  fit_aprf_cv session-shift (only ses≥2)
 #  10.  fit_aprf_weighted
 #  11.  fit_aprf_weighted_cv
 #  12.  fit_vonmises
@@ -112,6 +112,18 @@ fi
 log "Step 2: BIDS conversion — writing"
 conda run -n abstract_values python "${SCRIPT_DIR}/fix_and_move_bids.py" \
     --subject "${SUBJECT}" --session "${SESSION}"
+
+# ── step 2b: verify expected BOLD run count ─────────────────────────────────
+EXPECTED_BOLD=8
+BIDS_FUNC="${BIDS_ROOT}/sub-${SUBJECT}/ses-${SESSION}/func"
+ACTUAL_BOLD=$(find "${BIDS_FUNC}" -name "sub-*_task-*_run-*_bold.nii.gz" 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${ACTUAL_BOLD}" -ne "${EXPECTED_BOLD}" ]]; then
+    log "WARNING: expected ${EXPECTED_BOLD} BOLD runs in ${BIDS_FUNC}, found ${ACTUAL_BOLD}"
+    log "Check for aborted/partial runs. Listing BOLD files by size:"
+    ls -lhS "${BIDS_FUNC}"/sub-*_task-*_run-*_bold.nii.gz 2>/dev/null
+    read -rp "Continue anyway? [y/N] " answer
+    [[ "${answer}" =~ ^[Yy]$ ]] || { log "Aborting."; exit 1; }
+fi
 
 # ── step 3a: rsync BIDS session → cluster ────────────────────────────────────
 log "Step 3a: rsync ${BIDS_ROOT}/sub-${SUBJECT}/ses-${SESSION}/  →  cluster"
@@ -214,8 +226,8 @@ for smoothed in 0 1; do
 
         APRF_SHIFT_CV_JOB=\$(sbatch --parsable \
             --dependency=afterok:\${glmsingle_dep} \
-            --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
-            "\$APRF_DIR/fit_aprf_shift_cv.sh")
+            --export=PARTICIPANT_LABEL=${SUBJECT},MODEL=session-shift\${smooth_export} \
+            "\$APRF_DIR/fit_aprf_cv.sh")
         echo "fit_aprf_shift_cv\${smooth_label}:\$APRF_SHIFT_CV_JOB"
     fi
 

@@ -56,7 +56,33 @@ from braincoder.models import LogGaussianPRF
 from braincoder.optimize import ParameterFitter, ResidualFitter
 from braincoder.utils import get_rsq
 
+from abstract_values.encoding_models.models import GaussianValuePRF
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+
+
+def _build_model(model_type, allow_neg_amplitudes=True):
+    """Return a fresh encoding model for the requested tuning family."""
+    if model_type == 'loggauss':
+        return LogGaussianPRF(allow_neg_amplitudes=allow_neg_amplitudes,
+                              parameterisation='mu_sd_natural')
+    if model_type == 'gaussian':
+        return GaussianValuePRF(allow_neg_amplitudes=allow_neg_amplitudes)
+    raise ValueError(f'Unknown model_type: {model_type!r}')
+
+
+def _grid_ranges(model_type, value_min, value_max, n_loc, n_width):
+    """Location + width grids, matched to the tuning family's parameterisation."""
+    locs = np.linspace(value_min, value_max, n_loc, dtype=np.float32)
+    if model_type == 'loggauss':
+        # (mu, sd) — sd capped at half the value range
+        widths = np.linspace(1.0, (value_max - value_min) / 2, n_width, dtype=np.float32)
+    else:  # gaussian: (mode, fwhm) — fwhm ≈ 2.355 × sd so allow full range
+        widths = np.linspace(1.0, value_max - value_min, n_width, dtype=np.float32)
+    return locs, widths
+
+
+def _out_subdir(model_type):
+    return 'value' if model_type == 'loggauss' else 'value-gauss'
 
 
 def get_value_paradigm(sub, sessions):
@@ -86,7 +112,7 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
          n_grid_mus=20, n_grid_sds=15, n_stimulus_grid=50,
          lambd=0.0, mask=None, mask_desc=None, spherical_noise=False,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False):
+         smoothed=False, debug=False, model_type='loggauss'):
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -99,7 +125,8 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
 
     ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
     ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  [abstract value decoding]')
+    print(f'sub-{subject}  {ses_dir or "all-sessions"}  '
+          f'[abstract value decoding  model={model_type}]')
 
     # ── paradigm + data ───────────────────────────────────────────────────────
     paradigm = get_value_paradigm(sub, sessions)
@@ -129,7 +156,7 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
           f'({value_min:.1f}–{value_max:.1f} CHF)')
 
     # ── output ────────────────────────────────────────────────────────────────
-    out_dir = bids_folder / 'derivatives' / 'decoding' / 'value' / f'sub-{subject}'
+    out_dir = bids_folder / 'derivatives' / 'decoding' / _out_subdir(model_type) / f'sub-{subject}'
     if ses_dir:
         out_dir = out_dir / ses_dir
     out_dir = out_dir / 'func'
@@ -158,14 +185,12 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
         train_data     = data.loc[train_idx]
         test_data      = data.loc[test_idx]
 
-        # ── fit Log-Gaussian nPRF (grid search → gradient descent) ───────────
-        model = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mu_sd_natural')
+        # ── fit encoding model (grid search → gradient descent) ──────────────
+        model = _build_model(model_type)
         fitter = ParameterFitter(model, train_data, train_paradigm)
 
-        mus        = np.linspace(value_min, value_max, n_grid_mus,
-                                 dtype=np.float32)
-        sds        = np.linspace(1.0, (value_max - value_min) / 2, n_grid_sds,
-                                 dtype=np.float32)
+        mus, sds = _grid_ranges(model_type, value_min, value_max,
+                                 n_grid_mus, n_grid_sds)
         amplitudes = np.array([1.0], dtype=np.float32)
         baselines  = np.array([0.0], dtype=np.float32)
 
@@ -193,8 +218,7 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
                 inner_train_data     = train_data.loc[~inner_test_idx]
                 inner_test_data      = train_data.loc[inner_test_idx]
 
-                inner_model = LogGaussianPRF(allow_neg_amplitudes=True,
-                                             parameterisation='mu_sd_natural')
+                inner_model = _build_model(model_type)
                 inner_fitter = ParameterFitter(inner_model, inner_train_data,
                                                inner_train_paradigm)
                 inner_grid = inner_fitter.fit_grid(
@@ -226,8 +250,8 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
 
         # ── fit noise model ───────────────────────────────────────────────────
         # Re-create model so state is clean for the selected voxels.
-        # LogGaussianPRF uses a pseudo-WWT, so init_pseudoWWT must be called first.
-        model_sel = LogGaussianPRF(allow_neg_amplitudes=True, parameterisation='mu_sd_natural')
+        # GaussianPRF-family models use a pseudo-WWT, so init_pseudoWWT must run first.
+        model_sel = _build_model(model_type)
         model_sel.init_pseudoWWT(stimulus_range, pars_sel)
         n_iter_noise = 100 if debug else 5000
         residfit = ResidualFitter(model_sel, train_data_sel, train_paradigm,
@@ -288,6 +312,9 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--model', default='loggauss',
+                        choices=['loggauss', 'gaussian'],
+                        help='Tuning curve family (default: loggauss)')
     parser.add_argument('--debug', action='store_true',
                         help='100 iterations each (fast test)')
     args = parser.parse_args()
@@ -297,4 +324,4 @@ if __name__ == '__main__':
          lambd=args.lambd, mask=args.mask, mask_desc=args.mask_desc,
          spherical_noise=args.spherical_noise,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed, debug=args.debug)
+         smoothed=args.smoothed, debug=args.debug, model_type=args.model)

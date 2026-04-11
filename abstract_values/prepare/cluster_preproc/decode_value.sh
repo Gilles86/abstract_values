@@ -45,6 +45,7 @@ SPHERICAL="${SPHERICAL:-0}"
 N_VOXELS="${N_VOXELS:-100}"
 LAMBD="${LAMBD:-0.0}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep-flair}"
+MODEL="${MODEL:-loggauss}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -62,8 +63,9 @@ ARGS=(
 [ -n "$SESSION" ] && ARGS+=(--sessions "$SESSION")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise)
+[ "$MODEL" != "loggauss" ] && ARGS+=(--model "$MODEL")
 
-echo "decode_value: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}"
+echo "decode_value: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}  model=${MODEL}"
 echo "Args: ${ARGS[*]}"
 
 # Load environment

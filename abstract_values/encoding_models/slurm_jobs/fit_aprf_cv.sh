@@ -4,19 +4,26 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=04:00:00
+#SBATCH --time=06:00:00
 
-# Leave-one-run-out CV for the standard abstract pRF (LogGaussianPRF).
+# Leave-one-run-out CV for the abstract pRF encoding model.
+# Supports all four model variants from fit_aprf_cv.py:
+#   standard             — LogGaussianPRF (per session or across)
+#   session-shift        — SessionShiftedLogGaussianPRF (requires ≥2 sessions)
+#   gaussian             — symmetric GaussianValuePRF
+#   gauss-session-shift  — symmetric SessionShiftedGaussianValuePRF
 #
 # Usage:
 #   sbatch --export=PARTICIPANT_LABEL=pil01 fit_aprf_cv.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION="1 2" fit_aprf_cv.sh
+#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION="1 2",MODEL=session-shift fit_aprf_cv.sh
+#   sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=gaussian,SESSION=1 fit_aprf_cv.sh
 #
 # Optional overrides (--export key=value):
 #   SESSION         space-separated session numbers (default: all sessions)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 #   N_ITERATIONS    max gradient descent iterations per fold (default: 1000)
+#   MODEL           standard|session-shift|gaussian|gauss-session-shift (default: standard)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
@@ -26,7 +33,7 @@ SESSION="${SESSION:-}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
 N_ITERATIONS="${N_ITERATIONS:-1000}"
-MODEL="${MODEL:-loggauss}"
+MODEL="${MODEL:-standard}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -40,7 +47,7 @@ ARGS=(
 
 [ -n "$SESSION" ] && ARGS+=(--sessions $SESSION)
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
-[ "$MODEL" != "loggauss" ] && ARGS+=(--model "$MODEL")
+[ "$MODEL" != "standard" ] && ARGS+=(--model "$MODEL")
 
 echo "fit_aprf_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}  model=${MODEL}"
 echo "Args: ${ARGS[*]}"
