@@ -36,7 +36,16 @@ from braincoder.models import LogGaussianPRF
 from braincoder.optimize import WeightFitter
 from braincoder.utils import get_rsq
 
+from abstract_values.encoding_models.models import GaussianValuePRF
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+
+
+def _build_basis_model(basis):
+    if basis == 'loggauss':
+        return LogGaussianPRF(parameterisation='mode_fwhm_natural'), 'aprf-weighted'
+    if basis == 'gaussian':
+        return GaussianValuePRF(), 'aprf-weighted-gauss'
+    raise ValueError(f'Unknown basis: {basis!r}')
 
 
 def get_value_paradigm(sub, sessions):
@@ -68,7 +77,7 @@ def make_basis_parameters(n_basis, value_min, value_max, fwhm=None):
 
 def main(subject, sessions=None, n_basis=8, fwhm=None, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False):
+         smoothed=False, basis='loggauss'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder,
                   fmriprep_deriv=fmriprep_deriv)
@@ -106,8 +115,8 @@ def main(subject, sessions=None, n_basis=8, fwhm=None, mask=None,
     # ── fixed basis parameters ────────────────────────────────────────────────
     basis_pars = make_basis_parameters(n_basis, value_min, value_max, fwhm)
     eff_fwhm   = float(basis_pars['fwhm'].iloc[0])
-    print(f'  basis fwhm = {eff_fwhm:.2f} CHF')
-    model = LogGaussianPRF(parameterisation='mode_fwhm_natural')
+    model, out_subdir = _build_basis_model(basis)
+    print(f'  basis fwhm = {eff_fwhm:.2f} CHF  ({basis})')
 
     # ── fit weights (closed-form least squares) ───────────────────────────────
     print('  fitting weights...')
@@ -123,7 +132,7 @@ def main(subject, sessions=None, n_basis=8, fwhm=None, mask=None,
     # ── output directory ──────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
     out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-               / 'aprf-weighted' / f'sub-{subject}')
+               / out_subdir / f'sub-{subject}')
     if ses_dir:
         out_dir = out_dir / ses_dir
     out_dir = out_dir / 'func'
@@ -155,8 +164,12 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--basis', default='loggauss',
+                        choices=['loggauss', 'gaussian'],
+                        help='Basis pRF family (default: loggauss)')
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, n_basis=args.n_basis,
          fwhm=args.fwhm, mask=args.mask, bids_folder=args.bids_folder,
-         fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed)
+         fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
+         basis=args.basis)

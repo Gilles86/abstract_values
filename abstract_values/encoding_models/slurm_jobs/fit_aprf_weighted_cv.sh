@@ -25,6 +25,7 @@ SESSION="${SESSION:-}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 N_BASIS="${N_BASIS:-8}"
 SMOOTHED="${SMOOTHED:-0}"
+BASIS="${BASIS:-loggauss}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -38,8 +39,9 @@ ARGS=(
 
 [ -n "$SESSION" ] && ARGS+=(--sessions $SESSION)
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$BASIS" != "loggauss" ] && ARGS+=(--basis "$BASIS")
 
-echo "fit_aprf_weighted_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  n_basis=${N_BASIS}  smoothed=${SMOOTHED}"
+echo "fit_aprf_weighted_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  n_basis=${N_BASIS}  smoothed=${SMOOTHED}  basis=${BASIS}"
 echo "Args: ${ARGS[*]}"
 
 . $HOME/init_conda.sh
