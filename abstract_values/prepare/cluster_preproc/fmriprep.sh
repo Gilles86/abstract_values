@@ -22,6 +22,11 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
 fi
 
+EXTRA_ARGS=""
+if [ -n "$BOLD2ANAT_INIT" ]; then
+    EXTRA_ARGS="--bold2anat-init $BOLD2ANAT_INIT"
+fi
+
 source /etc/profile.d/lmod.sh
 module load apptainer/1.4.1
 
@@ -52,7 +57,8 @@ apptainer run \
   --nthreads 16 \
   --omp-nthreads 16 \
   --low-mem \
-  --no-submm-recon
+  --no-submm-recon \
+  $EXTRA_ARGS
 APPTAINER_RC=$?
 
 # apptainer ≥ 1.4 occasionally exits 1 on a clean fmriprep run.
