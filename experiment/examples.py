@@ -94,11 +94,7 @@ class ExampleTrial(Trial):
         self.orientation = orientation
         self.value = get_value(orientation, self.session.settings['mapping'])
 
-        if self.grating.drift_direction == 1:
-            self.grating.drift_direction = -1
-        else:
-            self.grating.drift_direction = 1
-
+        self.grating.randomize_phase()
         self.grating.set_ori(orientation)
         self.value_text.text = f'{self.value:.2f}'
 

@@ -2,7 +2,7 @@ import numpy as np
 from psychopy import visual
 
 class AnnulusGrating:
-    def __init__(self, win, size, clock, hole_deg=1.0, sf=2, ori=45, tf=1.0, contrast=0.1, drift_direction=None, **kwargs):
+    def __init__(self, win, size, clock, hole_deg=1.0, sf=2, ori=45, tf=2.0, contrast=0.1, **kwargs):
         self.win = win
         self.size = size
         self.hole_deg = hole_deg
@@ -11,7 +11,6 @@ class AnnulusGrating:
         self.tf = tf
         self.contrast = contrast
         self.clock = clock
-        self.drift_direction = np.random.choice([-1, 1]) if drift_direction is None else drift_direction
 
         # Create outer and inner masks
         outer_radius = size / 2
@@ -36,7 +35,9 @@ class AnnulusGrating:
         # Combine masks: outer_mask - inner_mask = annulus
         annulus_mask = outer_mask * -inner_mask
 
-        # Outer grating with the combined annulus mask
+        # Outer grating with the combined annulus mask.
+        # Spatial phase is randomized per trial (van Bergen et al., 2015,
+        # Nat Neurosci) so observers cannot fixate a consistent stripe.
         self.outer_stim = visual.GratingStim(
             win,
             tex='sin',
@@ -44,15 +45,20 @@ class AnnulusGrating:
             size=size,
             sf=sf,
             ori=ori,
+            phase=np.random.rand(),
             contrast=contrast,
             interpolate=False,  # Crisp edges
             **kwargs
         )
 
     def draw(self):
-        """Draw the annulus grating with updated phase for drifting."""
-        self.outer_stim.phase = self.drift_direction * self.clock.getTime() * self.tf
+        """Draw the annulus grating with sinusoidal contrast modulation (counter-phase flicker)."""
+        self.outer_stim.contrast = self.contrast * np.sin(2 * np.pi * self.tf * self.clock.getTime())
         self.outer_stim.draw()
+
+    def randomize_phase(self):
+        """Draw a new random spatial phase (call at the start of each trial)."""
+        self.outer_stim.phase = np.random.rand()
 
     def set_ori(self, ori):
         """Set the orientation of the grating."""
