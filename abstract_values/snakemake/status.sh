@@ -37,18 +37,32 @@ fmt='JobID:14,State:10,TimeUsed:10,Partition:10,Name:38,Comment:90'
 raw=$(run "squeue -u \$USER -h -O '$fmt'")
 
 if [[ "$SNAKE_ONLY" -eq 1 ]]; then
-    # Find this project's current driver's run UUID
-    uuid=$(run "ls -t ~/logs/snake_driver_*.log 2>/dev/null | \
-                xargs grep -l 'abstract_values' 2>/dev/null | head -1 | \
-                xargs grep -m1 'SLURM run ID:' 2>/dev/null | awk '{print \$NF}'")
-    if [[ -z "$uuid" ]]; then
-        echo "No active abstract_values snakemake driver found." >&2
+    # Find this project's current driver's log file + extract run UUID
+    log_file=$(run "ls -t ~/logs/snake_driver_*.log 2>/dev/null | \
+                    xargs grep -l 'abstract_values' 2>/dev/null | head -1")
+    if [[ -z "$log_file" ]]; then
+        echo "No abstract_values snakemake driver log found." >&2
         exit 1
     fi
-    echo "(filtering to driver run UUID: $uuid)"
+    uuid=$(run "grep -m1 'SLURM run ID:' $log_file 2>/dev/null | awk '{print \$NF}'")
+    driver_jid=$(basename "$log_file" .log | sed 's/^snake_driver_//')
+
+    # Driver status (state, time-used) — empty if driver has exited
+    driver_status=$(run "squeue -j $driver_jid -h -O 'State:12,TimeUsed:10,NodeList:18' 2>/dev/null" \
+                    | sed 's/[[:space:]]\+/ /g')
+    if [[ -n "$driver_status" ]]; then
+        echo "Driver: job $driver_jid  (RUNNING — $driver_status)"
+    else
+        echo "Driver: job $driver_jid  (not in queue — finished or failed)"
+    fi
+    echo "Run UUID: $uuid"
+    echo
+
     raw=$(echo "$raw" | grep -F "$uuid" || true)
     if [[ -z "$raw" ]]; then
-        echo "Driver is running but no child jobs in queue yet (or all done)."
+        echo "No child jobs in the queue right now. Driver's recent activity:"
+        echo "---"
+        run "tail -15 $log_file"
         exit 0
     fi
 fi
