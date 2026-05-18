@@ -57,12 +57,27 @@ import warnings
 import numpy as np
 import pandas as pd
 from nilearn import image
+from scipy.interpolate import interp1d
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 warnings.filterwarnings('ignore')
 
 TR = 0.996
+TR_UP = 0.25
+STIM_DUR = 1.5   # gabor presentation duration (seconds)
+
+
+def upsample_bold(bold_4d, factor):
+    """Linearly upsample a (x,y,z,t) array along the time axis by `factor`."""
+    x, y, z, t = bold_4d.shape
+    t_orig = np.arange(t, dtype=np.float64)
+    n_new = int(round(t * factor))
+    t_new = np.linspace(0, t - 1, n_new)
+    flat = bold_4d.reshape(-1, t).astype(np.float32)
+    up = interp1d(t_orig, flat, axis=1, kind='linear',
+                  fill_value='extrapolate', assume_sorted=True)(t_new)
+    return up.reshape(x, y, z, n_new)
 
 
 def make_condition_label(row):
@@ -105,7 +120,7 @@ def build_condition_index(all_events):
     return {c: i for i, c in enumerate(sorted(conditions, key=_key))}
 
 
-def build_design_matrix(events_run, n_vols, condition_to_idx):
+def build_design_matrix(events_run, n_vols, condition_to_idx, tr=TR):
     """Return (dm, trial_order) for one run.
 
     dm          : binary (n_vols × n_conditions) array, one 1 per row at the nearest TR
@@ -119,7 +134,7 @@ def build_design_matrix(events_run, n_vols, condition_to_idx):
     dm = np.zeros((n_vols, len(condition_to_idx)))
     trial_order = []
     for _, row in ev.iterrows():
-        onset_tr = int(np.round(row['onset'] / TR))
+        onset_tr = int(np.round(row['onset'] / tr))
         col = condition_to_idx[row['condition']]
         dm[min(onset_tr, n_vols - 1), col] = 1.0
         trial_order.append(row['condition'])
@@ -127,8 +142,11 @@ def build_design_matrix(events_run, n_vols, condition_to_idx):
 
 
 def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair',
-         debug=False, smoothed=False):
+         debug=False, smoothed=False, allow_incomplete=False):
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
+
+    if not allow_incomplete:
+        sub.require_complete_sessions()
 
     if sessions is None:
         sessions = sub.get_sessions()
@@ -171,15 +189,23 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
         for run, bold_path in zip(runs, bold):
             if ref_bold is None:
                 ref_bold = bold_path
-            img = image.smooth_img(str(bold_path), fwhm=5.0).get_fdata() if smoothed \
-                else image.load_img(str(bold_path)).get_fdata()
-            n_vols = img.shape[3]
-            dm, trial_order = build_design_matrix(events.loc[run], n_vols, condition_to_idx)
-            data.append(img)
+            img = image.smooth_img(str(bold_path), fwhm=5.0) if smoothed \
+                else image.load_img(str(bold_path))
+            bold_data = img.get_fdata()
+            n_vols = bold_data.shape[3]
+
+            upsample_factor = TR / TR_UP
+            bold_data = upsample_bold(bold_data, upsample_factor)
+            n_vols_up = bold_data.shape[3]
+
+            dm, trial_order = build_design_matrix(events.loc[run], n_vols_up,
+                                                  condition_to_idx, tr=TR_UP)
+            data.append(bold_data)
             X.append(dm)
             all_trial_types.extend(trial_order)
             session_indicators.append(session)
-            print(f'    run-{run}: {n_vols} volumes, {len(trial_order)} trials')
+            print(f'    run-{run}: {n_vols} vols → {n_vols_up} upsampled, '
+                  f'{len(trial_order)} trials, dm shape {dm.shape}')
 
     opt = dict(
         wantlibrary=1,
@@ -187,6 +213,7 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
         wantfracridge=1,
         wantfileoutputs=[1, 1, 1, 1] if debug else [0, 0, 0, 1],
         sessionindicator=np.array(session_indicators)[np.newaxis, :],
+        n_pcs=20,
     )
 
     from pathlib import Path
@@ -198,7 +225,7 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
     fig_dir = out_dir.parent / 'figures'
 
     from glmsingle.glmsingle import GLM_single
-    results = GLM_single(opt).fit(X, data, TR, TR,
+    results = GLM_single(opt).fit(X, data, STIM_DUR, TR_UP,
                                   outputdir=str(out_dir),
                                   figuredir=str(fig_dir))
 
@@ -233,10 +260,15 @@ if __name__ == '__main__':
     parser.add_argument('--smoothed', action='store_true',
                         help='Spatially smooth BOLD data with a 5 mm FWHM Gaussian kernel '
                              'before fitting. Outputs go to derivatives/glmsingle.smoothed/.')
+    parser.add_argument('--allow-incomplete', action='store_true',
+                        help='Skip the "all expected MRI sessions present" check. '
+                             'Use only for debug runs — downstream encoding scripts '
+                             'still assume aggregated paths.')
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions,
          bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv,
          debug=args.debug,
-         smoothed=args.smoothed)
+         smoothed=args.smoothed,
+         allow_incomplete=args.allow_incomplete)

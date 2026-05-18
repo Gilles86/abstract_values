@@ -74,6 +74,34 @@ class Subject:
             raise FileNotFoundError(f'No sessions found in {sub_dir}')
         return sessions
 
+    # Study subjects (sub-NN) are expected to have 2 MRI sessions; pilots (sub-pilNN)
+    # have 1. Encoding / decoding / FI scripts rely on multi-session aggregation in
+    # GLMsingle output paths, so they break silently if started before all sessions
+    # are present. Hard-fail loudly instead.
+    DEFAULT_EXPECTED_SESSIONS = 2
+    PILOT_EXPECTED_SESSIONS = 1
+
+    def expected_sessions(self):
+        return (self.PILOT_EXPECTED_SESSIONS
+                if self.subject_id.startswith('pil')
+                else self.DEFAULT_EXPECTED_SESSIONS)
+
+    def require_complete_sessions(self, expected=None):
+        """Raise if fewer than `expected` MRI sessions are present in fmriprep output.
+
+        Defaults: 2 for study subjects, 1 for pilots (`sub-pil*`). Pass `expected`
+        to override (e.g. for legitimate single-session debug runs).
+        """
+        expected = expected if expected is not None else self.expected_sessions()
+        sessions = self.get_sessions()
+        if len(sessions) < expected:
+            raise RuntimeError(
+                f'sub-{self.subject_id} has only {len(sessions)} of {expected} '
+                f'expected MRI sessions in fmriprep ({sessions}). Refusing to '
+                f'run downstream analysis on an incomplete subject — ingest the '
+                f'remaining session(s) first, or pass --allow-incomplete.'
+            )
+
     # ── runs ───────────────────────────────────────────────────────────────────
 
     def get_runs(self, session):

@@ -120,9 +120,12 @@ def get_value_session_paradigm(sub, sessions):
 
 def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='standard',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False):
+         smoothed=False, debug=False, allow_incomplete=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
+
+    if not allow_incomplete:
+        sub.require_complete_sessions()
 
     if sessions is None:
         sessions = sub.get_sessions()
@@ -363,9 +366,13 @@ if __name__ == '__main__':
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--debug', action='store_true',
                         help='Fast local test: 50 iterations, 500 voxels, small grid')
+    parser.add_argument('--allow-incomplete', action='store_true',
+                        help='Skip the "all expected MRI sessions present" check '
+                             '(default: 2 for study subjects, 1 for pilots).')
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, mask=args.mask,
          n_iterations=args.n_iterations, model_type=args.model,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed, debug=args.debug)
+         smoothed=args.smoothed, debug=args.debug,
+         allow_incomplete=args.allow_incomplete)
