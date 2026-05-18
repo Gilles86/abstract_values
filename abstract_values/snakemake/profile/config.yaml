@@ -1,0 +1,27 @@
+# Snakemake workflow profile for abstract_values on UZH sciencecluster.
+# See: snakemake skill — driver-on-compute-node guidance.
+
+executor: slurm
+jobs: 150
+
+# Rerun only when the SET of input paths changes; do NOT propagate mtime
+# cascades through serial chains.
+rerun-triggers:
+  - input
+
+# Cluster polling: avoid hammering Slurm on compute nodes
+seconds-between-status-checks: 30
+max-status-checks-per-second: 1
+
+# Default SLURM resources (override per rule via `resources:` in Snakefile)
+default-resources:
+  slurm_account: zne.uzh
+  slurm_partition: standard
+  slurm_extra: "--qos=medium"     # 2-day cap; covers everything from short decodes to ~23h fmriprep
+  cpus_per_task: 2
+  mem_mb: 8000
+  runtime: 60       # minutes
+
+# Useful diagnostics
+printshellcmds: True
+keep-going: True

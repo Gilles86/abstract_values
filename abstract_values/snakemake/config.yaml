@@ -1,0 +1,45 @@
+subjects:
+  # sub-08 premieres the Snakemake pipeline (both MRI sessions present).
+  # Add subjects below as they hit the completeness gate (≥2 MRI sessions).
+  - "08"
+
+# Per-subject MRI session count actually present on disk (controls
+# session-shift availability + per-session FI).
+subject_sessions:
+  "07": 1
+  "08": 2
+  "09": 1
+  "10": 1
+
+# Subjects are considered "complete" once they have this many MRI sessions
+# on disk; pipeline aborts at config-load if any listed subject has fewer.
+# Set per-subject overrides (e.g. for pilots) in `subject_expected_overrides`.
+expected_mri_sessions: 2
+subject_expected_overrides:
+  pil01: 1
+  pil02: 1
+# Set to false to bypass the completeness check (e.g. for a debug run on
+# an incomplete subject). Default: enforce.
+require_complete: true
+
+# Smoothing variants to fit (0 = unsmoothed, 1 = smoothed) — pipeline runs both
+smoothed_variants: [0, 1]
+
+# Decoding ROIs: (desc, hemi). hemi == "None" => no hemi entity in filename.
+decode_rois:
+  - {desc: "BensonV1", hemi: "LR"}
+  - {desc: "NPCr",     hemi: "None"}
+decode_n_voxels: [0, 50, 100, 250, 500]
+decode_lambdas: [0.0, 0.1]
+
+# Fisher-information ROIs (Von Mises + aPRF flavors)
+fi_rois_vonmises:
+  - {desc: "BensonV1", hemi: "LR"}
+fi_rois_aprf:
+  - {desc: "NPCr", hemi: "None"}
+
+# Cluster paths
+bids_folder: "/shares/zne.uzh/gdehol/ds-abstractvalue"
+repo_root:   "$HOME/git/abstract_values"
+conda_env:   "abstract_values"
+fmriprep_deriv: "fmriprep"

@@ -1,0 +1,397 @@
+"""
+Cluster-side pipeline for abstract_values.
+
+Covers fmriprep -> masks -> GLMsingle (smoothed + unsmoothed) -> encoding-model
+fan-out (aprf, aprf_cv, aprf_session_shift{,_cv}, aprf_weighted{,_cv},
+vonmises{,_cv}) -> decoding (per ROI x n_voxels x lambda) -> Fisher info.
+
+Pre-cluster steps (SMB rsync, BIDS conversion, push to cluster) stay in
+ingest_new_session.sh. This Snakefile assumes BIDS data is already on the
+cluster under {bids_folder}.
+
+Wildcard conventions:
+    {subject}      e.g. "07"
+    {smooth}       either "" (unsmoothed) or "_smoothed"
+    {roi}          ROI desc, e.g. "BensonV1", "NPCr"
+    {nv}           decode n_voxels
+    {lam}          decode lambda
+    {session}      "all" (pooled) or a numeric session for per-session FI
+
+Outputs are real per-wildcard files where the underlying script produces one
+(encoding-model parameter NIfTIs, decode TSVs, FI TSVs). For stages that
+produce a directory of files (fmriprep, GLMsingle), a representative file is
+used as the sentinel.
+"""
+
+from itertools import product
+from pathlib import Path
+
+configfile: "abstract_values/snakemake/config.yaml"
+
+SUBJECTS         = [str(s) for s in config["subjects"]]
+SUBJECT_SESSIONS = {str(k): int(v) for k, v in config["subject_sessions"].items()}
+EXPECTED_MRI_SESSIONS = int(config.get("expected_mri_sessions", 2))
+SUBJECT_EXPECTED_OVERRIDES = {
+    str(k): int(v) for k, v in config.get("subject_expected_overrides", {}).items()
+}
+_rc = config.get("require_complete", True)
+if isinstance(_rc, str):
+    _rc = _rc.strip().lower() not in ("false", "0", "no", "off", "")
+REQUIRE_COMPLETE = bool(_rc)
+
+def expected_sessions(subject):
+    return SUBJECT_EXPECTED_OVERRIDES.get(subject, EXPECTED_MRI_SESSIONS)
+
+# ── completeness gate ────────────────────────────────────────────────────────
+# Refuse to plan MRI processing for subjects missing expected sessions.
+# Triggered at config-load so the user sees the error before any sbatch fires.
+if REQUIRE_COMPLETE:
+    _incomplete = [
+        s for s in SUBJECTS
+        if SUBJECT_SESSIONS.get(s, 0) < expected_sessions(s)
+    ]
+    if _incomplete:
+        details = "\n  ".join(
+            f"sub-{s}: have {SUBJECT_SESSIONS.get(s, 0)} / expected {expected_sessions(s)}"
+            for s in _incomplete
+        )
+        raise WorkflowError(
+            "Refusing to schedule MRI processing for incomplete subjects:\n  "
+            + details
+            + "\nFix subject_sessions in config.yaml after ingesting the missing"
+            " sessions, OR set require_complete: false to override."
+        )
+
+SMOOTHED_VARIANTS = config["smoothed_variants"]
+DECODE_ROIS      = config["decode_rois"]
+DECODE_NV        = config["decode_n_voxels"]
+DECODE_LAM       = config["decode_lambdas"]
+FI_ROIS_VONMISES = config["fi_rois_vonmises"]
+FI_ROIS_APRF     = config["fi_rois_aprf"]
+BIDS             = config["bids_folder"]
+REPO             = config["repo_root"]
+ENV              = config["conda_env"]
+FMRIPREP_DERIV   = config["fmriprep_deriv"]
+
+DERIV   = f"{BIDS}/derivatives"
+SNAKE   = f"{DERIV}/_snake"
+
+wildcard_constraints:
+    subject = r"[A-Za-z0-9]+",
+    smooth  = r"(_smoothed)?",
+    roi     = r"[A-Za-z0-9]+",
+    nv      = r"\d+",
+    lam     = r"[0-9.]+",
+    session = r"(all|\d+)",
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def sessions_for(subject):
+    """Inclusive list of session indices for a subject (1..N)."""
+    return list(range(1, SUBJECT_SESSIONS[subject] + 1))
+
+def roi_by_desc(rois, desc):
+    return next(r for r in rois if r["desc"] == desc)
+
+def mask_path(subject, desc, hemi):
+    if hemi == "None":
+        return f"{DERIV}/masks/sub-{subject}/anat/sub-{subject}_space-T1w_desc-{desc}_mask.nii.gz"
+    return f"{DERIV}/masks/sub-{subject}/anat/sub-{subject}_space-T1w_hemi-{hemi}_desc-{desc}_mask.nii.gz"
+
+def mask_input(rois):
+    """Return an input lambda resolving the right mask file for wildcards.roi."""
+    def _inner(wc):
+        r = roi_by_desc(rois, wc.roi)
+        return mask_path(wc.subject, r["desc"], r["hemi"])
+    return _inner
+
+def aprf_r2(subject, variant, smooth):
+    """Path to the r2 NIfTI for a given encoding-model variant (sentinel)."""
+    return (f"{DERIV}/encoding_models/{variant}{smooth}/sub-{subject}/func/"
+            f"sub-{subject}_task-abstractvalue_space-T1w_desc-r2_pe.nii.gz")
+
+# Terminal targets per subject
+def subject_targets(subject):
+    sessions = sessions_for(subject)
+    targets = []
+    for s in SMOOTHED_VARIANTS:
+        sfx = "_smoothed" if int(s) else ""
+
+        # Encoding models (always)
+        targets += [aprf_r2(subject, v, sfx) for v in (
+            "aprf", "aprf_cv", "aprf_weighted", "aprf_weighted_cv",
+            "vonmises", "vonmises_cv",
+        )]
+        # session-shift only if subject has >= 2 MRI sessions
+        if len(sessions) >= 2:
+            targets += [
+                aprf_r2(subject, "aprf_session_shift", sfx),
+                aprf_r2(subject, "aprf_session_shift_cv", sfx),
+            ]
+
+        # Decoding fan-out
+        for roi in DECODE_ROIS:
+            for nv, lam in product(DECODE_NV, DECODE_LAM):
+                targets += [
+                    f"{DERIV}/decoded_gabor{sfx}/sub-{subject}/"
+                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}_decoded.tsv",
+                    f"{DERIV}/decoded_value{sfx}/sub-{subject}/"
+                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}_decoded.tsv",
+                ]
+
+        # Fisher information: pooled ("all") + per-session
+        for roi in FI_ROIS_VONMISES:
+            for ses in ["all"] + [str(i) for i in sessions]:
+                targets.append(
+                    f"{DERIV}/fisher_information_vonmises{sfx}/sub-{subject}/"
+                    f"sub-{subject}_roi-{roi['desc']}_ses-{ses}_fi.tsv"
+                )
+        for roi in FI_ROIS_APRF:
+            for ses in ["all"] + [str(i) for i in sessions]:
+                targets.append(
+                    f"{DERIV}/fisher_information_aprf{sfx}/sub-{subject}/"
+                    f"sub-{subject}_roi-{roi['desc']}_ses-{ses}_fi.tsv"
+                )
+    return targets
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# All
+# ─────────────────────────────────────────────────────────────────────────────
+rule all:
+    input:
+        expand(f"{SNAKE}/sub-{{subject}}.done", subject=SUBJECTS),
+
+rule subject_complete:
+    input:
+        lambda wc: subject_targets(wc.subject),
+    output:
+        f"{SNAKE}/sub-{{subject}}.done",
+    shell: "mkdir -p $(dirname {output}) && touch {output}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Preprocessing
+# ─────────────────────────────────────────────────────────────────────────────
+rule fmriprep:
+    output:
+        f"{DERIV}/fmriprep/sub-{{subject}}/anat/sub-{{subject}}_desc-preproc_T1w.nii.gz",
+    log: "logs/fmriprep_{subject}.log"
+    resources:
+        # 3T 2-session subjects finish well under 24h; if a job hits the cap,
+        # something's wrong — let it die rather than slipping into a 48h slot.
+        cpus_per_task=16, mem_mb=64_000, runtime=23*60,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} "
+        "bash {REPO}/abstract_values/prepare/cluster_preproc/fmriprep.sh"
+
+
+rule create_roi_masks:
+    input: rules.fmriprep.output,
+    output:
+        # Sentinel: the underlying script writes hemi-L/-R/-LR for every Benson area.
+        # Decoding/FI consumers explicitly select `hemi=LR` for BensonV1, so we
+        # use the LR file as the per-subject completion marker.
+        f"{DERIV}/masks/sub-{{subject}}/anat/sub-{{subject}}_space-T1w_hemi-LR_desc-BensonV1_mask.nii.gz",
+    log: "logs/create_roi_masks_{subject}.log"
+    resources: cpus_per_task=2, mem_mb=8_000, runtime=30,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "bash {REPO}/abstract_values/prepare/slurm_jobs/create_roi_masks.sh"
+
+
+rule create_npc_masks:
+    input: rules.fmriprep.output,
+    output:
+        f"{DERIV}/masks/sub-{{subject}}/anat/sub-{{subject}}_space-T1w_desc-NPCr_mask.nii.gz",
+    log: "logs/create_npc_masks_{subject}.log"
+    resources: cpus_per_task=2, mem_mb=8_000, runtime=30,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "bash {REPO}/abstract_values/prepare/slurm_jobs/create_npc_masks.sh"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GLMsingle (per smoothing variant)
+# ─────────────────────────────────────────────────────────────────────────────
+rule fit_glmsingle:
+    input: rules.fmriprep.output,
+    output:
+        # Sentinel — actual outputs are a tree of NIfTIs under glmsingle{smooth}/sub-{subject}/
+        f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
+    log: "logs/fit_glmsingle{smooth}_{subject}.log"
+    resources: cpus_per_task=16, mem_mb=64_000, runtime=4*60,
+               slurm_partition="standard", slurm_account="zne.uzh",
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/glm/slurm_jobs/fit_glmsingle.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Encoding models
+# ─────────────────────────────────────────────────────────────────────────────
+def _aprf_resources():
+    return dict(cpus_per_task=8, mem_mb=32_000, runtime=2*60)
+
+rule fit_aprf:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf", "{smooth}")
+    log: "logs/fit_aprf{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh"
+
+rule fit_aprf_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_cv", "{smooth}")
+    log: "logs/fit_aprf_cv{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh"
+
+rule fit_aprf_session_shift:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_session_shift", "{smooth}")
+    log: "logs/fit_aprf_session_shift{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=session-shift "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh"
+
+rule fit_aprf_session_shift_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_session_shift_cv", "{smooth}")
+    log: "logs/fit_aprf_session_shift_cv{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=session-shift "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh"
+
+rule fit_aprf_weighted:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_weighted", "{smooth}")
+    log: "logs/fit_aprf_weighted{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_weighted.sh"
+
+rule fit_aprf_weighted_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_weighted_cv", "{smooth}")
+    log: "logs/fit_aprf_weighted_cv{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_weighted_cv.sh"
+
+rule fit_vonmises:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "vonmises", "{smooth}")
+    log: "logs/fit_vonmises{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises.sh"
+
+rule fit_vonmises_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "vonmises_cv", "{smooth}")
+    log: "logs/fit_vonmises_cv{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises_cv.sh"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Decoding (per ROI x n_voxels x lambda)
+# ─────────────────────────────────────────────────────────────────────────────
+def _decode_runtime(wc):
+    # n_voxels=0 path uses nested CV for value decoding; needs more time
+    return 240 if int(wc.nv) == 0 else 60
+
+rule decode_gabor:
+    input:
+        glmsingle = f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
+        mask      = mask_input(DECODE_ROIS),
+    output:
+        f"{DERIV}/decoded_gabor{{smooth}}/sub-{{subject}}/"
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}_decoded.tsv",
+    log: "logs/decode_gabor{smooth}_{subject}_{roi}_nv{nv}_lam{lam}.log"
+    resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MASK={input.mask} MASK_DESC={wildcards.roi} "
+        "N_VOXELS={wildcards.nv} LAMBD={wildcards.lam} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_gabor.sh"
+
+rule decode_value:
+    input:
+        glmsingle = f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
+        mask      = mask_input(DECODE_ROIS),
+    output:
+        f"{DERIV}/decoded_value{{smooth}}/sub-{{subject}}/"
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}_decoded.tsv",
+    log: "logs/decode_value{smooth}_{subject}_{roi}_nv{nv}_lam{lam}.log"
+    resources: cpus_per_task=4, mem_mb=16_000, runtime=_decode_runtime,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MASK={input.mask} MASK_DESC={wildcards.roi} "
+        "N_VOXELS={wildcards.nv} LAMBD={wildcards.lam} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_value.sh"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fisher information (Von Mises + aPRF; pooled + per-session)
+# ─────────────────────────────────────────────────────────────────────────────
+rule compute_fisher_information:
+    input:
+        glmsingle = f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
+        mask      = mask_input(FI_ROIS_VONMISES),
+    output:
+        f"{DERIV}/fisher_information_vonmises{{smooth}}/sub-{{subject}}/"
+        f"sub-{{subject}}_roi-{{roi}}_ses-{{session}}_fi.tsv",
+    log: "logs/fi_vonmises{smooth}_{subject}_{roi}_ses{session}.log"
+    resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
+    params:
+        ses_export=lambda wc: "" if wc.session == "all" else f"SESSION={wc.session} ",
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "ROI={wildcards.roi} {params.ses_export}"
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information.sh"
+
+rule compute_fisher_information_aprf:
+    input:
+        aprf = lambda wc: aprf_r2(wc.subject, "aprf", wc.smooth),
+        mask = mask_input(FI_ROIS_APRF),
+    output:
+        f"{DERIV}/fisher_information_aprf{{smooth}}/sub-{{subject}}/"
+        f"sub-{{subject}}_roi-{{roi}}_ses-{{session}}_fi.tsv",
+    log: "logs/fi_aprf{smooth}_{subject}_{roi}_ses{session}.log"
+    resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
+    params:
+        ses_export=lambda wc: "" if wc.session == "all" else f"SESSION={wc.session} ",
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "ROI={wildcards.roi} {params.ses_export}"
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information_aprf.sh"

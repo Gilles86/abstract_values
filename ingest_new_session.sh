@@ -91,6 +91,38 @@ BIDS_SOURCEDATA="${BIDS_ROOT}/sourcedata/mri/sub-${SUBJECT}"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
+# ── completeness gate ────────────────────────────────────────────────────────
+# Policy: never start MRI ingestion for subjects that don't yet have all
+# expected MRI sessions on the network drive. Override with FORCE_INCOMPLETE=1.
+#   Default: 2 sessions for study subjects (sub-NN); 1 session for pilots (sub-pilNN).
+EXPECTED_MRI_SESSIONS="${EXPECTED_MRI_SESSIONS:-2}"
+if [[ "$SUBJECT" == pil* ]]; then
+    EXPECTED_MRI_SESSIONS="${EXPECTED_MRI_SESSIONS_PILOT:-1}"
+fi
+
+if [[ "$DRY_RUN" -eq 0 && "${FORCE_INCOMPLETE:-0}" -ne 1 ]]; then
+    network_mri="${NETWORK_BASE}/sub-${SUBJECT}"
+    if [[ -d "$network_mri" ]]; then
+        actual=$(find "$network_mri" -maxdepth 1 -mindepth 1 -type d -name 'ses-*' | wc -l | tr -d ' ')
+    else
+        actual=0
+    fi
+    if (( actual < EXPECTED_MRI_SESSIONS )); then
+        cat >&2 <<EOF
+Error: sub-${SUBJECT} has ${actual} of ${EXPECTED_MRI_SESSIONS} expected MRI sessions on the
+network drive (${network_mri}). Refusing to start MRI ingest for an incomplete subject.
+
+Options:
+  • Wait until the missing session(s) appear, then re-run.
+  • For behavior-only ingest, use the /ingest skill with --scope behavior-cluster
+    (this script is MRI-side only).
+  • To override (e.g. debug runs), set FORCE_INCOMPLETE=1.
+EOF
+        exit 2
+    fi
+fi
+
+
 # ── step 1: rsync source → local BIDS sourcedata ─────────────────────────────
 log "Step 1: rsync ${SOURCE_DIR}  →  ${BIDS_SOURCEDATA}/"
 if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -127,6 +159,7 @@ fi
 
 # ── step 3a: rsync BIDS session → cluster ────────────────────────────────────
 log "Step 3a: rsync ${BIDS_ROOT}/sub-${SUBJECT}/ses-${SESSION}/  →  cluster"
+ssh "${CLUSTER}" "mkdir -p ${CLUSTER_BIDS}/sub-${SUBJECT}/ses-${SESSION}"
 rsync -av \
     "${BIDS_ROOT}/sub-${SUBJECT}/ses-${SESSION}/" \
     "${CLUSTER}:${CLUSTER_BIDS}/sub-${SUBJECT}/ses-${SESSION}/"
