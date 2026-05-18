@@ -27,7 +27,13 @@ if [ -n "$BOLD2ANAT_INIT" ]; then
     EXTRA_ARGS="--bold2anat-init $BOLD2ANAT_INIT"
 fi
 
-source /etc/profile.d/lmod.sh
+# `source /etc/profile.d/lmod.sh` alone defines `module` but leaves
+# MODULEPATH empty — module load works for interactive sbatch (which
+# inherits MODULEPATH from the submitting login shell), but fails when
+# the job is submitted from a cleaner env (e.g. snakemake-executor-plugin-
+# slurm). `source /etc/profile` sources the whole chain incl. MODULEPATH.
+# See: sciencecluster skill, section "module in SLURM scripts".
+source /etc/profile
 module load apptainer/1.4.1
 
 export APPTAINERENV_FS_LICENSE=$HOME/freesurfer/license.txt
