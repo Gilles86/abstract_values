@@ -4,14 +4,13 @@
 # Modes:
 #   (default)        all of $USER's jobs
 #   --snake          only this project's Snakemake jobs (auto-detected via
-#                    most-recent driver log containing "abstract_values")
+#                    most-recent driver log mentioning "abstract_values")
 #   --remote         already on cluster — skip the ssh hop
 #
-# How --snake filters: the SLURM executor plugin tags every Snakemake-
-# submitted job with `--job-name <run-uuid>`, where the UUID is unique per
-# driver invocation. We pick the most recent `snake_driver_*.log` that
-# mentions our project, read its `SLURM run ID:`, and filter squeue's NAME
-# column to that UUID. So --snake here means "this project's current DAG".
+# For Snakemake jobs the SLURM executor plugin sets:
+#   --job-name <run-uuid>       (per driver invocation; unique)
+#   --comment  rule_<rule>_wildcards_<key=value,...>
+# We filter on the Name == driver's run UUID.
 #
 # Usage:
 #   bash abstract_values/snakemake/status.sh
@@ -29,40 +28,51 @@ for arg in "$@"; do
     esac
 done
 
+# `ssh -T` disables PTY allocation (no "Shared connection closed" stderr noise);
+# `tr -d '\r'` strips CR that sometimes sneaks in over ssh and mangles strings.
 run() {
-    if [[ "$ON_CLUSTER" -eq 1 ]]; then bash -c "$1"; else ssh sciencecluster "$1"; fi
+    if [[ "$ON_CLUSTER" -eq 1 ]]; then
+        bash -c "$1" | tr -d '\r'
+    else
+        ssh -T sciencecluster "$1" 2>/dev/null | tr -d '\r'
+    fi
 }
 
 fmt='JobID:14,State:10,TimeUsed:10,Partition:10,Name:38,Comment:90'
 raw=$(run "squeue -u \$USER -h -O '$fmt'")
 
 if [[ "$SNAKE_ONLY" -eq 1 ]]; then
-    # Find this project's current driver's log file + extract run UUID
     log_file=$(run "ls -t ~/logs/snake_driver_*.log 2>/dev/null | \
-                    xargs grep -l 'abstract_values' 2>/dev/null | head -1")
+                    xargs -r grep -l 'abstract_values' 2>/dev/null | head -1")
     if [[ -z "$log_file" ]]; then
         echo "No abstract_values snakemake driver log found." >&2
         exit 1
     fi
-    uuid=$(run "grep -m1 'SLURM run ID:' $log_file 2>/dev/null | awk '{print \$NF}'")
-    driver_jid=$(basename "$log_file" .log | sed 's/^snake_driver_//')
 
-    # Driver status (state, time-used) — empty if driver has exited
-    driver_status=$(run "squeue -j $driver_jid -h -O 'State:12,TimeUsed:10,NodeList:18' 2>/dev/null" \
-                    | sed 's/[[:space:]]\+/ /g')
-    if [[ -n "$driver_status" ]]; then
-        echo "Driver: job $driver_jid  (RUNNING — $driver_status)"
+    uuid=$(run "grep -m1 'SLURM run ID:' '$log_file' 2>/dev/null | awk '{print \$NF}'")
+    driver_jid=$(basename "$log_file" .log | sed 's/^snake_driver_//')
+    driver_state=$(run "squeue -j $driver_jid -h -O 'State:12,TimeUsed:12,NodeList:18' 2>/dev/null | tr -s ' '")
+
+    if [[ -z "$uuid" ]]; then
+        echo "Driver: job $driver_jid  (log: $log_file)" >&2
+        echo "Could not extract run UUID from log — driver may have failed before printing it." >&2
+        exit 1
+    fi
+
+    if [[ -n "$driver_state" ]]; then
+        echo "Driver: job $driver_jid  ($driver_state)"
     else
         echo "Driver: job $driver_jid  (not in queue — finished or failed)"
     fi
     echo "Run UUID: $uuid"
     echo
 
+    # Filter on the UUID appearing in the Name column (column 5 after splitting)
     raw=$(echo "$raw" | grep -F "$uuid" || true)
     if [[ -z "$raw" ]]; then
         echo "No child jobs in the queue right now. Driver's recent activity:"
         echo "---"
-        run "tail -15 $log_file"
+        run "tail -15 '$log_file'"
         exit 0
     fi
 fi
@@ -71,7 +81,6 @@ echo "=== counts ==="
 echo "$raw" | awk '{print $2}' | sort | uniq -c | sort -rn
 echo
 
-# Per-job table: surface Comment (rule + wildcards) since the Name is a UUID
 echo "$raw" | awk '
     BEGIN { printf "%-12s %-9s %-9s %-9s %-22s %s\n",
                    "JOBID","STATE","TIME","PART","NAME","DETAIL" }
