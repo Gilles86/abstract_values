@@ -26,6 +26,15 @@ cd "$HOME/git/abstract_values"
 source "$HOME/data/miniforge3/etc/profile.d/conda.sh"
 conda activate abstract_values     # snakemake + plugin pip-installed here
 
+# Clear leftover lock from a prior scancel'd driver (idempotent). Without
+# this, the next driver dies in <5s with LockException. Safe to run even
+# when no lock exists.
+snakemake \
+    --snakefile abstract_values/snakemake/Snakefile \
+    --workflow-profile abstract_values/snakemake/profile \
+    --configfile abstract_values/snakemake/config.yaml \
+    --unlock || true
+
 exec snakemake \
     --snakefile abstract_values/snakemake/Snakefile \
     --workflow-profile abstract_values/snakemake/profile \
