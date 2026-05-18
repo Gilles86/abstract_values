@@ -157,18 +157,24 @@ if [[ "${ACTUAL_BOLD}" -ne "${EXPECTED_BOLD}" ]]; then
     [[ "${answer}" =~ ^[Yy]$ ]] || { log "Aborting."; exit 1; }
 fi
 
-# ── step 3a: rsync BIDS session → cluster ────────────────────────────────────
-log "Step 3a: rsync ${BIDS_ROOT}/sub-${SUBJECT}/ses-${SESSION}/  →  cluster"
-ssh "${CLUSTER}" "mkdir -p ${CLUSTER_BIDS}/sub-${SUBJECT}/ses-${SESSION}"
+# ── step 3a: rsync ENTIRE subject BIDS tree → cluster ────────────────────────
+# Push the whole sub-X/ tree (all sessions present locally) rather than just
+# ses-N. rsync is idempotent — existing files on the cluster are no-ops, so
+# the cost of including older sessions is a brief stat scan. This covers the
+# first-time multi-session case where sub-X has multiple BIDS-converted
+# sessions locally but the cluster has none (or some of) them yet.
+log "Step 3a: rsync ${BIDS_ROOT}/sub-${SUBJECT}/  →  cluster (all sessions)"
+ssh "${CLUSTER}" "mkdir -p ${CLUSTER_BIDS}/sub-${SUBJECT}"
 rsync -av \
-    "${BIDS_ROOT}/sub-${SUBJECT}/ses-${SESSION}/" \
-    "${CLUSTER}:${CLUSTER_BIDS}/sub-${SUBJECT}/ses-${SESSION}/"
+    "${BIDS_ROOT}/sub-${SUBJECT}/" \
+    "${CLUSTER}:${CLUSTER_BIDS}/sub-${SUBJECT}/"
 
-# ── step 3b: rsync behavior sourcedata → cluster ──────────────────────────────
-BEHAVIOR_SRC="${BIDS_ROOT}/sourcedata/behavior/sub-${SUBJECT}/ses-${SESSION}"
-BEHAVIOR_DST="${CLUSTER}:${CLUSTER_BIDS}/sourcedata/behavior/sub-${SUBJECT}/ses-${SESSION}/"
+# ── step 3b: rsync ENTIRE subject behavior tree → cluster ────────────────────
+BEHAVIOR_SRC="${BIDS_ROOT}/sourcedata/behavior/sub-${SUBJECT}"
+BEHAVIOR_DST="${CLUSTER}:${CLUSTER_BIDS}/sourcedata/behavior/sub-${SUBJECT}/"
 if [[ -d "${BEHAVIOR_SRC}" ]]; then
-    log "Step 3b: rsync behavior sourcedata  →  cluster"
+    log "Step 3b: rsync behavior sourcedata  →  cluster (all sessions)"
+    ssh "${CLUSTER}" "mkdir -p ${CLUSTER_BIDS}/sourcedata/behavior/sub-${SUBJECT}"
     rsync -av "${BEHAVIOR_SRC}/" "${BEHAVIOR_DST}"
 else
     log "Step 3b: no behavior sourcedata found at ${BEHAVIOR_SRC}, skipping"
