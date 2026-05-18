@@ -1,10 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=abstract_values_snake_driver
 #SBATCH --account=zne.uzh
-#SBATCH --partition=lowprio
+#SBATCH --partition=standard
+#SBATCH --qos=medium
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
-#SBATCH --time=1-00:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --output=/home/gdehol/logs/snake_driver_%j.log
 #
 # Snakemake driver for the abstract_values cluster pipeline.
