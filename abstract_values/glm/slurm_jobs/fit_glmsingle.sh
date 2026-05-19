@@ -45,9 +45,9 @@ ARGS=(
 echo "fit_glmsingle: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}  debug=${DEBUG}"
 echo "Args: ${ARGS[*]}"
 
-# Load environment
-. $HOME/init_conda.sh
-
-conda run -n abstract_values python -u \
+# Use the env's python binary directly: `conda run` buffers all subprocess
+# stdout until exit, which makes monitoring progress via `tail -f` impossible.
+export PYTHONUNBUFFERED=1
+"$HOME/data/conda/envs/abstract_values/bin/python" -u \
     "$REPO/abstract_values/glm/fit_glmsingle.py" \
     "${ARGS[@]}"
