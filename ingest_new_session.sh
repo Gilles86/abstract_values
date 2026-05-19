@@ -124,11 +124,23 @@ fi
 
 
 # ── step 1: rsync source → local BIDS sourcedata ─────────────────────────────
-log "Step 1: rsync ${SOURCE_DIR}  →  ${BIDS_SOURCEDATA}/"
-if [[ "$DRY_RUN" -eq 1 ]]; then
-    rsync -av --dry-run "${SOURCE_DIR}" "${BIDS_SOURCEDATA}/"
+# If the SMB share is unmounted but local sourcedata already has this session,
+# skip the rsync rather than aborting — useful for "re-submit existing data"
+# runs where the network drive isn't currently mounted.
+if [[ ! -d "$SOURCE_DIR" ]]; then
+    if [[ -d "${BIDS_SOURCEDATA}/ses-${SESSION}" ]]; then
+        log "Step 1: ${SOURCE_DIR} not available (unmounted?); local sourcedata exists — skipping rsync."
+    else
+        echo "Error: source ${SOURCE_DIR} not available AND local sourcedata ${BIDS_SOURCEDATA}/ses-${SESSION} is missing. Mount the network drive first." >&2
+        exit 1
+    fi
 else
-    rsync -av "${SOURCE_DIR}" "${BIDS_SOURCEDATA}/"
+    log "Step 1: rsync ${SOURCE_DIR}  →  ${BIDS_SOURCEDATA}/"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        rsync -av --dry-run "${SOURCE_DIR}" "${BIDS_SOURCEDATA}/"
+    else
+        rsync -av "${SOURCE_DIR}" "${BIDS_SOURCEDATA}/"
+    fi
 fi
 
 # ── step 2: BIDS conversion ───────────────────────────────────────────────────
