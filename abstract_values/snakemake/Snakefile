@@ -183,8 +183,11 @@ rule fmriprep:
         # something's wrong — let it die rather than slipping into a 48h slot.
         # 22h leaves margin under standard partition's default qos=normal (1-day cap).
         cpus_per_task=16, mem_mb=64_000, runtime=22*60,
+    params:
+        bold2anat_init=config.get("bold2anat_init", "auto"),
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} "
+        "BOLD2ANAT_INIT={params.bold2anat_init} "
         "bash {REPO}/abstract_values/prepare/cluster_preproc/fmriprep.sh"
 
 

@@ -207,9 +207,11 @@ PREPARE_DIR="\$REPO/abstract_values/prepare/slurm_jobs"
 GLMSINGLE_DIR="\$REPO/abstract_values/glm/slurm_jobs"
 APRF_DIR="\$REPO/abstract_values/encoding_models/slurm_jobs"
 
-# 4. fmriprep — full subject (all sessions; reuses nipype cache for prior sessions)
+# 4. fmriprep — full subject (all sessions; reuses nipype cache for prior sessions).
+# BOLD2ANAT_INIT=t1w forces BOLD→T1w coregistration; default (auto) picks T2w
+# which is unreliable for our cross-session T2w. Override via env var when invoking.
 FMRIPREP_JOB=\$(sbatch --parsable \
-    --export=PARTICIPANT_LABEL=${SUBJECT} \
+    --export=PARTICIPANT_LABEL=${SUBJECT},BOLD2ANAT_INIT=${BOLD2ANAT_INIT:-t1w} \
     "\$FMRIPREP_DIR/fmriprep.sh")
 echo "fmriprep:\$FMRIPREP_JOB"
 

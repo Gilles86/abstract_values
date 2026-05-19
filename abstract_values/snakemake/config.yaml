@@ -43,3 +43,7 @@ bids_folder: "/shares/zne.uzh/gdehol/ds-abstractvalue"
 repo_root:   "$HOME/git/abstract_values"
 conda_env:   "abstract_values"
 fmriprep_deriv: "fmriprep"
+
+# Force BOLD-to-anat coregistration target to T1w. Default fmriprep behavior
+# (auto) uses T2w when present, which is unreliable for our cross-session T2w.
+bold2anat_init: "t1w"
