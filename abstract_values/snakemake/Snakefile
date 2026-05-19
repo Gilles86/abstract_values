@@ -176,7 +176,7 @@ rule subject_complete:
 # ─────────────────────────────────────────────────────────────────────────────
 rule fmriprep:
     output:
-        f"{DERIV}/fmriprep/sub-{{subject}}/anat/sub-{{subject}}_desc-preproc_T1w.nii.gz",
+        f"{DERIV}/fmriprep/sub-{{subject}}.html",
     log: "logs/fmriprep_{subject}.log"
     resources:
         # 3T 2-session subjects finish well under 24h; if a job hits the cap,
