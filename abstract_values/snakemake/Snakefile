@@ -222,7 +222,7 @@ rule fit_glmsingle:
         # Sentinel — actual outputs are a tree of NIfTIs under glmsingle{smooth}/sub-{subject}/
         f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
     log: "logs/fit_glmsingle{smooth}_{subject}.log"
-    resources: cpus_per_task=16, mem_mb=64_000, runtime=4*60,
+    resources: cpus_per_task=16, mem_mb=128_000, runtime=4*60,   # 128G: 64G hit OOM on 2-session subjects
                slurm_partition="standard", slurm_account="zne.uzh",
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "

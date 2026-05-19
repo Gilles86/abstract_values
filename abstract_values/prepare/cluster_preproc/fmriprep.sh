@@ -68,11 +68,12 @@ apptainer run \
 APPTAINER_RC=$?
 
 # apptainer ≥ 1.4 occasionally exits 1 on a clean fmriprep run.
-# Trust fmriprep's own verdict from the log rather than the container exit code.
+# Source of truth: the HTML report fmriprep writes on success. Independent
+# of how the job was submitted (SBATCH header vs snakemake stdout redirect).
 if [[ $APPTAINER_RC -ne 0 ]]; then
-    LOGFILE="/home/gdehol/logs/abstractvalue_fmriprep_${SLURM_JOB_ID}-${SLURM_ARRAY_TASK_ID:-4294967294}.txt"
-    if grep -q 'fMRIPrep finished successfully' "$LOGFILE" 2>/dev/null; then
-        echo "apptainer exited $APPTAINER_RC but fMRIPrep reported success — treating as clean exit."
+    REPORT="/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/fmriprep/sub-${PARTICIPANT_LABEL}.html"
+    if [[ -f "$REPORT" ]]; then
+        echo "apptainer exited $APPTAINER_RC but fMRIPrep HTML report exists ($REPORT) — treating as clean exit."
         exit 0
     fi
     exit $APPTAINER_RC
