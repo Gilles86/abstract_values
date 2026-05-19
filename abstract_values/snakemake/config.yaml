@@ -2,14 +2,16 @@ subjects:
   # sub-08 premieres the Snakemake pipeline (both MRI sessions present).
   # Add subjects below as they hit the completeness gate (≥2 MRI sessions).
   - "08"
+  - "09"
+  - "10"
 
 # Per-subject MRI session count actually present on disk (controls
 # session-shift availability + per-session FI).
 subject_sessions:
   "07": 1
   "08": 2
-  "09": 1
-  "10": 1
+  "09": 2
+  "10": 2
 
 # Subjects are considered "complete" once they have this many MRI sessions
 # on disk; pipeline aborts at config-load if any listed subject has fewer.
