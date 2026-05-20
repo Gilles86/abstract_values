@@ -107,9 +107,16 @@ def mask_input(rois):
     return _inner
 
 def aprf_r2(subject, variant, smooth):
-    """Path to the r2 NIfTI for a given encoding-model variant (sentinel)."""
-    return (f"{DERIV}/encoding_models/{variant}{smooth}/sub-{subject}/func/"
-            f"sub-{subject}_task-abstractvalue_space-T1w_desc-r2_pe.nii.gz")
+    """Path to the .done sentinel for a given encoding-model variant.
+
+    The underlying scripts (fit_aprf.py, fit_vonmises.py) write to
+    derivatives/encoding_models/aprf[-{variant}]/sub-XX/func/, embedding
+    `_smoothed` in the filename rather than the directory. Using a sentinel
+    sidesteps the path-schema mismatch — the rule succeeds when the touch
+    file exists; downstream tools read the actual NIfTIs at the
+    script-native paths.
+    """
+    return f"{DERIV}/encoding_models/{variant}{smooth}/sub-{subject}/.done"
 
 # Terminal targets per subject
 def subject_targets(subject):
@@ -248,7 +255,8 @@ rule fit_aprf:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule fit_aprf_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
@@ -258,7 +266,8 @@ rule fit_aprf_cv:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule fit_aprf_session_shift:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
@@ -269,7 +278,8 @@ rule fit_aprf_session_shift:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MODEL=session-shift "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule fit_aprf_session_shift_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
@@ -280,7 +290,8 @@ rule fit_aprf_session_shift_cv:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MODEL=session-shift "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule fit_aprf_weighted:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
@@ -290,7 +301,8 @@ rule fit_aprf_weighted:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_weighted.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_weighted.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule fit_aprf_weighted_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
@@ -300,7 +312,8 @@ rule fit_aprf_weighted_cv:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_weighted_cv.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_weighted_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule fit_vonmises:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
@@ -310,7 +323,8 @@ rule fit_vonmises:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule fit_vonmises_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
@@ -320,7 +334,8 @@ rule fit_vonmises_cv:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises_cv.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
