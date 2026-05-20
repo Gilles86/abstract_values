@@ -64,7 +64,8 @@ from abstract_values.utils.data import Subject, BIDS_FOLDER
 warnings.filterwarnings('ignore')
 
 TR = 0.996
-TR_UP = 0.25
+TR_UP = 0.5      # 2x upsample — sub-TR precision below HRF timescale, but
+                 # halves memory + runtime vs 4x (TR_UP=0.25) without quality loss
 STIM_DUR = 1.5   # gabor presentation duration (seconds)
 
 
