@@ -130,28 +130,28 @@ def subject_targets(subject):
                 aprf_r2(subject, "aprf_session_shift_cv", sfx),
             ]
 
-        # Decoding fan-out
+        # Decoding fan-out (sentinel files; actual TSVs at derivatives/decoding/...)
         for roi in DECODE_ROIS:
             for nv, lam in product(DECODE_NV, DECODE_LAM):
                 targets += [
                     f"{DERIV}/decoded_gabor{sfx}/sub-{subject}/"
-                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}_decoded.tsv",
+                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}.done",
                     f"{DERIV}/decoded_value{sfx}/sub-{subject}/"
-                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}_decoded.tsv",
+                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}.done",
                 ]
 
-        # Fisher information: pooled ("all") + per-session
+        # Fisher information sentinels (actual TSVs at derivatives/encoding_models/...)
         for roi in FI_ROIS_VONMISES:
             for ses in ["all"] + [str(i) for i in sessions]:
                 targets.append(
                     f"{DERIV}/fisher_information_vonmises{sfx}/sub-{subject}/"
-                    f"sub-{subject}_roi-{roi['desc']}_ses-{ses}_fi.tsv"
+                    f"sub-{subject}_roi-{roi['desc']}_ses-{ses}.done"
                 )
         for roi in FI_ROIS_APRF:
             for ses in ["all"] + [str(i) for i in sessions]:
                 targets.append(
                     f"{DERIV}/fisher_information_aprf{sfx}/sub-{subject}/"
-                    f"sub-{subject}_roi-{roi['desc']}_ses-{ses}_fi.tsv"
+                    f"sub-{subject}_roi-{roi['desc']}_ses-{ses}.done"
                 )
     return targets
 
@@ -335,8 +335,10 @@ rule decode_gabor:
         glmsingle = f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
         mask      = mask_input(DECODE_ROIS),
     output:
+        # Sentinel — actual decoded TSVs live at
+        # derivatives/decoding/gabor/sub-XX/func/... per decode_gabor.py.
         f"{DERIV}/decoded_gabor{{smooth}}/sub-{{subject}}/"
-        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}_decoded.tsv",
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}.done",
     log: "logs/decode_gabor{smooth}_{subject}_{roi}_nv{nv}_lam{lam}.log"
     resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
     shell:
@@ -344,15 +346,18 @@ rule decode_gabor:
         "MASK={input.mask} MASK_DESC={wildcards.roi} "
         "N_VOXELS={wildcards.nv} LAMBD={wildcards.lam} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_gabor.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_gabor.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule decode_value:
     input:
         glmsingle = f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
         mask      = mask_input(DECODE_ROIS),
     output:
+        # Sentinel — actual decoded TSVs live at
+        # derivatives/decoding/value/sub-XX/func/... per decode_value.py.
         f"{DERIV}/decoded_value{{smooth}}/sub-{{subject}}/"
-        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}_decoded.tsv",
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}.done",
     log: "logs/decode_value{smooth}_{subject}_{roi}_nv{nv}_lam{lam}.log"
     resources: cpus_per_task=4, mem_mb=16_000, runtime=_decode_runtime,
     shell:
@@ -360,7 +365,8 @@ rule decode_value:
         "MASK={input.mask} MASK_DESC={wildcards.roi} "
         "N_VOXELS={wildcards.nv} LAMBD={wildcards.lam} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_value.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_value.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -371,8 +377,11 @@ rule compute_fisher_information:
         glmsingle = f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch",
         mask      = mask_input(FI_ROIS_VONMISES),
     output:
+        # Sentinel — actual FI TSVs live at
+        # derivatives/encoding_models/vonmises/sub-XX/[ses-X/]func/... per
+        # compute_fisher_information.py.
         f"{DERIV}/fisher_information_vonmises{{smooth}}/sub-{{subject}}/"
-        f"sub-{{subject}}_roi-{{roi}}_ses-{{session}}_fi.tsv",
+        f"sub-{{subject}}_roi-{{roi}}_ses-{{session}}.done",
     log: "logs/fi_vonmises{smooth}_{subject}_{roi}_ses{session}.log"
     resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
     params:
@@ -381,15 +390,19 @@ rule compute_fisher_information:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "ROI={wildcards.roi} {params.ses_export}"
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
 
 rule compute_fisher_information_aprf:
     input:
         aprf = lambda wc: aprf_r2(wc.subject, "aprf", wc.smooth),
         mask = mask_input(FI_ROIS_APRF),
     output:
+        # Sentinel — actual FI TSVs live at
+        # derivatives/encoding_models/aprf/sub-XX/[ses-X/]func/... per
+        # compute_fisher_information_aprf.py.
         f"{DERIV}/fisher_information_aprf{{smooth}}/sub-{{subject}}/"
-        f"sub-{{subject}}_roi-{{roi}}_ses-{{session}}_fi.tsv",
+        f"sub-{{subject}}_roi-{{roi}}_ses-{{session}}.done",
     log: "logs/fi_aprf{smooth}_{subject}_{roi}_ses{session}.log"
     resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
     params:
@@ -398,4 +411,5 @@ rule compute_fisher_information_aprf:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "ROI={wildcards.roi} {params.ses_export}"
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
-        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information_aprf.sh"
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
