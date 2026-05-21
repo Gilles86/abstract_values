@@ -40,7 +40,7 @@ from scipy.stats import norm
 # pandas + numpy but no nilearn, so it's safe in pycortex2.
 from abstract_values.utils.data import BIDS_FOLDER
 
-DEFAULT_MODELS = ["aprf", "vonmises"]
+DEFAULT_MODELS = ["aprf", "vonmises", "aprf-weighted"]
 PYCORTEX_FSAVG_SUBJECT = "fsaverage"
 
 
