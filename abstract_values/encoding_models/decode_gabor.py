@@ -88,11 +88,15 @@ def make_basis_parameters(n_basis, kappa):
     })
 
 
-def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
+def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
+         n_basis=8, kappa=2.0,
          weight_alpha=0.0, lambd=0.0,
          mask=None, mask_desc=None, spherical_noise=False,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False):
+    """If fdr_alpha is set, voxels are selected by FDR-thresholding the
+    nested-CV R² (overrides n_voxels). Output filename uses
+    `nvoxels-fdrNN` where NN is alpha*100."""
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -141,9 +145,13 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
     noise_label  = 'spherical' if spherical_noise else 'full'
     smooth_label = '_smoothed' if smoothed else ''
     lambd_label  = f'_lambda-{lambd}' if lambd != 0.0 else ''
+    if fdr_alpha is not None:
+        nvox_tag = f'fdr{int(round(fdr_alpha * 100)):02d}'
+    else:
+        nvox_tag = str(n_voxels)
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_mask-{mask_desc}'
-              f'_nvoxels-{n_voxels}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
+              f'_nvoxels-{nvox_tag}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
 
     # ── leave-one-run-out cross-validation ────────────────────────────────────
     all_pdfs = []
@@ -168,7 +176,7 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
         # weights: DataFrame (n_basis × n_voxels)
 
         # ── voxel selection ────────────────────────────────────────────────────
-        if n_voxels == 0:
+        if n_voxels == 0 or fdr_alpha is not None:
             # Nested CV: leave-one-run-out within training set to get unbiased R²
             inner_runs = list(zip(
                 train_paradigm.index.get_level_values('session'),
@@ -195,9 +203,16 @@ def main(subject, sessions=None, n_voxels=100, n_basis=8, kappa=2.0,
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
-            sel = cv_r2[cv_r2 > 0.0].index
-            print(f'    {len(sel)} voxels selected  '
-                  f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+            if fdr_alpha is not None:
+                from braincoder.utils.stats import r2_fdr_threshold
+                thr = r2_fdr_threshold(cv_r2.values, alpha=fdr_alpha)
+                sel = cv_r2[cv_r2 > thr].index
+                print(f'    {len(sel)} voxels selected  '
+                      f'(FDR≤{fdr_alpha:.2f} → cvR² > {thr:.3f})')
+            else:
+                sel = cv_r2[cv_r2 > 0.0].index
+                print(f'    {len(sel)} voxels selected  '
+                      f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
         else:
             basis_pred = model.basis_predictions(train_paradigm, basis_pars)
             pred_train = pd.DataFrame(basis_pred @ weights.values,
@@ -261,6 +276,10 @@ if __name__ == '__main__':
     parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--n-voxels', type=int, default=100,
                         help='Top-N voxels by training R² (0 = nested CV R²>0)')
+    parser.add_argument('--fdr-alpha', type=float, default=None,
+                        help='If set, replaces --n-voxels with FDR-controlled '
+                             'voxel selection (braincoder r2_fdr_threshold on '
+                             'per-fold nested-CV R²). Output: nvoxels-fdrNN.')
     parser.add_argument('--n-basis', type=int, default=8,
                         help='Number of Von Mises basis functions (default: 8)')
     parser.add_argument('--kappa', type=float, default=2.0,
@@ -284,6 +303,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
+         fdr_alpha=args.fdr_alpha,
          n_basis=args.n_basis, kappa=args.kappa,
          weight_alpha=args.weight_alpha, lambd=args.lambd,
          mask=args.mask, mask_desc=args.mask_desc,

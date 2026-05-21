@@ -108,11 +108,15 @@ def get_value_paradigm(sub, sessions):
     return df[['x']]
 
 
-def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
+def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
+         n_iterations=1000,
          n_grid_mus=20, n_grid_sds=15, n_stimulus_grid=50,
          lambd=0.0, mask=None, mask_desc=None, spherical_noise=False,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False, model_type='loggauss'):
+    """If fdr_alpha is set, voxels are selected by FDR-thresholding the
+    nested-CV R² (overrides n_voxels). Output filename uses
+    `nvoxels-fdrNN` where NN is alpha*100."""
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -164,9 +168,13 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
     noise_label  = 'spherical' if spherical_noise else 'full'
     smooth_label = '_smoothed' if smoothed else ''
     lambd_label  = f'_lambda-{lambd}' if lambd != 0.0 else ''
+    if fdr_alpha is not None:
+        nvox_tag = f'fdr{int(round(fdr_alpha * 100)):02d}'
+    else:
+        nvox_tag = str(n_voxels)
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_mask-{mask_desc}'
-              f'_nvoxels-{n_voxels}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
+              f'_nvoxels-{nvox_tag}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
 
     # ── leave-one-run-out cross-validation ────────────────────────────────────
     all_pdfs = []
@@ -200,7 +208,7 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
         pars = fitter.fit(max_n_iterations=n_iterations, init_pars=grid_pars)
 
         # ── voxel selection ────────────────────────────────────────────────────
-        if n_voxels == 0:
+        if n_voxels == 0 or fdr_alpha is not None:
             # Nested CV: leave-one-run-out within training set to get unbiased R²
             inner_runs = list(zip(
                 train_paradigm.index.get_level_values('session'),
@@ -232,9 +240,19 @@ def main(subject, sessions=None, n_voxels=100, n_iterations=1000,
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
-            sel = cv_r2[cv_r2 > 0.0].index
-            print(f'    {len(sel)} voxels selected  '
-                  f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+            if fdr_alpha is not None:
+                # FDR-controlled threshold via braincoder's 2-component
+                # logit-Gaussian R² mixture (noise vs signal); per-fold,
+                # so the threshold adapts to that fold's voxel pool.
+                from braincoder.utils.stats import r2_fdr_threshold
+                thr = r2_fdr_threshold(cv_r2.values, alpha=fdr_alpha)
+                sel = cv_r2[cv_r2 > thr].index
+                print(f'    {len(sel)} voxels selected  '
+                      f'(FDR≤{fdr_alpha:.2f} → cvR² > {thr:.3f})')
+            else:
+                sel = cv_r2[cv_r2 > 0.0].index
+                print(f'    {len(sel)} voxels selected  '
+                      f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
         else:
             pred_train = model.predict(parameters=pars, paradigm=train_paradigm)
             r2_train   = get_rsq(train_data, pred_train)
@@ -296,6 +314,12 @@ if __name__ == '__main__':
     parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--n-voxels', type=int, default=100,
                         help='Top-N voxels by training R² (0 = nested CV R²>0)')
+    parser.add_argument('--fdr-alpha', type=float, default=None,
+                        help='If set, replaces --n-voxels with FDR-controlled '
+                             'voxel selection: per-fold nested-CV R² mixture '
+                             'is fit (braincoder.utils.stats.r2_fdr_threshold) '
+                             'and voxels above the FDR<=α threshold are used. '
+                             'Output filename: nvoxels-fdrNN.')
     parser.add_argument('--n-iterations', type=int, default=1000,
                         help='Max gradient descent iterations (default: 1000)')
     parser.add_argument('--n-stimulus-grid', type=int, default=50,
@@ -320,6 +344,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
+         fdr_alpha=args.fdr_alpha,
          n_iterations=args.n_iterations, n_stimulus_grid=args.n_stimulus_grid,
          lambd=args.lambd, mask=args.mask, mask_desc=args.mask_desc,
          spherical_noise=args.spherical_noise,
