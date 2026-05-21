@@ -1,6 +1,6 @@
-"""Group-mean R² (aPRF + vonmises) on fsaverage cortex via pycortex.
+"""Group-mean R² / cvR² on fsaverage cortex via pycortex.
 
-Loads the fsaverage-space R² `.func.gii` files produced by
+Loads the fsaverage-space (cv)R² `.func.gii` files produced by
 `sample_r2_to_surface.py`, averages across subjects per model, and
 displays the means in a pycortex webgl viewer on the `fsaverage` subject.
 
@@ -8,11 +8,16 @@ Per model, alpha-masks vertices by the **group mean R²** itself with a
 smooth Gaussian-CDF transition centred on `--r2-thr`, so weak-signal
 vertices fade into the curvature background.
 
+Use `--desc cvr2` to visualise the cross-validated R² maps (from the
+`*.cv` model dirs aggregated by `aggregate_cvr2.py`); the default
+`--desc r2` is the full-fit R² from the non-CV dirs.
+
 Usage:
     python -m abstract_values.visualize.visualize_mean_r2_fsaverage
     python -m abstract_values.visualize.visualize_mean_r2_fsaverage --subjects 07 08 09 10
     python -m abstract_values.visualize.visualize_mean_r2_fsaverage --r2-thr 5 --r2-sigma 2
-    python -m abstract_values.visualize.visualize_mean_r2_fsaverage --models aprf vonmises aprf_session_shift
+    python -m abstract_values.visualize.visualize_mean_r2_fsaverage --models aprf vonmises aprf-session-shift
+    python -m abstract_values.visualize.visualize_mean_r2_fsaverage --desc cvr2 --models aprf.cv vonmises.cv
 
 Note: the abstract_values encoding models (fit_aprf.py, fit_vonmises.py)
 write R² as a **fraction (0–1)** — `get_rsq()` output. That's a different
@@ -40,15 +45,19 @@ from scipy.stats import norm
 # pandas + numpy but no nilearn, so it's safe in pycortex2.
 from abstract_values.utils.data import BIDS_FOLDER
 
+# Full-fit defaults — the encoder dirs whose `desc-r2` maps anchor downstream
+# visualisations. The CV counterparts (aprf.cv, vonmises.cv, ...) are
+# available too; switch by passing `--desc cvr2 --models aprf.cv vonmises.cv ...`.
 DEFAULT_MODELS = ["aprf", "vonmises", "aprf-weighted"]
+DEFAULT_CVR2_MODELS = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv"]
 PYCORTEX_FSAVG_SUBJECT = "fsaverage"
 
 
 def fsaverage_r2_path(subject: str, model: str, hemi: str,
-                      bids_folder: Path) -> Path:
+                      bids_folder: Path, desc: str = "r2") -> Path:
     return (Path(bids_folder) / "derivatives" / "encoding_models" / model
             / f"sub-{subject}" / "func"
-            / f"sub-{subject}_task-abstractvalue_hemi-{hemi}_space-fsaverage_desc-r2_pe.func.gii")
+            / f"sub-{subject}_task-abstractvalue_hemi-{hemi}_space-fsaverage_desc-{desc}_pe.func.gii")
 
 
 def _load_gifti(path: Path) -> np.ndarray:
@@ -58,23 +67,26 @@ def _load_gifti(path: Path) -> np.ndarray:
     return nib.load(str(path)).darrays[0].data.astype(np.float32)
 
 
-def load_bilateral(subject: str, model: str, bids_folder: Path) -> np.ndarray | None:
-    """Return L+R fsaverage R² concatenated as a (n_vertices,) array, or None if missing."""
+def load_bilateral(subject: str, model: str, bids_folder: Path,
+                   desc: str = "r2") -> np.ndarray | None:
+    """Return L+R fsaverage (cv)R² concatenated as a (n_vertices,) array, or None if missing."""
     arrays = []
     for hemi in ("L", "R"):
-        p = fsaverage_r2_path(subject, model, hemi, bids_folder)
+        p = fsaverage_r2_path(subject, model, hemi, bids_folder, desc=desc)
         if not p.exists():
             return None
         arrays.append(_load_gifti(p))
     return np.concatenate(arrays)
 
 
-def discover_subjects(bids_folder: Path, model: str = "aprf") -> list[str]:
-    """Subjects with an fsaverage R² file for `model`."""
+def discover_subjects(bids_folder: Path, model: str = "aprf",
+                      desc: str = "r2") -> list[str]:
+    """Subjects with an fsaverage (cv)R² file for `model`."""
     base = Path(bids_folder) / "derivatives" / "encoding_models" / model
     out = []
     for p in sorted(base.glob("sub-*")):
-        if (p / "func" / f"{p.name}_task-abstractvalue_hemi-L_space-fsaverage_desc-r2_pe.func.gii").exists():
+        fn = f"{p.name}_task-abstractvalue_hemi-L_space-fsaverage_desc-{desc}_pe.func.gii"
+        if (p / "func" / fn).exists():
             out.append(p.name.removeprefix("sub-"))
     return out
 
@@ -86,20 +98,20 @@ def soft_alpha(values: np.ndarray, thr: float, sigma: float) -> np.ndarray:
 
 
 def main(subjects: list[str], models: list[str], bids_folder: Path,
-         r2_thr: float, r2_sigma: float) -> None:
+         r2_thr: float, r2_sigma: float, desc: str = "r2") -> None:
     ds: dict[str, cortex.Vertex] = {}
     for model in models:
         per_sub = []
         used: list[str] = []
         for sub in subjects:
-            arr = load_bilateral(sub, model, bids_folder)
+            arr = load_bilateral(sub, model, bids_folder, desc=desc)
             if arr is None:
-                print(f"sub-{sub} {model}: fsaverage R² not found — skipping")
+                print(f"sub-{sub} {model}: fsaverage {desc} not found — skipping")
                 continue
             per_sub.append(arr)
             used.append(sub)
         if not per_sub:
-            print(f"{model}: no subjects with fsaverage R² — skipping")
+            print(f"{model}: no subjects with fsaverage {desc} — skipping")
             continue
 
         stack = np.stack(per_sub, axis=0)        # (n_subjects, n_vertices)
@@ -117,10 +129,10 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
         v = cortex.Vertex(np.nan_to_num(mean_r2).astype(np.float32),
                           PYCORTEX_FSAVG_SUBJECT,
                           vmin=r2_thr, vmax=vmax, cmap="hot")
-        label = f"mean_{model}_r2  (n={len(used)})"
+        label = f"mean_{model}_{desc}  (n={len(used)})"
         ds[label] = v.blend_curvature(alpha)
         print(f"{model}: n={len(used)} subjects "
-              f"[{', '.join(used)}], R² range [{mean_r2.min():.2f}, {mean_r2.max():.2f}]%, "
+              f"[{', '.join(used)}], {desc} range [{mean_r2.min():.2f}, {mean_r2.max():.2f}], "
               f"colorbar [{r2_thr:.1f}, {vmax:.1f}]")
 
     if not ds:
@@ -135,8 +147,13 @@ if __name__ == "__main__":
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--subjects", nargs="+",
                    help="Subject labels (default: discover from disk)")
-    p.add_argument("--models", nargs="+", default=DEFAULT_MODELS,
-                   help=f"Models to average (default: {' '.join(DEFAULT_MODELS)})")
+    p.add_argument("--models", nargs="+", default=None,
+                   help=f"Models to average. Default depends on --desc: "
+                        f"r2 -> {' '.join(DEFAULT_MODELS)}; "
+                        f"cvr2 -> {' '.join(DEFAULT_CVR2_MODELS)}.")
+    p.add_argument("--desc", default="r2", choices=["r2", "cvr2"],
+                   help="Which fsaverage desc-entity to load: "
+                        "r2 (full-fit, default) or cvr2 (cross-validated).")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     p.add_argument("--r2-thr", type=float, default=0.05,
                    help="R² alpha-masking threshold (FRACTION 0–1; "
@@ -146,12 +163,17 @@ if __name__ == "__main__":
                         "(default 0.02)")
     args = p.parse_args()
 
+    if args.models is None:
+        args.models = DEFAULT_CVR2_MODELS if args.desc == "cvr2" else DEFAULT_MODELS
+
     subjects = (args.subjects
                 if args.subjects is not None
-                else discover_subjects(Path(args.bids_folder), model=args.models[0]))
+                else discover_subjects(Path(args.bids_folder),
+                                       model=args.models[0],
+                                       desc=args.desc))
     if not subjects:
         raise SystemExit("No subjects found — pass --subjects or run "
                          "sample_r2_to_surface.py first.")
 
     main(subjects, args.models, Path(args.bids_folder),
-         args.r2_thr, args.r2_sigma)
+         args.r2_thr, args.r2_sigma, desc=args.desc)

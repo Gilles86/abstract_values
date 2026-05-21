@@ -83,6 +83,10 @@ wildcard_constraints:
     nv      = r"\d+",
     lam     = r"[0-9.]+",
     session = r"(all|\d+)",
+    # model_dir: on-disk encoder dir name. Allows `.` and `-` because the
+    # CV dirs use the historical `aprf.cv` / `aprf-shift.cv` / `aprf-weighted.cv`
+    # convention and `aprf-weighted` / `aprf-session-shift` use hyphens.
+    model_dir = r"[A-Za-z0-9][A-Za-z0-9.\-_]*",
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -118,6 +122,40 @@ def aprf_r2(subject, variant, smooth):
     """
     return f"{DERIV}/encoding_models/{variant}{smooth}/sub-{subject}/.done"
 
+
+# ── Surface sampling: model_dir <-> fit-rule sentinel name mapping ───────────
+# These dicts capture the historical hyphen/dot/underscore drift between the
+# encoder scripts' on-disk dirs and the Snakemake sentinel-dir names defined
+# in `aprf_r2()`. The Snakemake side (RHS) uses underscores; the on-disk
+# encoder dirs (LHS) use hyphens (-weighted, -session-shift) and dots (.cv).
+
+# R² (full-fit) model_dirs -> fit-rule sentinel variant name used by aprf_r2()
+R2_MODEL_DIRS = {
+    "aprf":               "aprf",
+    "vonmises":           "vonmises",
+    "aprf-weighted":      "aprf_weighted",
+    "aprf-session-shift": "aprf_session_shift",
+}
+
+# cvR² model_dirs -> (fit_cv_rule sentinel variant, smooth-passes-through-as-is)
+# These point at the on-disk *.cv dirs that fit_*_cv.py writes per-run NIfTIs to.
+CVR2_MODEL_DIRS = {
+    "aprf.cv":           "aprf_cv",
+    "vonmises.cv":       "vonmises_cv",
+    "aprf-weighted.cv":  "aprf_weighted_cv",
+    "aprf-shift.cv":     "aprf_session_shift_cv",
+}
+
+def cvr2_aggregate_sentinel(subject, model_dir, smooth):
+    """Sentinel for the per-subject mean-cvR² volume aggregation."""
+    return (f"{DERIV}/encoding_models/{model_dir}{smooth}/"
+            f"sub-{subject}/.cvr2_aggregated")
+
+def surface_sample_sentinel(subject, model_dir, smooth):
+    """Sentinel for the per-(model, subject, smooth) surface sampling job."""
+    return (f"{DERIV}/encoding_models/{model_dir}{smooth}/"
+            f"sub-{subject}/.surface_sampled")
+
 # Terminal targets per subject
 def subject_targets(subject):
     sessions = sessions_for(subject)
@@ -136,6 +174,16 @@ def subject_targets(subject):
                 aprf_r2(subject, "aprf_session_shift", sfx),
                 aprf_r2(subject, "aprf_session_shift_cv", sfx),
             ]
+
+        # Surface sampling: R² for full-fit models, cvR² (after aggregation)
+        # for the *.cv variants. The session-shift pair only if ≥ 2 sessions.
+        r2_dirs   = ["aprf", "vonmises", "aprf-weighted"]
+        cvr2_dirs = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv"]
+        if len(sessions) >= 2:
+            r2_dirs.append("aprf-session-shift")
+            cvr2_dirs.append("aprf-shift.cv")
+        for md in r2_dirs + cvr2_dirs:
+            targets.append(surface_sample_sentinel(subject, md, sfx))
 
         # Decoding fan-out (sentinel files; actual TSVs at derivatives/decoding/...)
         for roi in DECODE_ROIS:
@@ -335,6 +383,97 @@ rule fit_vonmises_cv:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Surface sampling (R² + aggregated cvR² → fsnative + fsaverage)
+# ─────────────────────────────────────────────────────────────────────────────
+# Aggregates per-run cvR² NIfTIs into one mean cvR² volume (with float32
+# discipline) and then samples encoding-model R² / cvR² volumes to fsnative +
+# fsaverage GIfTIs, ready for the group fsaverage viz.
+
+rule aggregate_cvr2:
+    """Mean-aggregate per-run cvR² NIfTIs for one (subject, cv-model-dir, smooth).
+
+    Depends on the fit_*_cv rule's `.done` sentinel via CVR2_MODEL_DIRS.
+    Writes the mean volume to the same `func/` dir as the per-run files,
+    plus a sentinel next to it.
+    """
+    input:
+        lambda wc: aprf_r2(wc.subject,
+                           CVR2_MODEL_DIRS[wc.model_dir],
+                           wc.smooth),
+    output:
+        f"{DERIV}/encoding_models/{{model_dir}}{{smooth}}/sub-{{subject}}/.cvr2_aggregated",
+    log: "logs/aggregate_cvr2_{model_dir}{smooth}_{subject}.log"
+    resources: cpus_per_task=1, mem_mb=8_000, runtime=10,
+    wildcard_constraints:
+        # Restrict to known CV dirs so we don't accidentally try to aggregate
+        # a non-CV model dir (the per-run files don't exist there).
+        model_dir = r"(aprf|vonmises|aprf-weighted|aprf-shift)\.cv",
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} MODEL_DIR={wildcards.model_dir} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/aggregate_cvr2.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+
+def _surface_sample_input(wc):
+    """Resolve the input sentinel for surface sampling based on model_dir.
+
+    For full-fit r2 dirs (aprf/vonmises/aprf-weighted/aprf-session-shift):
+        depend on the corresponding fit rule's `.done`.
+    For *.cv dirs:
+        depend on the cvR² aggregation sentinel.
+    """
+    md = wc.model_dir
+    if md in R2_MODEL_DIRS:
+        return aprf_r2(wc.subject, R2_MODEL_DIRS[md], wc.smooth)
+    if md in CVR2_MODEL_DIRS:
+        return cvr2_aggregate_sentinel(wc.subject, md, wc.smooth)
+    raise WorkflowError(
+        f"Unknown model_dir {md!r} for surface sampling. "
+        f"Known: {sorted(R2_MODEL_DIRS) + sorted(CVR2_MODEL_DIRS)}"
+    )
+
+
+def _surface_sample_desc(wc):
+    """desc-entity to sample: 'r2' for full-fit dirs, 'cvr2' for *.cv dirs."""
+    return "cvr2" if wc.model_dir in CVR2_MODEL_DIRS else "r2"
+
+
+rule sample_r2_to_surface:
+    """Sample one encoding-model (cv)R² volume to fsnative + fsaverage GIfTIs.
+
+    `model_dir` is the on-disk encoder dir; the desc-entity sampled is
+    inferred (`r2` for full-fit dirs, `cvr2` for *.cv dirs). Smoothing
+    suffix is appended to the desc by the underlying script.
+    """
+    input:
+        # The fit / aggregation sentinel — guarantees the source NIfTI exists.
+        sentinel = _surface_sample_input,
+        # Also gate on fmriprep, since SurfaceTransform needs the freesurfer
+        # streams + the per-session anat surfaces.
+        fmriprep = rules.fmriprep.output,
+    output:
+        f"{DERIV}/encoding_models/{{model_dir}}{{smooth}}/sub-{{subject}}/.surface_sampled",
+    log: "logs/sample_r2_to_surface_{model_dir}{smooth}_{subject}.log"
+    resources: cpus_per_task=2, mem_mb=8_000, runtime=20,
+    params:
+        desc = _surface_sample_desc,
+    wildcard_constraints:
+        # Restrict to the dirs we actually surface-sample, so wildcard
+        # inference can't grab an unrelated `encoding_models/*` subdir.
+        model_dir = (r"(aprf|vonmises|aprf-weighted|aprf-session-shift|"
+                     r"aprf\.cv|vonmises\.cv|aprf-weighted\.cv|aprf-shift\.cv)"),
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} "
+        "MODEL_DIR={wildcards.model_dir} "
+        "DESC={params.desc} "
+        "FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/surface/slurm_jobs/sample_r2_to_surface.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
 
 
