@@ -239,6 +239,36 @@ def get_brain_fdr_threshold(subject: str, model: str, bids_folder: Path,
     }
 
 
+def get_brain_p_signal_threshold(subject: str, model: str, bids_folder: Path,
+                                  p: float = 0.95, smoothed: bool = False,
+                                  auto_fit: bool = True) -> dict | None:
+    """Look up the whole-brain mixture for (subject, model) and return the
+    R² threshold above which the posterior probability of being a signal
+    voxel is ≥ ``p``, along with a ``degenerate`` flag.
+
+    Sibling of :func:`get_brain_fdr_threshold` — same lookup / auto-fit /
+    return shape, but uses ``r2_p_signal_threshold`` (posterior on the
+    signal component) rather than the FDR control. Callers should fall
+    back to a deterministic voxel-count selection when ``degenerate`` is
+    True.
+
+    Returns ``{'threshold': float, 'degenerate': bool, 'info': dict}`` or
+    ``None`` if no mixture exists and auto-fit failed.
+    """
+    info = load_brain_mixture(subject, model, bids_folder, smoothed=smoothed)
+    if info is None and auto_fit:
+        diag = Path(bids_folder) / "derivatives" / "qa" / "r2_mixture" / model
+        info = fit_subject_model(subject, model, bids_folder,
+                                  smoothed=smoothed, diagnostics_dir=diag)
+    if info is None:
+        return None
+    return {
+        "threshold": r2_p_signal_threshold(info, p=p),
+        "degenerate": bool(info.get("degenerate", False)),
+        "info": info,
+    }
+
+
 def _discover_subjects(bids_folder: Path, model: str,
                         smoothed: bool = False) -> list[str]:
     """All subjects with a T1w-space R² NIfTI for this model."""

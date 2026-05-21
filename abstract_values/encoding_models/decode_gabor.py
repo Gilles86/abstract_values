@@ -89,7 +89,7 @@ def make_basis_parameters(n_basis, kappa):
 
 
 def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
-         fdr_fallback_n_voxels=100,
+         p_signal_thr=None, fdr_fallback_n_voxels=100,
          n_basis=8, kappa=2.0,
          weight_alpha=0.0, lambd=0.0,
          mask=None, mask_desc=None, spherical_noise=False,
@@ -98,7 +98,16 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
     """If fdr_alpha is set, voxels are selected by FDR-thresholding the
     nested-CV R² using the whole-brain vonmises mixture.
     ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture
-    is flagged degenerate. Output filename uses ``nvoxels-fdrNN``."""
+    is flagged degenerate. Output filename uses ``nvoxels-fdrNN``.
+
+    If p_signal_thr is set instead, voxels are selected by thresholding
+    nested-CV R² at P(signal | r²) ≥ p_signal_thr (same whole-brain
+    vonmises mixture). Same degenerate-fallback semantics. Output
+    filename uses ``nvoxels-psigNN``. ``fdr_alpha`` and ``p_signal_thr``
+    are mutually exclusive."""
+
+    assert not (fdr_alpha is not None and p_signal_thr is not None), \
+        "Pass at most one of --fdr-alpha / --p-signal-thr"
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -149,6 +158,8 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
     lambd_label  = f'_lambda-{lambd}' if lambd != 0.0 else ''
     if fdr_alpha is not None:
         nvox_tag = f'fdr{int(round(fdr_alpha * 100)):02d}'
+    elif p_signal_thr is not None:
+        nvox_tag = f'psig{int(round(p_signal_thr * 100)):02d}'
     else:
         nvox_tag = str(n_voxels)
     out_fn = (out_dir /
@@ -178,7 +189,7 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         # weights: DataFrame (n_basis × n_voxels)
 
         # ── voxel selection ────────────────────────────────────────────────────
-        if n_voxels == 0 or fdr_alpha is not None:
+        if n_voxels == 0 or fdr_alpha is not None or p_signal_thr is not None:
             # Nested CV: leave-one-run-out within training set to get unbiased R²
             inner_runs = list(zip(
                 train_paradigm.index.get_level_values('session'),
@@ -205,26 +216,35 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
-            if fdr_alpha is not None:
-                from abstract_values.encoding_models.compute_r2_mixture \
-                    import get_brain_fdr_threshold
-                res = get_brain_fdr_threshold(
-                    subject, model='vonmises', bids_folder=bids_folder,
-                    alpha=fdr_alpha, smoothed=smoothed)
+            if fdr_alpha is not None or p_signal_thr is not None:
+                if fdr_alpha is not None:
+                    from abstract_values.encoding_models.compute_r2_mixture \
+                        import get_brain_fdr_threshold
+                    res = get_brain_fdr_threshold(
+                        subject, model='vonmises', bids_folder=bids_folder,
+                        alpha=fdr_alpha, smoothed=smoothed)
+                    crit_label = f'FDR≤{fdr_alpha:.2f}'
+                else:
+                    from abstract_values.encoding_models.compute_r2_mixture \
+                        import get_brain_p_signal_threshold
+                    res = get_brain_p_signal_threshold(
+                        subject, model='vonmises', bids_folder=bids_folder,
+                        p=p_signal_thr, smoothed=smoothed)
+                    crit_label = f'P(signal)≥{p_signal_thr:.2f}'
                 if res is None:
                     raise RuntimeError(
                         'Whole-brain vonmises mixture missing and auto-fit failed for '
                         f'sub-{subject}. Run '
-                        '`python -m abstract_values.encoding_models.compute_r2_mixture --model vonmises` first.')
+                        '`python -m abstract_values.encoding_models.compute_r2_mixture --models vonmises` first.')
                 thr = res['threshold']
                 if res['degenerate'] or not np.isfinite(thr):
                     sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
                     print(f'    {len(sel)} voxels selected  '
-                          f'(FDR mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
+                          f'(mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
                 else:
                     sel = cv_r2[cv_r2 > thr].index
                     print(f'    {len(sel)} voxels selected  '
-                          f'(whole-brain mixture FDR≤{fdr_alpha:.2f} → R² > {thr:.3f})')
+                          f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
             else:
                 sel = cv_r2[cv_r2 > 0.0].index
                 print(f'    {len(sel)} voxels selected  '
@@ -296,9 +316,15 @@ if __name__ == '__main__':
                         help='If set, voxels are selected by FDR-thresholding '
                              'nested-CV R² with the whole-brain vonmises '
                              'mixture (see compute_r2_mixture). Output: nvoxels-fdrNN.')
+    parser.add_argument('--p-signal-thr', type=float, default=None,
+                        help='If set, voxels are selected by thresholding '
+                             'nested-CV R² at P(signal | r²) ≥ p (whole-brain '
+                             'vonmises mixture). Mutually exclusive with '
+                             '--fdr-alpha. Output: nvoxels-psigNN.')
     parser.add_argument('--fdr-fallback-n-voxels', type=int, default=100,
                         help='Top-N voxels by cv-R² to use when the whole-brain '
-                             'mixture is flagged degenerate (default: 100).')
+                             'mixture is flagged degenerate (default: 100). '
+                             'Applies to both --fdr-alpha and --p-signal-thr.')
     parser.add_argument('--n-basis', type=int, default=8,
                         help='Number of Von Mises basis functions (default: 8)')
     parser.add_argument('--kappa', type=float, default=2.0,
@@ -323,6 +349,7 @@ if __name__ == '__main__':
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
          fdr_alpha=args.fdr_alpha,
+         p_signal_thr=args.p_signal_thr,
          fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
          n_basis=args.n_basis, kappa=args.kappa,
          weight_alpha=args.weight_alpha, lambd=args.lambd,

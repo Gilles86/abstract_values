@@ -22,6 +22,10 @@
 #   SMOOTHED      set to "1" to use spatially smoothed betas (default: off)
 #   SPHERICAL     set to "1" for spherical (diagonal) noise model (default: full)
 #   N_VOXELS      top voxels to decode with (default: 100)
+#   FDR_ALPHA     FDR-control α on whole-brain R² mixture (mutually exclusive
+#                 with P_SIGNAL_THR). Output filename: nvoxels-fdrNN.
+#   P_SIGNAL_THR  P(signal|r²) cutoff on whole-brain R² mixture (mutually
+#                 exclusive with FDR_ALPHA). Output filename: nvoxels-psigNN.
 #   LAMBD         ResidualFitter regularisation λ (default: 0.1)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
 #
@@ -43,8 +47,15 @@ SESSION="${SESSION:-}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-0}"
 N_VOXELS="${N_VOXELS:-100}"
+FDR_ALPHA="${FDR_ALPHA:-}"
+P_SIGNAL_THR="${P_SIGNAL_THR:-}"
 LAMBD="${LAMBD:-0.1}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
+
+if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
+    echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
+    exit 1
+fi
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -62,8 +73,10 @@ ARGS=(
 [ -n "$SESSION" ] && ARGS+=(--sessions "$SESSION")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise)
+[ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
+[ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
 
-echo "decode_gabor: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}"
+echo "decode_gabor: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}"
 echo "Args: ${ARGS[*]}"
 
 # Load environment

@@ -81,7 +81,9 @@ wildcard_constraints:
     subject = r"[A-Za-z0-9]+",
     smooth  = r"(_smoothed)?",
     roi     = r"[A-Za-z0-9]+",
-    nv      = r"\d+",
+    # nv: numeric (top-N) OR fdrNN / psigNN tokens for the cached
+    # whole-brain R²-mixture voxel-selection criteria.
+    nv      = r"(\d+|fdr\d+|psig\d+)",
     lam     = r"[0-9.]+",
     session = r"(all|\d+)",
     # model_dir: on-disk encoder dir name. Allows `.` and `-` because the

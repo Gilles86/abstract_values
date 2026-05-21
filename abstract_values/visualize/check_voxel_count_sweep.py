@@ -65,24 +65,53 @@ PERIOD = np.pi   # gabors are π-periodic
 
 
 def list_nvoxels(decoder: str, subject: str, mask: str,
-                 smoothed_suffix: str, lambd: float) -> list[int]:
-    """Return the available numeric nvoxels for (decoder, subject, mask)."""
+                 smoothed_suffix: str, lambd: float) -> list[str]:
+    """Return the available nvoxels tokens for (decoder, subject, mask).
+
+    Tokens are the raw string after ``_nvoxels-`` in the filename, so they
+    include numeric values (e.g. ``"100"``) as well as the
+    mixture-criterion labels ``"fdrNN"`` and ``"psigNN"``.
+    """
     base = DERIV / decoder / f"sub-{subject}" / "func"
     if not base.exists():
         return []
     lam_tag = f"_lambda-{lambd}" if lambd != 0.0 else ""
     pat = re.compile(
-        rf"sub-{subject}_mask-{mask}_nvoxels-(\d+)_noise-full{re.escape(smoothed_suffix)}"
+        rf"sub-{subject}_mask-{mask}_nvoxels-(\d+|fdr\d+|psig\d+)"
+        rf"_noise-full{re.escape(smoothed_suffix)}"
         rf"{re.escape(lam_tag)}_pars\.tsv$")
     nvs = []
     for p in base.iterdir():
         m = pat.match(p.name)
         if m:
-            nvs.append(int(m.group(1)))
-    return sorted(nvs)
+            nvs.append(m.group(1))
+    return _sort_nvox(nvs)
 
 
-def load_pars(decoder: str, subject: str, mask: str, nv: int,
+def _sort_nvox(tokens: list[str]) -> list[str]:
+    """Stable order: numeric ascending first, then fdrNN ascending, then
+    psigNN ascending."""
+    def key(tok: str):
+        if tok.startswith("fdr"):
+            return (1, int(tok[3:]))
+        if tok.startswith("psig"):
+            return (2, int(tok[4:]))
+        return (0, int(tok))
+    return sorted(set(tokens), key=key)
+
+
+def _nvox_label(tok: str) -> str:
+    """Pretty label for the x-axis tick of a given nvox token."""
+    if tok.startswith("fdr"):
+        nn = int(tok[3:])
+        return f"FDR≤0.{nn:02d}"
+    if tok.startswith("psig"):
+        nn = int(tok[4:])
+        return f"P(sig)≥0.{nn:02d}"
+    return tok if tok != "0" else "0\n(all CV)"
+
+
+def load_pars(decoder: str, subject: str, mask: str, nv: str,
               smoothed_suffix: str, lambd: float) -> pd.DataFrame | None:
     lam_tag = f"_lambda-{lambd}" if lambd != 0.0 else ""
     fn = (DERIV / decoder / f"sub-{subject}" / "func"
@@ -171,6 +200,27 @@ def collect_sweep(subjects: list[str], decoder: str, mask: str,
     return pd.DataFrame(rows)
 
 
+def _aggregate_n_voxels_selected(decoder: str, subject: str, mask: str,
+                                  nv: str, smoothed_suffix: str,
+                                  lambd: float) -> float | None:
+    """Look up the mean per-fold n_voxels_selected from the sidecar meta.
+
+    Used for the FDR / p_signal tokens to give a sense of how many
+    voxels actually survived the criterion. Returns ``None`` if the
+    meta TSV is missing (older runs).
+    """
+    lam_tag = f"_lambda-{lambd}" if lambd != 0.0 else ""
+    fn = (DERIV / decoder / f"sub-{subject}" / "func"
+          / f"sub-{subject}_mask-{mask}_nvoxels-{nv}_noise-full{smoothed_suffix}"
+            f"{lam_tag}_meta.tsv")
+    if not fn.exists():
+        return None
+    try:
+        return float(pd.read_csv(fn, sep="\t")["n_voxels_selected"].mean())
+    except Exception:
+        return None
+
+
 def _plot_panel(ax, df: pd.DataFrame, decoder: str, smooth_label: str):
     metric_name = "Circular correlation" if decoder == "gabor" else "Pearson r"
     label = f"Pooled across runs · within-subject ({smooth_label.lower()})"
@@ -180,18 +230,32 @@ def _plot_panel(ax, df: pd.DataFrame, decoder: str, smooth_label: str):
         ax.set_axis_off()
         return
 
-    # Categorical x-axis — evenly-spaced tick positions; nvoxels values
-    # are discrete and don't have a useful continuous spacing.
+    # Categorical x-axis — evenly-spaced tick positions; nvoxels tokens
+    # mix numeric counts with the criterion labels (fdrNN, psigNN), so
+    # we sort them with the explicit comparator from list_nvoxels.
     grp = df.groupby("nvoxels")["metric"]
-    nv_vals = sorted(grp.groups)
+    nv_vals = _sort_nvox(list(grp.groups))
     x_pos = {nv: i for i, nv in enumerate(nv_vals)}
 
-    # Per-subject lines (light)
+    # Per-subject lines (light) — only connect points within the same
+    # category (numeric / fdr / psig) so a step between them isn't
+    # implied to be a continuous sweep.
+    def _cat(tok: str) -> str:
+        if tok.startswith("fdr"):
+            return "fdr"
+        if tok.startswith("psig"):
+            return "psig"
+        return "num"
+
     for sub, sub_df in df.groupby("subject"):
-        sub_df = sub_df.sort_values("nvoxels")
-        xs = [x_pos[nv] for nv in sub_df["nvoxels"]]
-        ax.plot(xs, sub_df["metric"], "-o", color="0.75",
-                lw=0.6, ms=3, zorder=1)
+        sub_df = sub_df.copy()
+        sub_df["_cat"] = sub_df["nvoxels"].map(_cat)
+        for _, seg in sub_df.groupby("_cat"):
+            seg = seg.sort_values("nvoxels",
+                                  key=lambda s: [x_pos[v] for v in s])
+            xs = [x_pos[nv] for nv in seg["nvoxels"]]
+            ax.plot(xs, seg["metric"], "-o", color="0.75",
+                    lw=0.6, ms=3, zorder=1)
 
     # Group mean ± SEM
     means = np.asarray([grp.get_group(nv).mean() for nv in nv_vals])
@@ -199,21 +263,30 @@ def _plot_panel(ax, df: pd.DataFrame, decoder: str, smooth_label: str):
                         np.sqrt(grp.get_group(nv).count())
                         for nv in nv_vals])
     xs = [x_pos[nv] for nv in nv_vals]
-    ax.plot(xs, means, "-o", color="#3B5BA5", lw=1.6, ms=5,
-            zorder=3, label="Group mean ± SEM")
-    ax.fill_between(xs, means - sems, means + sems,
-                    color="#3B5BA5", alpha=0.22, linewidth=0)
+    # Connect points by category only (avoid implying a sweep between
+    # numeric counts and criterion labels).
+    cats = [_cat(nv) for nv in nv_vals]
+    for c in ("num", "fdr", "psig"):
+        idx = [i for i, cc in enumerate(cats) if cc == c]
+        if not idx:
+            continue
+        ax.plot([xs[i] for i in idx], means[idx], "-o", color="#3B5BA5",
+                lw=1.6, ms=5, zorder=3,
+                label="Group mean ± SEM" if c == "num" else None)
+        ax.fill_between([xs[i] for i in idx],
+                        (means - sems)[idx], (means + sems)[idx],
+                        color="#3B5BA5", alpha=0.22, linewidth=0)
 
-    # Best n_voxels marker
+    # Best n_voxels marker (across all categories)
     if not np.all(np.isnan(means)):
         best = nv_vals[int(np.nanargmax(means))]
         ax.axvline(x_pos[best], color="#C44E52", lw=0.8, ls="--", zorder=2)
-        ax.text(x_pos[best], ax.get_ylim()[1], f" Best: nv={best}",
+        ax.text(x_pos[best], ax.get_ylim()[1], f" Best: {best}",
                 color="#C44E52", fontsize=7, va="top", ha="left")
 
     ax.set_xticks(xs)
-    ax.set_xticklabels([f"{nv}" if nv > 0 else "0\n(all CV)"
-                        for nv in nv_vals], fontsize=8)
+    ax.set_xticklabels([_nvox_label(nv) for nv in nv_vals],
+                        fontsize=8, rotation=20, ha="right")
     ax.set_xlabel("n_voxels")
     ax.set_ylabel(metric_name)
     ax.axhline(0, color="0.7", lw=0.6, ls="--", zorder=0)
