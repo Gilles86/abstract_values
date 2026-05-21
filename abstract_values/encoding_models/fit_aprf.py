@@ -7,7 +7,7 @@ Model
 -----
   standard (default):
     LogGaussianPRF with parameters [mu, sd, amplitude, baseline].
-    Fits per-session or across sessions treating value as the only stimulus dim.
+    Always fits jointly across all available sessions of a subject.
 
   session-shift:
     SessionShiftedLogGaussianPRF — mu shifts freely between sessions while
@@ -28,29 +28,32 @@ gradient descent (Adam) via braincoder.optimize.ParameterFitter.
 
 Output
 ------
+  All variants always use the joint (all-sessions) output path — no
+  ``ses-*`` directory or entity.
+
   standard:
-    derivatives/encoding_models/aprf/sub-<subject>/<ses_label>/func/
+    derivatives/encoding_models/aprf/sub-<subject>/func/
       params: mu, sd, amplitude, baseline, r2, fwhm
 
   session-shift:
-    derivatives/encoding_models/aprf-session-shift/sub-<subject>/<ses_label>/func/
+    derivatives/encoding_models/aprf-session-shift/sub-<subject>/func/
       params: mode_1, mode_2, fwhm, amplitude, baseline, r2
 
   gaussian:
-    derivatives/encoding_models/aprf-gauss/sub-<subject>/<ses_label>/func/
+    derivatives/encoding_models/aprf-gauss/sub-<subject>/func/
       params: mode, fwhm, amplitude, baseline, r2
 
   gauss-session-shift:
-    derivatives/encoding_models/aprf-gauss-session-shift/sub-<subject>/<ses_label>/func/
+    derivatives/encoding_models/aprf-gauss-session-shift/sub-<subject>/func/
       params: mode_1, mode_2, fwhm, amplitude, baseline, r2
 
 Usage
 -----
-  python fit_aprf.py pil01 --sessions 1
-  python fit_aprf.py pil01 --sessions 1 --mask /path/to/mask.nii.gz
-  python fit_aprf.py pil01 --sessions 1 2 --model session-shift
-  python fit_aprf.py pil01 --sessions 1 --model gaussian
-  python fit_aprf.py pil01 --sessions 1 2 --model gauss-session-shift --debug
+  python fit_aprf.py pil01
+  python fit_aprf.py pil01 --mask /path/to/mask.nii.gz
+  python fit_aprf.py pil01 --model session-shift
+  python fit_aprf.py pil01 --model gaussian
+  python fit_aprf.py pil01 --model gauss-session-shift --debug
 """
 
 import argparse
@@ -118,7 +121,7 @@ def get_value_session_paradigm(sub, sessions):
     })
 
 
-def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='standard',
+def main(subject, mask=None, n_iterations=1000, model_type='standard',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False, allow_incomplete=False):
     bids_folder = Path(bids_folder)
@@ -127,16 +130,15 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
     if not allow_incomplete:
         sub.require_complete_sessions()
 
-    if sessions is None:
-        sessions = sub.get_sessions()
-    sessions = sorted(sessions)
+    # Encoding models are always fitted jointly across ALL of the subject's
+    # MRI sessions. The legacy per-session output path was dropped — single
+    # session input would silently overwrite the joint fit.
+    sessions = sorted(sub.get_sessions())
 
     if model_type in ('session-shift', 'gauss-session-shift') and len(sessions) < 2:
         raise ValueError(f'--model {model_type} requires at least 2 sessions')
 
-    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  '
+    print(f'sub-{subject}  all-sessions ({sessions})  '
           f'[abstract pRF on objective value  model={model_type}]')
 
     if debug:
@@ -202,13 +204,10 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
 
         if not _skip_save:
             out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-                       / 'aprf-session-shift' / f'sub-{subject}')
-            if ses_dir:
-                out_dir = out_dir / ses_dir
-            out_dir = out_dir / 'func'
+                       / 'aprf-session-shift' / f'sub-{subject}' / 'func')
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+            fn = (f'sub-{subject}_task-abstractvalue'
                   f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
             for param in ['mode_1', 'mode_2', 'fwhm', 'amplitude', 'baseline']:
@@ -245,13 +244,10 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
 
         if not _skip_save:
             out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-                       / 'aprf-gauss' / f'sub-{subject}')
-            if ses_dir:
-                out_dir = out_dir / ses_dir
-            out_dir = out_dir / 'func'
+                       / 'aprf-gauss' / f'sub-{subject}' / 'func')
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+            fn = (f'sub-{subject}_task-abstractvalue'
                   f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
             for param in ['mode', 'fwhm', 'amplitude', 'baseline']:
@@ -288,13 +284,10 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
 
         if not _skip_save:
             out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-                       / 'aprf-gauss-session-shift' / f'sub-{subject}')
-            if ses_dir:
-                out_dir = out_dir / ses_dir
-            out_dir = out_dir / 'func'
+                       / 'aprf-gauss-session-shift' / f'sub-{subject}' / 'func')
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+            fn = (f'sub-{subject}_task-abstractvalue'
                   f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
             for param in ['mode_1', 'mode_2', 'fwhm', 'amplitude', 'baseline']:
@@ -329,13 +322,10 @@ def main(subject, sessions=None, mask=None, n_iterations=1000, model_type='stand
 
         if not _skip_save:
             out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-                       / 'aprf' / f'sub-{subject}')
-            if ses_dir:
-                out_dir = out_dir / ses_dir
-            out_dir = out_dir / 'func'
+                       / 'aprf' / f'sub-{subject}' / 'func')
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+            fn = (f'sub-{subject}_task-abstractvalue'
                   f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
             for param in ['mode', 'fwhm', 'amplitude', 'baseline']:
@@ -351,7 +341,6 @@ if __name__ == '__main__':
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
-    parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--model', default='standard',
                         choices=['standard', 'session-shift',
                                  'gaussian', 'gauss-session-shift'],
@@ -371,7 +360,7 @@ if __name__ == '__main__':
                              '(default: 2 for study subjects, 1 for pilots).')
     args = parser.parse_args()
 
-    main(args.subject, sessions=args.sessions, mask=args.mask,
+    main(args.subject, mask=args.mask,
          n_iterations=args.n_iterations, model_type=args.model,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, debug=args.debug,

@@ -13,8 +13,13 @@ where grad(x)[v] = df_v/dx and Ω is the voxel noise covariance.
 
 Output
 ------
+  The aPRF parameters themselves are always loaded from the all-sessions
+  joint fit at ``derivatives/encoding_models/aprf/sub-<subject>/func/``.
+  The ``--sessions`` argument here only selects which session's BOLD data
+  the noise model and Fisher information are computed *on*.
+
   standard model:
-    derivatives/encoding_models/aprf/sub-<subject>/<ses_dir>/func/
+    derivatives/encoding_models/aprf/sub-<subject>/[ses-<N>/]func/
       sub-<subject>[_ses-<N>]_task-abstractvalue_mask-<mask_desc>_nvoxels-<n>_desc-fisherinfo_pe.tsv
 
   session-shift model (one file per session):
@@ -143,7 +148,14 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
                    n_voxels, n_values, n_noise_iterations, n_mc_samples,
                    bids_folder, smoothed, smooth_label,
                    value_min=0.5, value_max=50.0):
-    """Standard (single-session or pooled) aPRF Fisher information."""
+    """Standard aPRF Fisher information.
+
+    Selects voxels and computes FI using the BOLD data from ``sessions``;
+    aPRF parameters always come from the joint (all-sessions) fit.
+    """
+    # FI output filename encodes which session's BOLD data was used for
+    # the noise model / FI computation. When all sessions are pooled, no
+    # ses- entity is added.
     ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
     ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
 
@@ -158,11 +170,11 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
     data = pd.DataFrame(masker.transform(ref_betas).astype(np.float32))
     print(f'  {data.shape[1]} voxels in mask ({mask_desc})')
 
-    # aPRF parameters are loaded from the all-sessions joint fit (the
-    # default fit_aprf rule, which doesn't pass --sessions). The `sessions`
-    # argument to this script only controls which session's BOLD data we
-    # compute Fisher information *on*, not which aPRF model we use.
-    pars_imgs = sub.get_prf_parameters(sub.get_sessions(), smoothed=smoothed)
+    # aPRF parameters always come from the all-sessions joint fit. The
+    # `sessions` argument controls only the BOLD selection above; it does
+    # not affect which aPRF parameter file is loaded. (Subject.get_prf_parameters
+    # now always returns the joint-fit path regardless of any argument.)
+    pars_imgs = sub.get_prf_parameters(smoothed=smoothed)
     pars_df = pd.DataFrame({
         'mode':      masker.transform(pars_imgs['mode']).squeeze().astype(np.float32),
         'fwhm':      masker.transform(pars_imgs['fwhm']).squeeze().astype(np.float32),

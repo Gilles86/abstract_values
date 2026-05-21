@@ -8,12 +8,12 @@
 
 # Fit weighted abstract pRF (log-Gaussian basis set) to all data.
 # Analogous to the Von Mises model but for the abstract value dimension.
+# Always fits jointly across all of a subject's MRI sessions.
 #
 # Usage:
 #   sbatch --export=PARTICIPANT_LABEL=pil02 fit_aprf_weighted.sh
 #
 # Optional overrides (--export key=value):
-#   SESSION         space-separated session numbers (default: all sessions)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   N_BASIS         number of log-Gaussian basis pRFs (default: 8)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
@@ -22,7 +22,6 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
 fi
 
-SESSION="${SESSION:-}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 N_BASIS="${N_BASIS:-8}"
 SMOOTHED="${SMOOTHED:-0}"
@@ -38,7 +37,6 @@ ARGS=(
     --n-basis "$N_BASIS"
 )
 
-[ -n "$SESSION" ] && ARGS+=(--sessions $SESSION)
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$BASIS" != "loggauss" ] && ARGS+=(--basis "$BASIS")
 

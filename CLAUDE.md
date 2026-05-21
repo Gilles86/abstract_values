@@ -82,12 +82,19 @@ Fits a log-Gaussian pRF to single-trial GLMsingle betas using the **objective CH
 
 ### Output paths
 
+Encoding models are **always fitted jointly across all of a subject's MRI
+sessions** — the legacy per-session output path (`.../ses-<N>/...`) was
+dropped, since downstream tools (FI, decoding, surface sampling) all assume
+the joint fit. Session-shift variants legitimately need ≥2 sessions and
+encode per-session information in their parameters (`mode_1`, `mode_2`) but
+still live at the joint subject-level path.
+
 ```
-derivatives/encoding_models/aprf/sub-<subject>/[ses-<N>/]func/
-derivatives/encoding_models/aprf-session-shift/sub-<subject>/[ses-<N>/]func/
+derivatives/encoding_models/aprf/sub-<subject>/func/
+derivatives/encoding_models/aprf-session-shift/sub-<subject>/func/
 ```
 
-Files follow the pattern: `sub-<subject>[_ses-<N>]_task-abstractvalue_space-T1w_desc-<param>_pe.nii.gz`
+Files follow the pattern: `sub-<subject>_task-abstractvalue_space-T1w_desc-<param>_pe.nii.gz`
 
 ### SLURM job
 
@@ -104,7 +111,7 @@ sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=session-shift fit_aprf.sh
 # study participants as array
 sbatch --array=1-30 fit_aprf.sh
 
-# optional overrides: SESSION, FMRIPREP_DERIV, SMOOTHED, N_ITERATIONS, MODEL
+# optional overrides: FMRIPREP_DERIV, SMOOTHED, N_ITERATIONS, MODEL
 ```
 
 Logs: `/home/gdehol/logs/fit_aprf_<jobid>.txt`

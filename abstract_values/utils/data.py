@@ -407,35 +407,29 @@ class Subject:
     def get_prf_parameters(self, sessions=None, smoothed=False):
         """Return dict of NIfTI images for fitted aPRF parameters.
 
-        Keys: ``'mu'``, ``'sd'``, ``'amplitude'``, ``'baseline'``, ``'r2'``, ``'fwhm'``.
+        Keys: ``'mode'``, ``'fwhm'``, ``'amplitude'``, ``'baseline'``, ``'r2'``.
+
+        The aPRF (LogGaussianPRF) is always fitted jointly across all of a
+        subject's sessions; outputs live at
+        ``derivatives/encoding_models/aprf/sub-<subject>/func/`` with no
+        ``ses-*`` entity in the path or filename.
 
         Parameters
         ----------
-        sessions : int or list of int or None
-            Which sessions the model was fitted on.  ``None`` → all sessions
-            (no ses- entity in path).
+        sessions : ignored (kept for backwards compatibility with old callers).
+            Per-session aPRF fits were dropped; the joint fit is now the only
+            output and this parameter has no effect on the path returned.
         smoothed : bool
         """
-        if isinstance(sessions, int):
-            sessions = [sessions]
-        if sessions is None:
-            sessions = sorted(self.get_sessions())
-        else:
-            sessions = sorted(sessions)
-
-        ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-        ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
+        del sessions  # legacy: per-session fits no longer exist
         smooth_label = '_smoothed' if smoothed else ''
 
         out_dir = (self.bids_folder / 'derivatives' / 'encoding_models' / 'aprf'
-                   / f'sub-{self.subject_id}')
-        if ses_dir:
-            out_dir = out_dir / ses_dir
-        out_dir = out_dir / 'func'
+                   / f'sub-{self.subject_id}' / 'func')
 
         result = {}
         for param in ['mode', 'fwhm', 'amplitude', 'baseline', 'r2']:
-            fn = (out_dir / f'sub-{self.subject_id}{ses_entity}_task-abstractvalue'
+            fn = (out_dir / f'sub-{self.subject_id}_task-abstractvalue'
                             f'_space-T1w_desc-{param}{smooth_label}_pe.nii.gz')
             if not fn.exists():
                 raise FileNotFoundError(f'No aPRF parameter file: {fn}')

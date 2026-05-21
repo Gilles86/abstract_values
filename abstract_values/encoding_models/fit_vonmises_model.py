@@ -16,19 +16,22 @@ Basis functions
 
 Output
 ------
-  derivatives/encoding_models/vonmises/sub-<subject>/<ses_label>/func/
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-weights_pe.nii.gz
+  Always fitted jointly across all of a subject's sessions; no per-session
+  output path.
+
+  derivatives/encoding_models/vonmises/sub-<subject>/func/
+    sub-<subject>_task-abstractvalue_space-T1w_desc-weights_pe.nii.gz
       4D image — one volume per basis function, each volume = per-voxel weight
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-r2_pe.nii.gz
+    sub-<subject>_task-abstractvalue_space-T1w_desc-r2_pe.nii.gz
       R² of the model fit
 
 Usage
 -----
-  python fit_vonmises_model.py pil01 --sessions 1
-  python fit_vonmises_model.py pil01 --sessions 1 --kappa 4.0
-  python fit_vonmises_model.py pil01 --sessions 1 --n-basis 16
-  python fit_vonmises_model.py pil01 --sessions 1 --mask /path/to/mask.nii.gz
-  python fit_vonmises_model.py pil01 --sessions 1 --smoothed
+  python fit_vonmises_model.py pil01
+  python fit_vonmises_model.py pil01 --kappa 4.0
+  python fit_vonmises_model.py pil01 --n-basis 16
+  python fit_vonmises_model.py pil01 --mask /path/to/mask.nii.gz
+  python fit_vonmises_model.py pil01 --smoothed
 """
 
 import argparse
@@ -74,18 +77,17 @@ def make_basis_parameters(n_basis, kappa):
     })
 
 
-def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
+def main(subject, n_basis=8, kappa=2.0, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
-    if sessions is None:
-        sessions = sub.get_sessions()
+    # Always fit jointly across all of the subject's sessions.
+    sessions = sorted(sub.get_sessions())
 
-    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  n_basis={n_basis}  kappa={kappa}')
+    print(f'sub-{subject}  all-sessions ({sessions})  '
+          f'n_basis={n_basis}  kappa={kappa}')
 
     # ── paradigm ─────────────────────────────────────────────────────────────
     paradigm = get_gabor_paradigm(sub, sessions)
@@ -121,14 +123,12 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
     print(f'  mean R²={float(r2.mean()):.4f}')
 
     # ── save ──────────────────────────────────────────────────────────────────
-    out_dir = bids_folder / 'derivatives' / 'encoding_models' / 'vonmises' / f'sub-{subject}'
-    if ses_dir:
-        out_dir = out_dir / ses_dir
-    out_dir = out_dir / 'func'
+    out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises'
+               / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     smooth_label = '_smoothed' if smoothed else ''
-    fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+    fn = (f'sub-{subject}_task-abstractvalue'
           f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
     # 4D weights image: volume i = weights for basis function i
@@ -146,7 +146,6 @@ if __name__ == '__main__':
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
-    parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--n-basis', type=int, default=8,
                         help='Number of Von Mises basis functions (default: 8)')
     parser.add_argument('--kappa', type=float, default=2.0,
@@ -159,6 +158,6 @@ if __name__ == '__main__':
     parser.add_argument('--smoothed', action='store_true')
     args = parser.parse_args()
 
-    main(args.subject, sessions=args.sessions, n_basis=args.n_basis,
+    main(args.subject, n_basis=args.n_basis,
          kappa=args.kappa, mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed)

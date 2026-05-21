@@ -8,18 +8,19 @@
 
 # Leave-one-run-out CV for the abstract pRF encoding model.
 # Supports all four model variants from fit_aprf_cv.py:
-#   standard             — LogGaussianPRF (per session or across)
+#   standard             — LogGaussianPRF
 #   session-shift        — SessionShiftedLogGaussianPRF (requires ≥2 sessions)
 #   gaussian             — symmetric GaussianValuePRF
 #   gauss-session-shift  — symmetric SessionShiftedGaussianValuePRF
 #
+# Always fits jointly across all of a subject's MRI sessions.
+#
 # Usage:
 #   sbatch --export=PARTICIPANT_LABEL=pil01 fit_aprf_cv.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION="1 2",MODEL=session-shift fit_aprf_cv.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=gaussian,SESSION=1 fit_aprf_cv.sh
+#   sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=session-shift fit_aprf_cv.sh
+#   sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=gaussian fit_aprf_cv.sh
 #
 # Optional overrides (--export key=value):
-#   SESSION         space-separated session numbers (default: all sessions)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 #   N_ITERATIONS    max gradient descent iterations per fold (default: 1000)
@@ -29,7 +30,6 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
 fi
 
-SESSION="${SESSION:-}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
 N_ITERATIONS="${N_ITERATIONS:-1000}"
@@ -45,7 +45,6 @@ ARGS=(
     --n-iterations "$N_ITERATIONS"
 )
 
-[ -n "$SESSION" ] && ARGS+=(--sessions $SESSION)
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$MODEL" != "standard" ] && ARGS+=(--model "$MODEL")
 

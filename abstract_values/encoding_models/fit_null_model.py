@@ -8,13 +8,14 @@ encoding model should beat this to be considered informative.
 
 Output
 ------
-  derivatives/encoding_models/null/sub-<subject>/<ses_dir>/func/
-    sub-<subject>[_ses-<N>]_task-abstractvalue_space-T1w_desc-cvr2[_smoothed]_pe.nii.gz
+  Always fitted jointly across all of a subject's sessions.
+
+  derivatives/encoding_models/null/sub-<subject>/func/
+    sub-<subject>_task-abstractvalue_space-T1w_desc-cvr2[_smoothed]_pe.nii.gz
 
 Usage
 -----
   python fit_null_model.py pil01
-  python fit_null_model.py pil01 --sessions 1
   python fit_null_model.py pil01 --smoothed
 """
 
@@ -30,20 +31,17 @@ from braincoder.utils import get_rsq
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
-def main(subject, sessions=None, bids_folder=BIDS_FOLDER,
+def main(subject, bids_folder=BIDS_FOLDER,
          fmriprep_deriv='fmriprep', smoothed=False):
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
-    if sessions is None:
-        sessions = sub.get_sessions()
-    sessions = sorted(sessions)
+    # Always fit jointly across all of the subject's sessions.
+    sessions = sorted(sub.get_sessions())
 
-    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
     smooth_label = '_smoothed' if smoothed else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  [null model CV R²]')
+    print(f'sub-{subject}  all-sessions ({sessions})  [null model CV R²]')
 
     # ── load betas ───────────────────────────────────────────────────────────
     betas_img = sub.get_single_trial_estimates(sessions, desc='gabor',
@@ -90,14 +88,11 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER,
 
     # ── save ─────────────────────────────────────────────────────────────────
     out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'null'
-               / f'sub-{subject}')
-    if ses_dir:
-        out_dir = out_dir / ses_dir
-    out_dir = out_dir / 'func'
+               / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     out_fn = (out_dir /
-              f'sub-{subject}{ses_entity}_task-abstractvalue'
+              f'sub-{subject}_task-abstractvalue'
               f'_space-T1w_desc-cvr2{smooth_label}_pe.nii.gz')
 
     out_img = masker.inverse_transform(mean_cvr2.values)
@@ -110,13 +105,12 @@ if __name__ == '__main__':
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
-    parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     args = parser.parse_args()
 
-    main(args.subject, sessions=args.sessions,
+    main(args.subject,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed)

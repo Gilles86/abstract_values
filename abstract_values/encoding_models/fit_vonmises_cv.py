@@ -8,14 +8,16 @@ saved alongside the per-fold files.
 
 Output
 ------
-  derivatives/encoding_models/vonmises.cv/sub-<subject>/<ses_label>/func/
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_run-<run>_desc-cvr2_pe.nii.gz
-    sub-<subject>_<ses_label>_task-abstractvalue_space-T1w_desc-cvr2_pe.nii.gz  (mean)
+  Always fitted jointly across all of a subject's sessions.
+
+  derivatives/encoding_models/vonmises.cv/sub-<subject>/func/
+    sub-<subject>_task-abstractvalue_space-T1w_run-<run>_desc-cvr2_pe.nii.gz
+    sub-<subject>_task-abstractvalue_space-T1w_desc-cvr2_pe.nii.gz  (mean)
 
 Usage
 -----
-  python fit_vonmises_cv.py pil01 --sessions 1
-  python fit_vonmises_cv.py pil01 --sessions 1 --smoothed
+  python fit_vonmises_cv.py pil01
+  python fit_vonmises_cv.py pil01 --smoothed
 """
 
 import argparse
@@ -67,18 +69,17 @@ def make_basis_parameters(n_basis, kappa):
     })
 
 
-def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
+def main(subject, n_basis=8, kappa=2.0, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
-    if sessions is None:
-        sessions = sub.get_sessions()
+    # Always fit jointly across all of the subject's sessions.
+    sessions = sorted(sub.get_sessions())
 
-    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  n_basis={n_basis}  kappa={kappa}  [CV]')
+    print(f'sub-{subject}  all-sessions ({sessions})  '
+          f'n_basis={n_basis}  kappa={kappa}  [CV]')
 
     # ── paradigm with run index ───────────────────────────────────────────────
     paradigm = get_gabor_paradigm_with_runs(sub, sessions)
@@ -107,17 +108,15 @@ def main(subject, sessions=None, n_basis=8, kappa=2.0, mask=None,
 
     # ── output directory ──────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
-    out_dir = bids_folder / 'derivatives' / 'encoding_models' / 'vonmises.cv' / f'sub-{subject}'
-    if ses_dir:
-        out_dir = out_dir / ses_dir
-    out_dir = out_dir / 'func'
+    out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises.cv'
+               / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Per-fold filenames always include session entity (avoids collision when
     # multiple sessions share the same run numbers).
     fn_run  = (f'sub-{subject}_ses-{{ses}}_task-abstractvalue'
                f'_space-T1w_run-{{run}}_desc-cvr2{smooth_label}_pe.nii.gz')
-    fn_mean = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+    fn_mean = (f'sub-{subject}_task-abstractvalue'
                f'_space-T1w_desc-cvr2{smooth_label}_pe.nii.gz')
 
     # ── leave-one-run-out CV ──────────────────────────────────────────────────
@@ -165,7 +164,6 @@ if __name__ == '__main__':
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
-    parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--n-basis', type=int, default=8)
     parser.add_argument('--kappa', type=float, default=2.0)
     parser.add_argument('--mask', default=None)
@@ -175,6 +173,6 @@ if __name__ == '__main__':
     parser.add_argument('--smoothed', action='store_true')
     args = parser.parse_args()
 
-    main(args.subject, sessions=args.sessions, n_basis=args.n_basis,
+    main(args.subject, n_basis=args.n_basis,
          kappa=args.kappa, mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed)

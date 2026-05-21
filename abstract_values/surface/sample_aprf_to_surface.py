@@ -13,14 +13,19 @@ Parameters sampled
 
 Output
 ------
-  derivatives/encoding_models/aprf/sub-<subject>/<ses_label>/func/
-    sub-<subject>_<ses_label>_task-abstractvalue_hemi-{L,R}_space-fsnative_desc-<par>[_smoothed]_pe.func.gii
-    sub-<subject>_<ses_label>_task-abstractvalue_hemi-{L,R}_space-fsaverage_desc-<par>[_smoothed]_pe.func.gii
+  aPRF volumes are always loaded from the joint (all-sessions) fit path.
+  Surface outputs are written next to those volumes:
+
+  derivatives/encoding_models/aprf/sub-<subject>/func/
+    sub-<subject>_task-abstractvalue_hemi-{L,R}_space-fsnative_desc-<par>[_smoothed]_pe.func.gii
+    sub-<subject>_task-abstractvalue_hemi-{L,R}_space-fsaverage_desc-<par>[_smoothed]_pe.func.gii
+
+The ``--session`` argument is only used to locate the per-session
+FreeSurfer/fmriprep surfaces; it does not select an aPRF fit variant.
 
 Usage
 -----
   python sample_aprf_to_surface.py pil01 --session 1
-  python sample_aprf_to_surface.py pil01 --session 1 --sessions 1
   python sample_aprf_to_surface.py pil01 --session 1 --smoothed
 """
 
@@ -50,24 +55,20 @@ def transform_fsaverage(in_file, fs_hemi, source_subject, subjects_dir):
     return out_file
 
 
-def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
+def main(subject, session, bids_folder=BIDS_FOLDER,
          fmriprep_deriv='fmriprep', smoothed=False):
     bids_folder = Path(bids_folder)
     fmriprep_dir = bids_folder / 'derivatives' / fmriprep_deriv
     subjects_dir = fmriprep_dir / 'sourcedata' / 'freesurfer'
     fs_subject = f'sub-{subject}_ses-{session}'
 
-    if sessions is None:
-        sessions = [session]
-    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-
     smooth_tag = '_smoothed' if smoothed else ''
 
-    aprf_dir = bids_folder / 'derivatives' / 'encoding_models' / 'aprf' / f'sub-{subject}'
-    if ses_dir:
-        aprf_dir = aprf_dir / ses_dir
-    aprf_dir = aprf_dir / 'func'
+    # aPRF / vonmises volumes always live at the joint (all-sessions) path —
+    # no ses- entity. The `--session` argument is used only for locating the
+    # FreeSurfer subject + per-session anat surfaces below.
+    aprf_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'aprf'
+                / f'sub-{subject}' / 'func')
 
     # aPRF parameter volumes; (desc, to_fsaverage)
     aprf_params = [
@@ -80,17 +81,15 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
     ]
 
     # Gabor (vonmises) R² volume
-    vm_dir = bids_folder / 'derivatives' / 'encoding_models' / 'vonmises' / f'sub-{subject}'
-    if ses_dir:
-        vm_dir = vm_dir / ses_dir
-    vm_r2 = (vm_dir / 'func'
-             / f'sub-{subject}{ses_entity}_task-abstractvalue'
-               f'_space-T1w_desc-r2_pe.nii.gz')
+    vm_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises'
+              / f'sub-{subject}' / 'func')
+    vm_r2 = (vm_dir / f'sub-{subject}_task-abstractvalue'
+                       f'_space-T1w_desc-r2_pe.nii.gz')
 
     # Build list of (volume_path, surface_desc_label, to_fsaverage)
     volumes = []
     for par, to_fsav in aprf_params:
-        fn = (aprf_dir / f'sub-{subject}{ses_entity}_task-abstractvalue'
+        fn = (aprf_dir / f'sub-{subject}_task-abstractvalue'
                          f'_space-T1w_desc-{par}{smooth_tag}_pe.nii.gz')
         if fn.exists():
             volumes.append((fn, par, to_fsav))
@@ -108,7 +107,7 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
     # Surfaces from fmriprep anat dir for this session
     anat_dir = fmriprep_dir / f'sub-{subject}' / f'ses-{session}' / 'anat'
 
-    print(f'Sampling to surface: sub-{subject}  {ses_dir or "all-sessions"}  (FreeSurfer: {fs_subject})')
+    print(f'Sampling to surface: sub-{subject}  all-sessions  (FreeSurfer: {fs_subject})')
     print(f'Output directory:    {aprf_dir}')
 
     for hemi, fs_hemi in [('L', 'lh'), ('R', 'rh')]:
@@ -127,7 +126,7 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
             data = data.astype(np.float32)
 
             out_fn = (aprf_dir
-                      / f'sub-{subject}{ses_entity}_task-abstractvalue'
+                      / f'sub-{subject}_task-abstractvalue'
                         f'_hemi-{hemi}_space-fsnative_desc-{desc}{smooth_tag}_pe.func.gii')
             im = nib.gifti.GiftiImage(darrays=[nib.gifti.GiftiDataArray(data)])
             nib.save(im, str(out_fn))
@@ -145,10 +144,8 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-', e.g. pil01")
     parser.add_argument('--session', type=int, required=True,
-                        help='Session number (used to find surfaces and FreeSurfer subject)')
-    parser.add_argument('--sessions', type=int, nargs='+', default=None,
-                        help='Sessions used for aPRF fitting (determines ses_label for volume '
-                             'filenames). Defaults to [--session].')
+                        help='Session number (used to find surfaces and FreeSurfer subject; '
+                             'does NOT select an aPRF fit variant — those are always joint)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
@@ -156,7 +153,6 @@ if __name__ == '__main__':
                         help='Load smoothed aPRF volumes (desc-<par>_smoothed)')
     args = parser.parse_args()
 
-    sessions = args.sessions if args.sessions is not None else [args.session]
-    main(args.subject, args.session, sessions=sessions,
+    main(args.subject, args.session,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed)

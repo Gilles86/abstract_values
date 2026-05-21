@@ -11,7 +11,10 @@ Supports four model variants (same as fit_aprf.py):
 
 Each fold fits on N-1 runs and evaluates on the held-out run; per-fold CV R²
 NIfTIs and a mean image are written under
-``derivatives/encoding_models/<out>/sub-<subject>[/<ses>]/func/``.
+``derivatives/encoding_models/<out>/sub-<subject>/func/``.
+
+The fit is always joint across all of the subject's sessions; no per-session
+output path.
 
 Output subdir per model
 -----------------------
@@ -22,10 +25,10 @@ Output subdir per model
 
 Usage
 -----
-  python fit_aprf_cv.py pil01 --sessions 1
-  python fit_aprf_cv.py pil01 --sessions 1 2 --model session-shift
-  python fit_aprf_cv.py pil01 --sessions 1 --model gaussian
-  python fit_aprf_cv.py pil01 --sessions 1 2 --model gauss-session-shift --debug
+  python fit_aprf_cv.py pil01
+  python fit_aprf_cv.py pil01 --model session-shift
+  python fit_aprf_cv.py pil01 --model gaussian
+  python fit_aprf_cv.py pil01 --model gauss-session-shift --debug
 """
 
 import argparse
@@ -112,23 +115,21 @@ def _get_paradigm(sub, sessions, needs_session):
 
 # ── main ────────────────────────────────────────────────────────────────────
 
-def main(subject, sessions=None, n_iterations=1000, mask=None,
+def main(subject, n_iterations=1000, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False, model_type='standard'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
-    if sessions is None:
-        sessions = sub.get_sessions()
-    sessions = sorted(sessions)
+    # Encoding models are always fitted jointly across ALL of the subject's
+    # MRI sessions.
+    sessions = sorted(sub.get_sessions())
 
     needs_session = model_type in _SHIFT_MODELS
     if needs_session and len(sessions) < 2:
         raise ValueError(f'--model {model_type} requires at least 2 sessions.')
 
-    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  '
+    print(f'sub-{subject}  all-sessions ({sessions})  '
           f'[abstract pRF CV  model={model_type}]')
 
     if debug:
@@ -175,16 +176,14 @@ def main(subject, sessions=None, n_iterations=1000, mask=None,
 
     # ── output directory ──────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
-    out_dir = bids_folder / 'derivatives' / 'encoding_models' / _out_subdir(model_type) / f'sub-{subject}'
-    if ses_dir:
-        out_dir = out_dir / ses_dir
-    out_dir = out_dir / 'func'
+    out_dir = (bids_folder / 'derivatives' / 'encoding_models'
+               / _out_subdir(model_type) / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Per-fold filenames always carry ses+run to avoid cross-session collisions
     fn_run  = (f'sub-{subject}_ses-{{ses}}_task-abstractvalue'
                f'_space-T1w_run-{{run}}_desc-cvr2{smooth_label}_pe.nii.gz')
-    fn_mean = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+    fn_mean = (f'sub-{subject}_task-abstractvalue'
                f'_space-T1w_desc-cvr2{smooth_label}_pe.nii.gz')
 
     paradigm_cols = ['x', 'session'] if needs_session else ['x']
@@ -243,7 +242,6 @@ if __name__ == '__main__':
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
-    parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--model', default='standard',
                         choices=['standard', 'session-shift',
                                  'gaussian', 'gauss-session-shift'],
@@ -258,7 +256,7 @@ if __name__ == '__main__':
                         help='Only 50 GD iterations per fold, small grid (fast test)')
     args = parser.parse_args()
 
-    main(args.subject, sessions=args.sessions, n_iterations=args.n_iterations,
+    main(args.subject, n_iterations=args.n_iterations,
          mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
          debug=args.debug, model_type=args.model)

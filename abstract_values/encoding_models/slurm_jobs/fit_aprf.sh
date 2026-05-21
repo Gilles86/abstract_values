@@ -13,17 +13,18 @@
 #   sbatch --export=PARTICIPANT_LABEL=pil02 fit_aprf.sh
 #
 # Optional overrides (--export key=value):
-#   SESSION         session number (default: all sessions)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 #   MODEL           model type: standard or session-shift (default: standard)
 #   N_ITERATIONS    max gradient descent iterations (default: 1000)
+#
+# Note: encoding models are always fitted jointly across all of a subject's
+# MRI sessions (no per-session fits). There is no SESSION knob.
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
 fi
 
-SESSION="${SESSION:-}"
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
 MODEL="${MODEL:-standard}"
@@ -39,7 +40,6 @@ ARGS=(
     --n-iterations "$N_ITERATIONS"
 )
 
-[ -n "$SESSION" ] && ARGS+=(--sessions "$SESSION")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$MODEL" != "standard" ] && ARGS+=(--model "$MODEL")
 

@@ -34,13 +34,13 @@ MU_VMIN = 2.0
 MU_VMAX = 42.0
 
 
-def load_surface_param(aprf_dir, subject, ses_label, hemi, desc, smoothed):
+def load_surface_param(aprf_dir, subject, hemi, desc, smoothed):
     """Load one aPRF surface parameter for one hemisphere.
 
     Returns a 1-D float32 array (n_vertices,).
     """
     smooth_tag = '_smoothed' if smoothed else ''
-    fn = (aprf_dir / f'sub-{subject}_{ses_label}_task-abstractvalue'
+    fn = (aprf_dir / f'sub-{subject}_task-abstractvalue'
                      f'_hemi-{hemi}_space-fsnative_desc-{desc}{smooth_tag}_pe.func.gii')
     if not fn.exists():
         raise FileNotFoundError(f'Surface file not found: {fn}')
@@ -60,10 +60,10 @@ def get_masked_vertex(values, alpha, subject, vmin, vmax, cmap='RdBu_r'):
     return v.blend_curvature(alpha)
 
 
-def load_bilateral(aprf_dir, subject, ses_label, desc, smoothed):
+def load_bilateral(aprf_dir, subject, desc, smoothed):
     """Load and concatenate L + R hemisphere data (pycortex convention)."""
-    lh = load_surface_param(aprf_dir, subject, ses_label, 'L', desc, smoothed)
-    rh = load_surface_param(aprf_dir, subject, ses_label, 'R', desc, smoothed)
+    lh = load_surface_param(aprf_dir, subject, 'L', desc, smoothed)
+    rh = load_surface_param(aprf_dir, subject, 'R', desc, smoothed)
     return np.concatenate([lh, rh])
 
 
@@ -90,27 +90,25 @@ def save_colorbar_pdf(colorbars, out_path):
     print(f'Colorbars saved to {out_path}')
 
 
-def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
+def main(subject, session, bids_folder=BIDS_FOLDER,
          fmriprep_deriv='fmriprep-flair', smoothed=False,
          r2_thr=0.0, gabor_r2_thr=None, r2_sigma=0.01, gabor_r2_sigma=None,
          mu_vmin=MU_VMIN, mu_vmax=MU_VMAX, params=None, cx_subject=None,
          make_colorbars=False):
     bids_folder = Path(bids_folder)
 
-    if sessions is None:
-        sessions = [session]
-    ses_label = f'ses-{sessions[0]}' if len(sessions) == 1 else 'ses-all'
-
     if cx_subject is None:
         cx_subject = f'abstractvalue.sub-{subject}'
 
+    # aPRF surface files always live at the joint (all-sessions) path —
+    # no ses- subdirectory.
     aprf_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'aprf'
-                / f'sub-{subject}' / ses_label / 'func')
+                / f'sub-{subject}' / 'func')
 
     if params is None:
         params = ['mu', 'sd', 'r2', 'gabor-r2']
 
-    print(f'sub-{subject}  {ses_label}  pycortex subject: {cx_subject}')
+    print(f'sub-{subject}  all-sessions  pycortex subject: {cx_subject}')
 
     if gabor_r2_thr is None:
         gabor_r2_thr = r2_thr
@@ -118,14 +116,14 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
         gabor_r2_sigma = r2_sigma
 
     # Load R² for alpha masking (aPRF r2)
-    r2_all = load_bilateral(aprf_dir, subject, ses_label, 'r2', smoothed)
+    r2_all = load_bilateral(aprf_dir, subject, 'r2', smoothed)
     alpha_mask = r2_alpha(r2_all, r2_thr, r2_sigma)
 
     ds = {}
     cbars = []  # (label, cmap, vmin, vmax)
 
     if 'mu' in params:
-        mu_all = load_bilateral(aprf_dir, subject, ses_label, 'mu', smoothed)
+        mu_all = load_bilateral(aprf_dir, subject, 'mu', smoothed)
         in_range = ((mu_all >= mu_vmin) & (mu_all <= mu_vmax)).astype(np.float32)
         valid = alpha_mask * in_range
         ds[f'{subject}.mu'] = get_masked_vertex(
@@ -134,7 +132,7 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
         cbars.append(('mu (CHF)', 'nipy_spectral', mu_vmin, mu_vmax))
 
     if 'sd' in params:
-        sd_all = load_bilateral(aprf_dir, subject, ses_label, 'sd', smoothed)
+        sd_all = load_bilateral(aprf_dir, subject, 'sd', smoothed)
         sd_vmax = (mu_vmax - mu_vmin) / 2
         ds[f'{subject}.sd'] = get_masked_vertex(
             sd_all, alpha_mask, cx_subject,
@@ -149,7 +147,7 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
         cbars.append(('aPRF R²', 'hot', r2_thr, r2_vmax))
 
     if 'gabor-r2' in params:
-        gabor_r2 = load_bilateral(aprf_dir, subject, ses_label, 'gabor-r2', smoothed)
+        gabor_r2 = load_bilateral(aprf_dir, subject, 'gabor-r2', smoothed)
         gabor_alpha = r2_alpha(gabor_r2, gabor_r2_thr, gabor_r2_sigma)
         gabor_r2_vmax = float(np.nanpercentile(gabor_r2[gabor_r2 > 0], 99.9)) if (gabor_r2 > 0).any() else 0.3
         ds[f'{subject}.gabor_r2'] = get_masked_vertex(
@@ -158,7 +156,7 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
         cbars.append(('Gabor R²', 'hot', gabor_r2_thr, gabor_r2_vmax))
 
     if 'fwhm' in params:
-        fwhm_all = load_bilateral(aprf_dir, subject, ses_label, 'fwhm', smoothed)
+        fwhm_all = load_bilateral(aprf_dir, subject, 'fwhm', smoothed)
         fwhm_vmax = mu_vmax - mu_vmin
         ds[f'{subject}.fwhm'] = get_masked_vertex(
             fwhm_all, alpha_mask, cx_subject,
@@ -167,7 +165,7 @@ def main(subject, session, sessions=None, bids_folder=BIDS_FOLDER,
 
     if make_colorbars:
         smooth_tag = '_smoothed' if smoothed else ''
-        pdf_path = (aprf_dir / f'sub-{subject}_{ses_label}_task-abstractvalue'
+        pdf_path = (aprf_dir / f'sub-{subject}_task-abstractvalue'
                                f'{smooth_tag}_colorbars.pdf')
         save_colorbar_pdf(cbars, pdf_path)
 
@@ -181,9 +179,8 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-', e.g. pil01")
     parser.add_argument('--session', type=int, required=True,
-                        help='Session number (used to find surface files)')
-    parser.add_argument('--sessions', type=int, nargs='+', default=None,
-                        help='Sessions used for aPRF fitting (ses_label). Defaults to [--session].')
+                        help='Session number (used to find FreeSurfer subject; '
+                             'aPRF volumes are always loaded from the joint fit path)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep-flair',
                         choices=['fmriprep', 'fmriprep-flair', 'fmriprep-noflair'])
@@ -210,8 +207,7 @@ if __name__ == '__main__':
                         help='Save a PDF with colorbars alongside the surface files')
     args = parser.parse_args()
 
-    sessions = args.sessions if args.sessions is not None else [args.session]
-    main(args.subject, args.session, sessions=sessions,
+    main(args.subject, args.session,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, r2_thr=args.r2_thr, gabor_r2_thr=args.gabor_r2_thr,
          r2_sigma=args.r2_sigma, gabor_r2_sigma=args.gabor_r2_sigma,

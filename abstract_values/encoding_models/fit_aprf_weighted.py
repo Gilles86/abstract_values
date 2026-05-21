@@ -15,14 +15,16 @@ Basis parameters
 
 Output
 ------
-  derivatives/encoding_models/aprf-weighted/sub-<subject>/[ses_label/]func/
-    sub-<subject>[_ses]_task-abstractvalue_space-T1w_desc-weight_<k>_pe.nii.gz
-    sub-<subject>[_ses]_task-abstractvalue_space-T1w_desc-r2_pe.nii.gz
+  Always fitted jointly across all of a subject's sessions.
+
+  derivatives/encoding_models/aprf-weighted/sub-<subject>/func/
+    sub-<subject>_task-abstractvalue_space-T1w_desc-weight_<k>_pe.nii.gz
+    sub-<subject>_task-abstractvalue_space-T1w_desc-r2_pe.nii.gz
 
 Usage
 -----
-  python fit_aprf_weighted.py pil01 --sessions 1 2
-  python fit_aprf_weighted.py pil01 --sessions 1 2 --n-basis 12
+  python fit_aprf_weighted.py pil01
+  python fit_aprf_weighted.py pil01 --n-basis 12
 """
 
 import argparse
@@ -75,20 +77,17 @@ def make_basis_parameters(n_basis, value_min, value_max, fwhm=None):
     })
 
 
-def main(subject, sessions=None, n_basis=8, fwhm=None, mask=None,
+def main(subject, n_basis=8, fwhm=None, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, basis='loggauss'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder,
                   fmriprep_deriv=fmriprep_deriv)
 
-    if sessions is None:
-        sessions = sub.get_sessions()
-    sessions = sorted(sessions)
+    # Always fit jointly across all of the subject's sessions.
+    sessions = sorted(sub.get_sessions())
 
-    ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
-    ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  '
+    print(f'sub-{subject}  all-sessions ({sessions})  '
           f'n_basis={n_basis}  [weighted aPRF]')
 
     # ── paradigm ──────────────────────────────────────────────────────────────
@@ -132,13 +131,10 @@ def main(subject, sessions=None, n_basis=8, fwhm=None, mask=None,
     # ── output directory ──────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
     out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-               / out_subdir / f'sub-{subject}')
-    if ses_dir:
-        out_dir = out_dir / ses_dir
-    out_dir = out_dir / 'func'
+               / out_subdir / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fn = (f'sub-{subject}{ses_entity}_task-abstractvalue'
+    fn = (f'sub-{subject}_task-abstractvalue'
           f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
     for k in range(n_basis):
@@ -153,7 +149,6 @@ if __name__ == '__main__':
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
-    parser.add_argument('--sessions', type=int, nargs='+', default=None)
     parser.add_argument('--n-basis', type=int, default=8,
                         help='Number of log-Gaussian basis pRFs (default: 8)')
     parser.add_argument('--fwhm', type=float, default=None,
@@ -169,7 +164,7 @@ if __name__ == '__main__':
                         help='Basis pRF family (default: loggauss)')
     args = parser.parse_args()
 
-    main(args.subject, sessions=args.sessions, n_basis=args.n_basis,
+    main(args.subject, n_basis=args.n_basis,
          fwhm=args.fwhm, mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
          basis=args.basis)
