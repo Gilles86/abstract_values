@@ -204,11 +204,20 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
             if fdr_alpha is not None:
-                from braincoder.utils.stats import r2_fdr_threshold
-                thr = r2_fdr_threshold(cv_r2.values, alpha=fdr_alpha)
+                # Cached whole-brain vonmises mixture → ROI threshold.
+                from abstract_values.encoding_models.compute_r2_mixture \
+                    import get_brain_fdr_threshold
+                thr = get_brain_fdr_threshold(
+                    subject, model='vonmises', bids_folder=bids_folder,
+                    alpha=fdr_alpha, smoothed=smoothed)
+                if thr is None:
+                    raise RuntimeError(
+                        'Whole-brain vonmises mixture missing and auto-fit failed for '
+                        f'sub-{subject}. Run '
+                        '`python -m abstract_values.encoding_models.compute_r2_mixture --model vonmises` first.')
                 sel = cv_r2[cv_r2 > thr].index
                 print(f'    {len(sel)} voxels selected  '
-                      f'(FDR≤{fdr_alpha:.2f} → cvR² > {thr:.3f})')
+                      f'(whole-brain mixture FDR≤{fdr_alpha:.2f} → R² > {thr:.3f})')
             else:
                 sel = cv_r2[cv_r2 > 0.0].index
                 print(f'    {len(sel)} voxels selected  '
