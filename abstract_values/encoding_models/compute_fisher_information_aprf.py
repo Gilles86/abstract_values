@@ -158,7 +158,11 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
     data = pd.DataFrame(masker.transform(ref_betas).astype(np.float32))
     print(f'  {data.shape[1]} voxels in mask ({mask_desc})')
 
-    pars_imgs = sub.get_prf_parameters(sessions, smoothed=smoothed)
+    # aPRF parameters are loaded from the all-sessions joint fit (the
+    # default fit_aprf rule, which doesn't pass --sessions). The `sessions`
+    # argument to this script only controls which session's BOLD data we
+    # compute Fisher information *on*, not which aPRF model we use.
+    pars_imgs = sub.get_prf_parameters(sub.get_sessions(), smoothed=smoothed)
     pars_df = pd.DataFrame({
         'mode':      masker.transform(pars_imgs['mode']).squeeze().astype(np.float32),
         'fwhm':      masker.transform(pars_imgs['fwhm']).squeeze().astype(np.float32),
