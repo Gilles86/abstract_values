@@ -98,42 +98,45 @@ def soft_alpha(values: np.ndarray, thr: float, sigma: float) -> np.ndarray:
 
 
 def main(subjects: list[str], models: list[str], bids_folder: Path,
-         r2_thr: float, r2_sigma: float, desc: str = "r2") -> None:
+         r2_thr: float, r2_sigma: float, desc: str = "r2",
+         smoothing: tuple[str, ...] = ("", "_smoothed")) -> None:
+    """Build one pycortex dataset per (model, smoothing) combination present
+    on disk. By default both unsmoothed and smoothed variants are shown side
+    by side; the smoothed variant is loaded from `desc-<desc>_smoothed`."""
     ds: dict[str, cortex.Vertex] = {}
     for model in models:
-        per_sub = []
-        used: list[str] = []
-        for sub in subjects:
-            arr = load_bilateral(sub, model, bids_folder, desc=desc)
-            if arr is None:
-                print(f"sub-{sub} {model}: fsaverage {desc} not found — skipping")
+        for smooth in smoothing:
+            full_desc = f"{desc}{smooth}"
+            per_sub = []
+            used: list[str] = []
+            for sub in subjects:
+                arr = load_bilateral(sub, model, bids_folder, desc=full_desc)
+                if arr is None:
+                    continue
+                per_sub.append(arr)
+                used.append(sub)
+            if not per_sub:
+                print(f"{model} {full_desc}: no subjects with fsaverage data — skipping")
                 continue
-            per_sub.append(arr)
-            used.append(sub)
-        if not per_sub:
-            print(f"{model}: no subjects with fsaverage {desc} — skipping")
-            continue
 
-        stack = np.stack(per_sub, axis=0)        # (n_subjects, n_vertices)
-        mean_r2 = np.nanmean(stack, axis=0)
+            stack = np.stack(per_sub, axis=0)        # (n_subjects, n_vertices)
+            mean_r2 = np.nanmean(stack, axis=0)
 
-        # vmax: 99.5th percentile of positive R², but never below the
-        # threshold (matplotlib's Normalize errors out if vmin >= vmax,
-        # which can happen with small n where the percentile sits below
-        # the threshold).
-        pos = mean_r2[mean_r2 > 0]
-        vmax = float(np.nanpercentile(pos, 99.5)) if pos.size else r2_thr * 2
-        vmax = max(vmax, r2_thr * 2)
+            # vmax: 99.5th percentile of positive R², but never below the
+            # threshold (matplotlib's Normalize errors out if vmin >= vmax).
+            pos = mean_r2[mean_r2 > 0]
+            vmax = float(np.nanpercentile(pos, 99.5)) if pos.size else r2_thr * 2
+            vmax = max(vmax, r2_thr * 2)
 
-        alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
-        v = cortex.Vertex(np.nan_to_num(mean_r2).astype(np.float32),
-                          PYCORTEX_FSAVG_SUBJECT,
-                          vmin=r2_thr, vmax=vmax, cmap="hot")
-        label = f"mean_{model}_{desc}  (n={len(used)})"
-        ds[label] = v.blend_curvature(alpha)
-        print(f"{model}: n={len(used)} subjects "
-              f"[{', '.join(used)}], {desc} range [{mean_r2.min():.2f}, {mean_r2.max():.2f}], "
-              f"colorbar [{r2_thr:.1f}, {vmax:.1f}]")
+            alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
+            v = cortex.Vertex(np.nan_to_num(mean_r2).astype(np.float32),
+                              PYCORTEX_FSAVG_SUBJECT,
+                              vmin=r2_thr, vmax=vmax, cmap="hot")
+            label = f"mean_{model}_{full_desc}  (n={len(used)})"
+            ds[label] = v.blend_curvature(alpha)
+            print(f"{model} {full_desc}: n={len(used)} "
+                  f"[{', '.join(used)}], range [{mean_r2.min():.2f}, {mean_r2.max():.2f}], "
+                  f"colorbar [{r2_thr:.1f}, {vmax:.1f}]")
 
     if not ds:
         raise SystemExit("Nothing to show — run sample_r2_to_surface.py first.")
@@ -161,6 +164,12 @@ if __name__ == "__main__":
     p.add_argument("--r2-sigma", type=float, default=0.02,
                    help="Gaussian-CDF transition width on the fraction scale "
                         "(default 0.02)")
+    p.add_argument("--smoothing", nargs="+", default=["", "_smoothed"],
+                   choices=["", "_smoothed"],
+                   help="Which BOLD-smoothing variants to include "
+                        "(default: both unsmoothed and smoothed). "
+                        "Pass `--smoothing ''` for unsmoothed only or "
+                        "`--smoothing _smoothed` for smoothed only.")
     args = p.parse_args()
 
     if args.models is None:
@@ -176,4 +185,5 @@ if __name__ == "__main__":
                          "sample_r2_to_surface.py first.")
 
     main(subjects, args.models, Path(args.bids_folder),
-         args.r2_thr, args.r2_sigma, desc=args.desc)
+         args.r2_thr, args.r2_sigma, desc=args.desc,
+         smoothing=tuple(args.smoothing))
