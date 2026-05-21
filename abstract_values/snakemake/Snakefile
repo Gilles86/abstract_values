@@ -3,7 +3,8 @@ Cluster-side pipeline for abstract_values.
 
 Covers fmriprep -> masks -> GLMsingle (smoothed + unsmoothed) -> encoding-model
 fan-out (aprf, aprf_cv, aprf_session_shift{,_cv}, aprf_weighted{,_cv},
-vonmises{,_cv}) -> decoding (per ROI x n_voxels x lambda) -> Fisher info.
+aprf_gauss{,_cv,_session_shift{,_cv}}, vonmises{,_cv}) -> decoding
+(per ROI x n_voxels x lambda) -> Fisher info.
 
 Pre-cluster steps (SMB rsync, BIDS conversion, push to cluster) stay in
 ingest_new_session.sh. This Snakefile assumes BIDS data is already on the
@@ -131,19 +132,23 @@ def aprf_r2(subject, variant, smooth):
 
 # R² (full-fit) model_dirs -> fit-rule sentinel variant name used by aprf_r2()
 R2_MODEL_DIRS = {
-    "aprf":               "aprf",
-    "vonmises":           "vonmises",
-    "aprf-weighted":      "aprf_weighted",
-    "aprf-session-shift": "aprf_session_shift",
+    "aprf":                     "aprf",
+    "vonmises":                 "vonmises",
+    "aprf-weighted":            "aprf_weighted",
+    "aprf-session-shift":       "aprf_session_shift",
+    "aprf-gauss":               "aprf_gauss",
+    "aprf-gauss-session-shift": "aprf_gauss_session_shift",
 }
 
 # cvR² model_dirs -> (fit_cv_rule sentinel variant, smooth-passes-through-as-is)
 # These point at the on-disk *.cv dirs that fit_*_cv.py writes per-run NIfTIs to.
 CVR2_MODEL_DIRS = {
-    "aprf.cv":           "aprf_cv",
-    "vonmises.cv":       "vonmises_cv",
-    "aprf-weighted.cv":  "aprf_weighted_cv",
-    "aprf-shift.cv":     "aprf_session_shift_cv",
+    "aprf.cv":              "aprf_cv",
+    "vonmises.cv":          "vonmises_cv",
+    "aprf-weighted.cv":     "aprf_weighted_cv",
+    "aprf-shift.cv":        "aprf_session_shift_cv",
+    "aprf-gauss.cv":        "aprf_gauss_cv",
+    "aprf-gauss-shift.cv":  "aprf_gauss_session_shift_cv",
 }
 
 def cvr2_aggregate_sentinel(subject, model_dir, smooth):
@@ -166,6 +171,7 @@ def subject_targets(subject):
         # Encoding models (always)
         targets += [aprf_r2(subject, v, sfx) for v in (
             "aprf", "aprf_cv", "aprf_weighted", "aprf_weighted_cv",
+            "aprf_gauss", "aprf_gauss_cv",
             "vonmises", "vonmises_cv",
         )]
         # session-shift only if subject has >= 2 MRI sessions
@@ -173,15 +179,17 @@ def subject_targets(subject):
             targets += [
                 aprf_r2(subject, "aprf_session_shift", sfx),
                 aprf_r2(subject, "aprf_session_shift_cv", sfx),
+                aprf_r2(subject, "aprf_gauss_session_shift", sfx),
+                aprf_r2(subject, "aprf_gauss_session_shift_cv", sfx),
             ]
 
         # Surface sampling: R² for full-fit models, cvR² (after aggregation)
         # for the *.cv variants. The session-shift pair only if ≥ 2 sessions.
-        r2_dirs   = ["aprf", "vonmises", "aprf-weighted"]
-        cvr2_dirs = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv"]
+        r2_dirs   = ["aprf", "vonmises", "aprf-weighted", "aprf-gauss"]
+        cvr2_dirs = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv", "aprf-gauss.cv"]
         if len(sessions) >= 2:
-            r2_dirs.append("aprf-session-shift")
-            cvr2_dirs.append("aprf-shift.cv")
+            r2_dirs += ["aprf-session-shift", "aprf-gauss-session-shift"]
+            cvr2_dirs += ["aprf-shift.cv", "aprf-gauss-shift.cv"]
         for md in r2_dirs + cvr2_dirs:
             targets.append(surface_sample_sentinel(subject, md, sfx))
 
@@ -363,6 +371,59 @@ rule fit_aprf_weighted_cv:
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_weighted_cv.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
 
+# Symmetric (Gaussian) value-PRF variants — counterpart to the log-Gaussian
+# aPRF rules above. Reuses fit_aprf.sh / fit_aprf_cv.sh with MODEL=gaussian
+# (or gauss-session-shift); the underlying python writes to aprf-gauss/ and
+# aprf-gauss-session-shift/ on disk.
+
+rule fit_aprf_gauss:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_gauss", "{smooth}")
+    log: "logs/fit_aprf_gauss{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=gaussian "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_gauss_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_gauss_cv", "{smooth}")
+    log: "logs/fit_aprf_gauss_cv{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=gaussian "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_gauss_session_shift:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_gauss_session_shift", "{smooth}")
+    log: "logs/fit_aprf_gauss_session_shift{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=gauss-session-shift "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_gauss_session_shift_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_gauss_session_shift_cv", "{smooth}")
+    log: "logs/fit_aprf_gauss_session_shift_cv{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=gauss-session-shift "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
 rule fit_vonmises:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "vonmises", "{smooth}")
@@ -411,7 +472,7 @@ rule aggregate_cvr2:
     wildcard_constraints:
         # Restrict to known CV dirs so we don't accidentally try to aggregate
         # a non-CV model dir (the per-run files don't exist there).
-        model_dir = r"(aprf|vonmises|aprf-weighted|aprf-shift)\.cv",
+        model_dir = r"(aprf|vonmises|aprf-weighted|aprf-shift|aprf-gauss|aprf-gauss-shift)\.cv",
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} MODEL_DIR={wildcards.model_dir} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
@@ -466,7 +527,9 @@ rule sample_r2_to_surface:
         # Restrict to the dirs we actually surface-sample, so wildcard
         # inference can't grab an unrelated `encoding_models/*` subdir.
         model_dir = (r"(aprf|vonmises|aprf-weighted|aprf-session-shift|"
-                     r"aprf\.cv|vonmises\.cv|aprf-weighted\.cv|aprf-shift\.cv)"),
+                     r"aprf-gauss|aprf-gauss-session-shift|"
+                     r"aprf\.cv|vonmises\.cv|aprf-weighted\.cv|aprf-shift\.cv|"
+                     r"aprf-gauss\.cv|aprf-gauss-shift\.cv)"),
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} "
         "MODEL_DIR={wildcards.model_dir} "

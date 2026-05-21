@@ -48,8 +48,8 @@ from abstract_values.utils.data import BIDS_FOLDER
 # Full-fit defaults — the encoder dirs whose `desc-r2` maps anchor downstream
 # visualisations. The CV counterparts (aprf.cv, vonmises.cv, ...) are
 # available too; switch by passing `--desc cvr2 --models aprf.cv vonmises.cv ...`.
-DEFAULT_MODELS = ["aprf", "vonmises", "aprf-weighted"]
-DEFAULT_CVR2_MODELS = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv"]
+DEFAULT_MODELS = ["aprf", "vonmises", "aprf-weighted", "aprf-gauss"]
+DEFAULT_CVR2_MODELS = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv", "aprf-gauss.cv"]
 PYCORTEX_FSAVG_SUBJECT = "fsaverage"
 
 
