@@ -14,8 +14,10 @@ Usage:
     python -m abstract_values.visualize.visualize_mean_r2_fsaverage --r2-thr 5 --r2-sigma 2
     python -m abstract_values.visualize.visualize_mean_r2_fsaverage --models aprf vonmises aprf_session_shift
 
-Note: GLMsingle and the encoding models in this project store R² in
-PERCENT (0–100), not fraction. `--r2-thr` defaults follow that scale.
+Note: the abstract_values encoding models (fit_aprf.py, fit_vonmises.py)
+write R² as a **fraction (0–1)** — `get_rsq()` output. That's a different
+convention from GLMsingle (which uses percent 0–100). Thresholds here are
+on the fraction scale. R² ≥ 0.05 is a reasonable starting point.
 """
 
 from __future__ import annotations
@@ -103,8 +105,13 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
         stack = np.stack(per_sub, axis=0)        # (n_subjects, n_vertices)
         mean_r2 = np.nanmean(stack, axis=0)
 
+        # vmax: 99.5th percentile of positive R², but never below the
+        # threshold (matplotlib's Normalize errors out if vmin >= vmax,
+        # which can happen with small n where the percentile sits below
+        # the threshold).
         pos = mean_r2[mean_r2 > 0]
-        vmax = float(np.nanpercentile(pos, 99.5)) if pos.size else max(r2_thr * 2, 10.0)
+        vmax = float(np.nanpercentile(pos, 99.5)) if pos.size else r2_thr * 2
+        vmax = max(vmax, r2_thr * 2)
 
         alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
         v = cortex.Vertex(np.nan_to_num(mean_r2).astype(np.float32),
@@ -131,10 +138,12 @@ if __name__ == "__main__":
     p.add_argument("--models", nargs="+", default=DEFAULT_MODELS,
                    help=f"Models to average (default: {' '.join(DEFAULT_MODELS)})")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
-    p.add_argument("--r2-thr", type=float, default=2.0,
-                   help="R² alpha-masking threshold in PERCENT (default 2)")
-    p.add_argument("--r2-sigma", type=float, default=1.0,
-                   help="Gaussian-CDF transition width in PERCENT (default 1)")
+    p.add_argument("--r2-thr", type=float, default=0.05,
+                   help="R² alpha-masking threshold (FRACTION 0–1; "
+                        "default 0.05 = 5%% variance explained)")
+    p.add_argument("--r2-sigma", type=float, default=0.02,
+                   help="Gaussian-CDF transition width on the fraction scale "
+                        "(default 0.02)")
     args = p.parse_args()
 
     subjects = (args.subjects
