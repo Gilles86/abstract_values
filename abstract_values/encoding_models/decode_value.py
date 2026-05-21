@@ -109,14 +109,16 @@ def get_value_paradigm(sub, sessions):
 
 
 def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
+         fdr_fallback_n_voxels=100,
          n_iterations=1000,
          n_grid_mus=20, n_grid_sds=15, n_stimulus_grid=50,
          lambd=0.0, mask=None, mask_desc=None, spherical_noise=False,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False, model_type='loggauss'):
     """If fdr_alpha is set, voxels are selected by FDR-thresholding the
-    nested-CV R² (overrides n_voxels). Output filename uses
-    `nvoxels-fdrNN` where NN is alpha*100."""
+    nested-CV R² using the whole-brain mixture. ``fdr_fallback_n_voxels``
+    is used as a top-N fallback when the mixture is flagged degenerate.
+    Output filename uses ``nvoxels-fdrNN`` where NN is alpha*100."""
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -243,22 +245,29 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
             if fdr_alpha is not None:
                 # Whole-brain logit-Gaussian R² mixture (fit once per
                 # subject by compute_r2_mixture.py and cached) gives a
-                # stable noise/signal model. Applying its FDR threshold
-                # to this fold's ROI cv-R² avoids the small-n instability
-                # of fitting the mixture *within* a small ROI.
+                # stable noise/signal model. When the mixture is
+                # degenerate (Δμ small, σ_signal too wide, w_signal
+                # extreme), fall back to top-N voxels by cv-R² so we
+                # always select *something*.
                 from abstract_values.encoding_models.compute_r2_mixture \
                     import get_brain_fdr_threshold
-                thr = get_brain_fdr_threshold(
+                res = get_brain_fdr_threshold(
                     subject, model='aprf', bids_folder=bids_folder,
                     alpha=fdr_alpha, smoothed=smoothed)
-                if thr is None:
+                if res is None:
                     raise RuntimeError(
                         'Whole-brain mixture missing and auto-fit failed for '
                         f'sub-{subject}. Run '
                         '`python -m abstract_values.encoding_models.compute_r2_mixture` first.')
-                sel = cv_r2[cv_r2 > thr].index
-                print(f'    {len(sel)} voxels selected  '
-                      f'(whole-brain mixture FDR≤{fdr_alpha:.2f} → R² > {thr:.3f})')
+                thr = res['threshold']
+                if res['degenerate'] or not np.isfinite(thr):
+                    sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                    print(f'    {len(sel)} voxels selected  '
+                          f'(FDR mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
+                else:
+                    sel = cv_r2[cv_r2 > thr].index
+                    print(f'    {len(sel)} voxels selected  '
+                          f'(whole-brain mixture FDR≤{fdr_alpha:.2f} → R² > {thr:.3f})')
             else:
                 sel = cv_r2[cv_r2 > 0.0].index
                 print(f'    {len(sel)} voxels selected  '
@@ -325,11 +334,12 @@ if __name__ == '__main__':
     parser.add_argument('--n-voxels', type=int, default=100,
                         help='Top-N voxels by training R² (0 = nested CV R²>0)')
     parser.add_argument('--fdr-alpha', type=float, default=None,
-                        help='If set, replaces --n-voxels with FDR-controlled '
-                             'voxel selection: per-fold nested-CV R² mixture '
-                             'is fit (braincoder.utils.stats.r2_fdr_threshold) '
-                             'and voxels above the FDR<=α threshold are used. '
-                             'Output filename: nvoxels-fdrNN.')
+                        help='If set, voxels are selected by FDR-thresholding '
+                             'nested-CV R² with the whole-brain mixture '
+                             '(via compute_r2_mixture). Output: nvoxels-fdrNN.')
+    parser.add_argument('--fdr-fallback-n-voxels', type=int, default=100,
+                        help='Top-N voxels by cv-R² to use when the whole-brain '
+                             'mixture is flagged degenerate (default: 100).')
     parser.add_argument('--n-iterations', type=int, default=1000,
                         help='Max gradient descent iterations (default: 1000)')
     parser.add_argument('--n-stimulus-grid', type=int, default=50,
@@ -355,6 +365,7 @@ if __name__ == '__main__':
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
          fdr_alpha=args.fdr_alpha,
+         fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
          n_iterations=args.n_iterations, n_stimulus_grid=args.n_stimulus_grid,
          lambd=args.lambd, mask=args.mask, mask_desc=args.mask_desc,
          spherical_noise=args.spherical_noise,

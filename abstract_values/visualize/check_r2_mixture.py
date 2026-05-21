@@ -119,36 +119,43 @@ def plot_subject_page(subject: str, model: str, sidecar: dict,
                        r2_all: np.ndarray, alpha: float,
                        x_max: float | None = None,
                        voxel_count_max: int | None = None):
+    """Single histogram per subject with the three thresholds direct-labelled.
+
+    Components are direct-labelled at the right edge of each curve (no
+    legend). Voxel counts ride alongside each threshold line, not in a
+    separate bar panel.
+    """
     fit = sidecar["BRAIN"]
     r2 = r2_all[np.isfinite(r2_all) & (r2_all > 0) & (r2_all < 0.99)]
 
-    fig = plt.figure(figsize=(7.25, 3.0), constrained_layout=True)
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.4, 1.0])
-    ax_h = fig.add_subplot(gs[0])
-    ax_b = fig.add_subplot(gs[1])
-    fig.suptitle(f"sub-{subject}  ·  {model}  ·  whole-brain R² mixture",
-                 fontsize=10, y=1.02)
+    fig, ax = plt.subplots(figsize=(5.5, 3.0), constrained_layout=True)
+    fig.suptitle(
+        f"sub-{subject}  ·  {model}  ·  noise μ={fit['noise_mean_r2']:.3f}  "
+        f"signal μ={fit['signal_mean_r2']:.3f}  w_signal={fit['signal_weight']:.2f}",
+        fontsize=9, y=1.02)
 
-    # Histogram of R² (linear x; clip at the shared x_max so subject pages
-    # are visually comparable). Mixture components are projected back from
-    # logit-space via Jacobian so they integrate to the right density.
-    p995 = float(np.percentile(r2, 99.5))
-    x_lim = x_max if x_max is not None else p995
+    x_lim = x_max if x_max is not None else float(np.percentile(r2, 99.5))
     x = np.linspace(1e-4, x_lim, 600)
     z_x = _logit(x)
     n_pdf, s_pdf = _mixture_pdf_in_logit(z_x, fit)
-    jac = 1.0 / (x * (1.0 - x))               # |dz/dx|
+    jac = 1.0 / (x * (1.0 - x))
     n_pdf, s_pdf = n_pdf * jac, s_pdf * jac
-
-    ax_h.hist(r2[r2 <= x_lim], bins=80, density=True, color="0.78", lw=0)
     sum_pdf = n_pdf + s_pdf
-    ax_h.plot(x, n_pdf, color="0.45", lw=1.0, label="Noise component")
-    ax_h.plot(x, s_pdf, color="0.15", lw=1.0, ls="--", label="Signal component")
-    ax_h.plot(x, sum_pdf, color="0.0", lw=1.5, label="Mixture (sum)")
-    ax_h.set_xlabel("R²")
-    ax_h.set_ylabel("Density")
-    ax_h.set_xlim(0, x_lim)
-    ax_h.set_ylim(bottom=0)
+
+    ax.hist(r2[r2 <= x_lim], bins=80, density=True, color="0.82", lw=0,
+            zorder=1)
+    ax.plot(x, n_pdf, color="0.50", lw=0.9, zorder=2)
+    ax.plot(x, s_pdf, color="0.20", lw=0.9, ls="--", zorder=2)
+    ax.plot(x, sum_pdf, color="0.0", lw=1.5, zorder=3)
+    # Direct labels at the right edge of each curve
+    ax.text(x[-1], n_pdf[-1], " Noise", color="0.50", fontsize=7,
+            va="center", ha="left")
+    ax.text(x[-1], s_pdf[-1], " Signal", color="0.20", fontsize=7,
+            va="center", ha="left")
+    ax.set_xlabel("R²")
+    ax.set_ylabel("Density")
+    ax.set_xlim(0, x_lim)
+    ax.set_ylim(bottom=0)
 
     thr = {
         "fdr": r2_fdr_threshold_from_fit(fit, alpha=alpha),
@@ -158,33 +165,18 @@ def plot_subject_page(subject: str, model: str, sidecar: dict,
     counts = {k: int(np.sum(r2_all > t)) if np.isfinite(t) else 0
               for k, t in thr.items()}
 
-    for key, label, color in CRITERIA:
+    # Thresholds: vertical dotted line + one compact horizontal label above
+    # the axes ("FDR  R²=0.025  n=4,231"), stacked.
+    label_top = 1.04
+    for i, (key, label, color) in enumerate(CRITERIA):
         t = thr[key]
         if not np.isfinite(t):
             continue
-        ax_h.axvline(t, color=color, lw=1.2, ls=":", zorder=2)
-        ax_h.text(t, ax_h.get_ylim()[1] * 0.97,
-                  f" {label}\n R²={t:.3f}\n n={counts[key]}",
-                  color=color, fontsize=7, va="top", ha="left")
-    ax_h.legend(loc="upper right", frameon=False, fontsize=7)
-
-    # Right panel: bar of voxel counts per criterion
-    keys = [k for k, _, _ in CRITERIA]
-    labels = [l for _, l, _ in CRITERIA]
-    colors = [c for _, _, c in CRITERIA]
-    ax_b.bar(range(len(keys)),
-             [counts[k] for k in keys],
-             color=colors, width=0.6)
-    ax_b.set_xticks(range(len(keys)))
-    ax_b.set_xticklabels(labels, fontsize=8)
-    ax_b.set_ylabel("Voxels above threshold")
-    if voxel_count_max is not None:
-        ax_b.set_ylim(0, voxel_count_max * 1.1)
-    else:
-        ax_b.set_ylim(bottom=0)
-    for i, k in enumerate(keys):
-        ax_b.text(i, counts[k], f"{counts[k]:,}", ha="center", va="bottom",
-                  fontsize=7)
+        ax.axvline(t, color=color, lw=1.0, ls=":", zorder=2)
+        ax.text(t, label_top + i * 0.07,
+                f"{label}  R²={t:.3f}  n={counts[key]:,}",
+                color=color, fontsize=7, va="bottom", ha="center",
+                transform=ax.get_xaxis_transform())
 
     sns.despine(fig=fig, offset=5, trim=True)
     return fig, counts

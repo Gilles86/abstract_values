@@ -113,6 +113,26 @@ def fit_subject_model(subject: str, model: str, bids_folder: Path, *,
     json_fn = out_dir / f"sub-{subject}_desc-p_signal{smtag}.json"
     nii_fn = out_dir / f"sub-{subject}_desc-p_signal{smtag}.nii.gz"
 
+    # Degeneracy flag — the mixture sometimes fails to identify a clean
+    # signal component (very small Δμ in logit space, or signal σ runs
+    # away). Downstream FDR uses the threshold as-is when not degenerate,
+    # else falls back to a fixed top-N by R².
+    delta_mu_logit = fit["signal_mu"] - fit["noise_mu"]
+    sigma_ratio = fit["signal_sigma"] / max(fit["noise_sigma"], 1e-6)
+    is_degenerate = (
+        delta_mu_logit < 0.5
+        or sigma_ratio > 1.4
+        or fit["signal_weight"] < 0.3
+        or fit["signal_weight"] > 0.85
+    )
+    fit["degenerate"] = bool(is_degenerate)
+    fit["degenerate_reasons"] = {
+        "delta_mu_logit_lt_0.5":    bool(delta_mu_logit < 0.5),
+        "sigma_signal_over_noise_gt_1.4": bool(sigma_ratio > 1.4),
+        "signal_weight_outside_0.3_0.85": bool(
+            fit["signal_weight"] < 0.3 or fit["signal_weight"] > 0.85),
+    }
+
     summary = {"model": model, "smoothed": smoothed,
                "n_voxels_total": int(r2_all.size),
                "n_voxels_used": int(finite.sum()),
@@ -128,7 +148,8 @@ def fit_subject_model(subject: str, model: str, bids_folder: Path, *,
     print(f"  → wrote {json_fn.name}")
     print(f"  → wrote {nii_fn.name}")
     print(f"  noise μ_R²={fit['noise_mean_r2']:.3f} sd_noise={fit['noise_sigma']:.2f}  "
-          f"signal μ_R²={fit['signal_mean_r2']:.3f}  w_signal={fit['signal_weight']:.2f}")
+          f"signal μ_R²={fit['signal_mean_r2']:.3f}  w_signal={fit['signal_weight']:.2f}"
+          + ("  ⚠ DEGENERATE" if fit['degenerate'] else ""))
 
     # Diagnostic PDF — histogram + projected mixture components + sum +
     # vertical threshold markers (FDR α=0.05, p_signal ≥ 0.5, p_signal ≥ 0.95).
@@ -195,10 +216,14 @@ def load_brain_mixture(subject: str, model: str, bids_folder: Path,
 
 def get_brain_fdr_threshold(subject: str, model: str, bids_folder: Path,
                              alpha: float = 0.05, smoothed: bool = False,
-                             auto_fit: bool = True) -> float | None:
-    """Return the FDR-controlled R² threshold for (subject, model) using the
-    whole-brain mixture cache. Fits the mixture on cache miss when
-    ``auto_fit=True`` (default).
+                             auto_fit: bool = True) -> dict | None:
+    """Look up the whole-brain mixture for (subject, model) and return the
+    FDR-controlled R² threshold along with a ``degenerate`` flag.
+
+    Returns ``{'threshold': float, 'degenerate': bool, 'info': dict}`` or
+    ``None`` if no mixture exists and auto-fit failed. Callers should fall
+    back to a deterministic voxel-count selection when ``degenerate`` is
+    True.
     """
     info = load_brain_mixture(subject, model, bids_folder, smoothed=smoothed)
     if info is None and auto_fit:
@@ -207,7 +232,11 @@ def get_brain_fdr_threshold(subject: str, model: str, bids_folder: Path,
                                   smoothed=smoothed, diagnostics_dir=diag)
     if info is None:
         return None
-    return r2_fdr_threshold_from_fit(info, alpha=alpha)
+    return {
+        "threshold": r2_fdr_threshold_from_fit(info, alpha=alpha),
+        "degenerate": bool(info.get("degenerate", False)),
+        "info": info,
+    }
 
 
 def _discover_subjects(bids_folder: Path, model: str,
@@ -229,30 +258,32 @@ def main():
                                        "Omit + pass --all to fit every subject.")
     p.add_argument("--all", action="store_true",
                    help="Iterate over all subjects with R² on disk")
-    p.add_argument("--model", default="aprf",
+    p.add_argument("--models", nargs="+", default=["aprf"],
                    choices=DEFAULT_MODELS,
-                   help="Encoding model whose R² to mix (default: aprf)")
+                   help="Encoding models whose R² to mix (default: aprf). "
+                        "Pass multiple to do them all in one go.")
     p.add_argument("--smoothed", action="store_true",
                    help="Use the BOLD-smoothed variant's R² NIfTI")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     args = p.parse_args()
 
     bids = Path(args.bids_folder)
-    diag = bids / "derivatives" / "qa" / "r2_mixture" / args.model
 
-    if args.all:
-        subjects = _discover_subjects(bids, args.model, smoothed=args.smoothed)
-    elif args.subject:
-        subjects = [args.subject]
-    else:
-        raise SystemExit("Pass --subject or --all")
-
-    if not subjects:
-        raise SystemExit(f"No subjects with desc-r2 NIfTIs for model {args.model}")
-
-    for sub in subjects:
-        fit_subject_model(sub, args.model, bids, smoothed=args.smoothed,
-                           diagnostics_dir=diag)
+    for model in args.models:
+        diag = bids / "derivatives" / "qa" / "r2_mixture" / model
+        if args.all:
+            subjects = _discover_subjects(bids, model, smoothed=args.smoothed)
+        elif args.subject:
+            subjects = [args.subject]
+        else:
+            raise SystemExit("Pass --subject or --all")
+        if not subjects:
+            print(f"({model}: no subjects with desc-r2 NIfTIs — skipping)")
+            continue
+        print(f"\n=== Fitting {model} mixture for {len(subjects)} subjects ===")
+        for sub in subjects:
+            fit_subject_model(sub, model, bids, smoothed=args.smoothed,
+                               diagnostics_dir=diag)
 
 
 if __name__ == "__main__":

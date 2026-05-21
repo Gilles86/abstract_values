@@ -89,14 +89,16 @@ def make_basis_parameters(n_basis, kappa):
 
 
 def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
+         fdr_fallback_n_voxels=100,
          n_basis=8, kappa=2.0,
          weight_alpha=0.0, lambd=0.0,
          mask=None, mask_desc=None, spherical_noise=False,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False):
     """If fdr_alpha is set, voxels are selected by FDR-thresholding the
-    nested-CV R² (overrides n_voxels). Output filename uses
-    `nvoxels-fdrNN` where NN is alpha*100."""
+    nested-CV R² using the whole-brain vonmises mixture.
+    ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture
+    is flagged degenerate. Output filename uses ``nvoxels-fdrNN``."""
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -204,20 +206,25 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
             if fdr_alpha is not None:
-                # Cached whole-brain vonmises mixture → ROI threshold.
                 from abstract_values.encoding_models.compute_r2_mixture \
                     import get_brain_fdr_threshold
-                thr = get_brain_fdr_threshold(
+                res = get_brain_fdr_threshold(
                     subject, model='vonmises', bids_folder=bids_folder,
                     alpha=fdr_alpha, smoothed=smoothed)
-                if thr is None:
+                if res is None:
                     raise RuntimeError(
                         'Whole-brain vonmises mixture missing and auto-fit failed for '
                         f'sub-{subject}. Run '
                         '`python -m abstract_values.encoding_models.compute_r2_mixture --model vonmises` first.')
-                sel = cv_r2[cv_r2 > thr].index
-                print(f'    {len(sel)} voxels selected  '
-                      f'(whole-brain mixture FDR≤{fdr_alpha:.2f} → R² > {thr:.3f})')
+                thr = res['threshold']
+                if res['degenerate'] or not np.isfinite(thr):
+                    sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                    print(f'    {len(sel)} voxels selected  '
+                          f'(FDR mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
+                else:
+                    sel = cv_r2[cv_r2 > thr].index
+                    print(f'    {len(sel)} voxels selected  '
+                          f'(whole-brain mixture FDR≤{fdr_alpha:.2f} → R² > {thr:.3f})')
             else:
                 sel = cv_r2[cv_r2 > 0.0].index
                 print(f'    {len(sel)} voxels selected  '
@@ -286,9 +293,12 @@ if __name__ == '__main__':
     parser.add_argument('--n-voxels', type=int, default=100,
                         help='Top-N voxels by training R² (0 = nested CV R²>0)')
     parser.add_argument('--fdr-alpha', type=float, default=None,
-                        help='If set, replaces --n-voxels with FDR-controlled '
-                             'voxel selection (braincoder r2_fdr_threshold on '
-                             'per-fold nested-CV R²). Output: nvoxels-fdrNN.')
+                        help='If set, voxels are selected by FDR-thresholding '
+                             'nested-CV R² with the whole-brain vonmises '
+                             'mixture (see compute_r2_mixture). Output: nvoxels-fdrNN.')
+    parser.add_argument('--fdr-fallback-n-voxels', type=int, default=100,
+                        help='Top-N voxels by cv-R² to use when the whole-brain '
+                             'mixture is flagged degenerate (default: 100).')
     parser.add_argument('--n-basis', type=int, default=8,
                         help='Number of Von Mises basis functions (default: 8)')
     parser.add_argument('--kappa', type=float, default=2.0,
@@ -313,6 +323,7 @@ if __name__ == '__main__':
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
          fdr_alpha=args.fdr_alpha,
+         fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
          n_basis=args.n_basis, kappa=args.kappa,
          weight_alpha=args.weight_alpha, lambd=args.lambd,
          mask=args.mask, mask_desc=args.mask_desc,
