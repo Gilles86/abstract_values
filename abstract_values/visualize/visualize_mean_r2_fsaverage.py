@@ -20,14 +20,22 @@ PERCENT (0–100), not fraction. `--r2-thr` defaults follow that scale.
 
 from __future__ import annotations
 
+# This module is meant to run from the `pycortex2` conda env, which is kept
+# minimal (pycortex + numpy + nibabel + scipy) to avoid conflicts with
+# the heavy `abstract_values` env (nilearn / TF / etc.). Keep imports
+# accordingly — don't pull in nilearn-flavoured helpers from
+# `abstract_values.surface.sampling`; tiny utilities are inlined below.
+
 import argparse
 from pathlib import Path
 
 import cortex
+import nibabel as nib
 import numpy as np
 from scipy.stats import norm
 
-from abstract_values.surface.sampling import load_surface_data
+# BIDS_FOLDER is just a Path constant — abstract_values.utils.data imports
+# pandas + numpy but no nilearn, so it's safe in pycortex2.
 from abstract_values.utils.data import BIDS_FOLDER
 
 DEFAULT_MODELS = ["aprf", "vonmises"]
@@ -41,6 +49,13 @@ def fsaverage_r2_path(subject: str, model: str, hemi: str,
             / f"sub-{subject}_task-abstractvalue_hemi-{hemi}_space-fsaverage_desc-r2_pe.func.gii")
 
 
+def _load_gifti(path: Path) -> np.ndarray:
+    """Load a `.func.gii` first darray as float32. Inlined to avoid pulling
+    in nilearn (which would force pycortex2 env to install nilearn just to
+    load surface files)."""
+    return nib.load(str(path)).darrays[0].data.astype(np.float32)
+
+
 def load_bilateral(subject: str, model: str, bids_folder: Path) -> np.ndarray | None:
     """Return L+R fsaverage R² concatenated as a (n_vertices,) array, or None if missing."""
     arrays = []
@@ -48,7 +63,7 @@ def load_bilateral(subject: str, model: str, bids_folder: Path) -> np.ndarray | 
         p = fsaverage_r2_path(subject, model, hemi, bids_folder)
         if not p.exists():
             return None
-        arrays.append(load_surface_data(p))
+        arrays.append(_load_gifti(p))
     return np.concatenate(arrays)
 
 
