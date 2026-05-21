@@ -560,9 +560,18 @@ def load_orientation_aligned(subject: str, smoothed_suffix: str,
 
 def _value_error_by_orientation(subject: str, d_value: dict,
                                  smoothed_suffix: str, lambd: float,
-                                 n_orient_bins: int = 12):
-    """Return per-orientation-bin (n_bins,) arrays of mean+SD value-decoding error,
-    plus the per-bin condition labels and trial counts.
+                                 n_orient_bins: int = 12,
+                                 residual: bool = False):
+    """Per-orientation-bin (n_bins,) arrays of mean+SD value-decoding error.
+
+    If ``residual`` is False (default), the error is ``decoded − true``.
+    If ``residual`` is True, it's ``decoded − subject_mean_value`` — i.e. the
+    error minus what a constant "always predict the mean" decoder would
+    produce. This removes the systematic per-orientation bias that's purely
+    an artefact of the orientation→CHF mapping (low-orient maps to low CHF
+    in cdf, etc.) and isolates the actual decoder's contribution. For a
+    useless decoder this collapses to 0; for a working decoder the cdf and
+    inverse_cdf curves should be approximate mirror images around 0.
 
     Returns: dict mapping condition → {orient_centers, mean_err, sd_err, n}.
     """
@@ -587,7 +596,15 @@ def _value_error_by_orientation(subject: str, d_value: dict,
 
     # Compute error using posterior mean for the value decoder
     decoded = posterior_mean(d_value["grid"], d_value["posteriors"])
-    error = decoded - d_value["truth"]
+    if residual:
+        # Subtract the constant-mean baseline (subject-specific mean across
+        # ALL trials). Equivalent to (decoded - true) - (mean - true) =
+        # decoded - mean. Removes the per-orientation bias a constant
+        # predictor would already produce.
+        baseline = float(d_value["truth"].mean())
+        error = decoded - baseline
+    else:
+        error = decoded - d_value["truth"]
 
     # Per-trial condition
     cond = d_value["conditions"]

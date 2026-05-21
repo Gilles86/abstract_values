@@ -41,7 +41,6 @@ from braincoder.utils.stats import (
     fit_r2_mixture,
     r2_fdr_threshold as r2_fdr_threshold_from_fit,
     r2_posterior_signal,
-    plot_r2_mixture,
 )
 
 # Models for which the whole-brain mixture is meaningful (decoder consumers).
@@ -130,12 +129,28 @@ def fit_subject_model(subject: str, model: str, bids_folder: Path, *,
     print(f"  noise μ_R²={fit['noise_mean_r2']:.3f} sd_noise={fit['noise_sigma']:.2f}  "
           f"signal μ_R²={fit['signal_mean_r2']:.3f}  w_signal={fit['signal_weight']:.2f}")
 
-    # Diagnostic PDF
+    # Diagnostic PDF — simple histogram + projected mixture components.
     if diagnostics_dir is not None:
+        from scipy.stats import norm
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         pdf_fn = diagnostics_dir / f"sub-{subject}_r2_mixture{smtag}.pdf"
+        r2_used = r2_all[finite]
+        p995 = float(np.percentile(r2_used, 99.5))
         fig, ax = plt.subplots(figsize=(5, 3.2), constrained_layout=True)
-        plot_r2_mixture(fit, r2=r2_all[finite], alpha=0.05, ax=ax)
+        ax.hist(r2_used[r2_used <= p995], bins=80, density=True,
+                color="0.78", lw=0)
+        x = np.linspace(1e-4, p995, 400)
+        z_x = np.log(x / (1.0 - x))
+        jac = 1.0 / (x * (1.0 - x))
+        n_pdf = norm.pdf(z_x, fit["noise_mu"],  fit["noise_sigma"]) \
+                * fit["noise_weight"] * jac
+        s_pdf = norm.pdf(z_x, fit["signal_mu"], fit["signal_sigma"]) \
+                * fit["signal_weight"] * jac
+        ax.plot(x, n_pdf, color="0.3", lw=1.2, label="Noise")
+        ax.plot(x, s_pdf, color="0.0", lw=1.2, ls="--", label="Signal")
+        ax.set_xlabel("R²"); ax.set_ylabel("Density")
+        ax.set_xlim(0, p995); ax.set_ylim(bottom=0)
+        ax.legend(frameon=False)
         ax.set_title(f"sub-{subject}  ·  {model}{smtag}  ·  whole-brain R² mixture",
                      fontsize=9)
         fig.savefig(str(pdf_fn), dpi=200)
