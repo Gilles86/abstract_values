@@ -40,6 +40,7 @@ from abstract_values.utils.data import BIDS_FOLDER
 from braincoder.utils.stats import (
     fit_r2_mixture,
     r2_fdr_threshold as r2_fdr_threshold_from_fit,
+    r2_p_signal_threshold,
     r2_posterior_signal,
 )
 
@@ -129,29 +130,49 @@ def fit_subject_model(subject: str, model: str, bids_folder: Path, *,
     print(f"  noise μ_R²={fit['noise_mean_r2']:.3f} sd_noise={fit['noise_sigma']:.2f}  "
           f"signal μ_R²={fit['signal_mean_r2']:.3f}  w_signal={fit['signal_weight']:.2f}")
 
-    # Diagnostic PDF — simple histogram + projected mixture components.
+    # Diagnostic PDF — histogram + projected mixture components + sum +
+    # vertical threshold markers (FDR α=0.05, p_signal ≥ 0.5, p_signal ≥ 0.95).
     if diagnostics_dir is not None:
         from scipy.stats import norm
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         pdf_fn = diagnostics_dir / f"sub-{subject}_r2_mixture{smtag}.pdf"
         r2_used = r2_all[finite]
         p995 = float(np.percentile(r2_used, 99.5))
-        fig, ax = plt.subplots(figsize=(5, 3.2), constrained_layout=True)
-        ax.hist(r2_used[r2_used <= p995], bins=80, density=True,
-                color="0.78", lw=0)
-        x = np.linspace(1e-4, p995, 400)
+        x = np.linspace(1e-4, p995, 600)
         z_x = np.log(x / (1.0 - x))
         jac = 1.0 / (x * (1.0 - x))
         n_pdf = norm.pdf(z_x, fit["noise_mu"],  fit["noise_sigma"]) \
                 * fit["noise_weight"] * jac
         s_pdf = norm.pdf(z_x, fit["signal_mu"], fit["signal_sigma"]) \
                 * fit["signal_weight"] * jac
-        ax.plot(x, n_pdf, color="0.3", lw=1.2, label="Noise")
-        ax.plot(x, s_pdf, color="0.0", lw=1.2, ls="--", label="Signal")
+        sum_pdf = n_pdf + s_pdf
+
+        thr = {
+            ("FDR ≤ 0.05",        "#3B5BA5"): r2_fdr_threshold_from_fit(fit, alpha=0.05),
+            ("P(signal) ≥ 0.5",   "#5D8C3F"): r2_p_signal_threshold(fit, p=0.5),
+            ("P(signal) ≥ 0.95",  "#C44E52"): r2_p_signal_threshold(fit, p=0.95),
+        }
+
+        fig, ax = plt.subplots(figsize=(5.2, 3.4), constrained_layout=True)
+        ax.hist(r2_used[r2_used <= p995], bins=80, density=True,
+                color="0.78", lw=0, label="Brain R² (data)")
+        ax.plot(x, n_pdf, color="0.45", lw=1.0, label="Noise component")
+        ax.plot(x, s_pdf, color="0.15", lw=1.0, ls="--", label="Signal component")
+        ax.plot(x, sum_pdf, color="0.0", lw=1.5, label="Mixture (sum)")
+        for (label, color), t in thr.items():
+            if not np.isfinite(t):
+                continue
+            ax.axvline(t, color=color, lw=1.0, ls=":", zorder=2)
+            ax.text(t, ax.get_ylim()[1] * 0.97,
+                    f" {label}\n R²={t:.3f}",
+                    color=color, fontsize=7, va="top", ha="left")
         ax.set_xlabel("R²"); ax.set_ylabel("Density")
         ax.set_xlim(0, p995); ax.set_ylim(bottom=0)
-        ax.legend(frameon=False)
-        ax.set_title(f"sub-{subject}  ·  {model}{smtag}  ·  whole-brain R² mixture",
+        ax.legend(frameon=False, fontsize=7, loc="center right")
+        ax.set_title(f"sub-{subject}  ·  {model}{smtag}  ·  whole-brain R² mixture\n"
+                     f"noise μ={fit['noise_mean_r2']:.3f}  "
+                     f"signal μ={fit['signal_mean_r2']:.3f}  "
+                     f"w_signal={fit['signal_weight']:.2f}",
                      fontsize=9)
         fig.savefig(str(pdf_fn), dpi=200)
         plt.close(fig)

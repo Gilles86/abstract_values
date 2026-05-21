@@ -116,7 +116,9 @@ def _mixture_pdf_in_logit(z, fit):
 
 
 def plot_subject_page(subject: str, model: str, sidecar: dict,
-                       r2_all: np.ndarray, alpha: float):
+                       r2_all: np.ndarray, alpha: float,
+                       x_max: float | None = None,
+                       voxel_count_max: int | None = None):
     fit = sidecar["BRAIN"]
     r2 = r2_all[np.isfinite(r2_all) & (r2_all > 0) & (r2_all < 0.99)]
 
@@ -127,22 +129,25 @@ def plot_subject_page(subject: str, model: str, sidecar: dict,
     fig.suptitle(f"sub-{subject}  ·  {model}  ·  whole-brain R² mixture",
                  fontsize=10, y=1.02)
 
-    # Histogram of R² (linear x; clip at 99.5th percentile so the bulk is
-    # readable). Mixture components projected back from logit-space via
-    # Jacobian so they integrate to the right density on the linear x.
+    # Histogram of R² (linear x; clip at the shared x_max so subject pages
+    # are visually comparable). Mixture components are projected back from
+    # logit-space via Jacobian so they integrate to the right density.
     p995 = float(np.percentile(r2, 99.5))
-    x = np.linspace(1e-4, p995, 400)
+    x_lim = x_max if x_max is not None else p995
+    x = np.linspace(1e-4, x_lim, 600)
     z_x = _logit(x)
     n_pdf, s_pdf = _mixture_pdf_in_logit(z_x, fit)
     jac = 1.0 / (x * (1.0 - x))               # |dz/dx|
     n_pdf, s_pdf = n_pdf * jac, s_pdf * jac
 
-    ax_h.hist(r2[r2 <= p995], bins=80, density=True, color="0.78", lw=0)
-    ax_h.plot(x, n_pdf, color="0.3", lw=1.2, label="Noise component")
-    ax_h.plot(x, s_pdf, color="0.0", lw=1.2, ls="--", label="Signal component")
+    ax_h.hist(r2[r2 <= x_lim], bins=80, density=True, color="0.78", lw=0)
+    sum_pdf = n_pdf + s_pdf
+    ax_h.plot(x, n_pdf, color="0.45", lw=1.0, label="Noise component")
+    ax_h.plot(x, s_pdf, color="0.15", lw=1.0, ls="--", label="Signal component")
+    ax_h.plot(x, sum_pdf, color="0.0", lw=1.5, label="Mixture (sum)")
     ax_h.set_xlabel("R²")
     ax_h.set_ylabel("Density")
-    ax_h.set_xlim(0, p995)
+    ax_h.set_xlim(0, x_lim)
     ax_h.set_ylim(bottom=0)
 
     thr = {
@@ -173,13 +178,67 @@ def plot_subject_page(subject: str, model: str, sidecar: dict,
     ax_b.set_xticks(range(len(keys)))
     ax_b.set_xticklabels(labels, fontsize=8)
     ax_b.set_ylabel("Voxels above threshold")
-    ax_b.set_ylim(bottom=0)
+    if voxel_count_max is not None:
+        ax_b.set_ylim(0, voxel_count_max * 1.1)
+    else:
+        ax_b.set_ylim(bottom=0)
     for i, k in enumerate(keys):
         ax_b.text(i, counts[k], f"{counts[k]:,}", ha="center", va="bottom",
                   fontsize=7)
 
     sns.despine(fig=fig, offset=5, trim=True)
     return fig, counts
+
+
+def plot_thresholds_and_means_page(per_subject_fits: dict[str, dict],
+                                    model: str, alpha: float):
+    """Per-subject overview: 3 thresholds + signal/noise mean R²s, one
+    horizontal swarm per quantity, subjects connected by faint lines.
+    """
+    if not per_subject_fits:
+        return None
+    subjects = sorted(per_subject_fits.keys())
+    series: dict[str, list[float]] = {
+        "Noise μ":         [],
+        "Signal μ":        [],
+        "FDR ≤ α":         [],
+        "P(signal) ≥ 0.5": [],
+        "P(signal) ≥ 0.95":[],
+    }
+    palette = {
+        "Noise μ":          "0.55",
+        "Signal μ":         "0.15",
+        "FDR ≤ α":          "#3B5BA5",
+        "P(signal) ≥ 0.5":  "#5D8C3F",
+        "P(signal) ≥ 0.95": "#C44E52",
+    }
+    for sub in subjects:
+        info = per_subject_fits[sub]
+        series["Noise μ"].append(info["noise_mean_r2"])
+        series["Signal μ"].append(info["signal_mean_r2"])
+        series["FDR ≤ α"].append(r2_fdr_threshold_from_fit(info, alpha=alpha))
+        series["P(signal) ≥ 0.5"].append(r2_at_p_signal(info, 0.5))
+        series["P(signal) ≥ 0.95"].append(r2_at_p_signal(info, 0.95))
+
+    keys = list(series.keys())
+    n_subj = len(subjects)
+    fig, ax = plt.subplots(figsize=(6.5, 3.4), constrained_layout=True)
+    fig.suptitle(f"Whole-brain R² mixture summary  ·  {model}  (α={alpha:.2f}, "
+                 f"n_subj={n_subj})", fontsize=10, y=1.02)
+    x = np.arange(len(keys))
+    # Subject-by-subject line connecting all five quantities (light grey)
+    for i in range(n_subj):
+        ys = [series[k][i] for k in keys]
+        ax.plot(x, ys, color="0.85", lw=0.5, zorder=1)
+    # Coloured dots per quantity
+    for j, k in enumerate(keys):
+        ys = [v for v in series[k] if np.isfinite(v)]
+        ax.plot([j] * len(ys), ys, "o", color=palette[k], ms=5, zorder=2)
+    ax.set_xticks(x); ax.set_xticklabels(keys, fontsize=8)
+    ax.set_ylabel("R²")
+    ax.set_ylim(bottom=0)
+    sns.despine(fig=fig, offset=5, trim=True)
+    return fig
 
 
 def plot_summary_page(per_subject_counts: dict[str, dict[str, int]], model: str,
@@ -219,23 +278,58 @@ def run(model: str, smoothed: bool, alpha: float, out: Path):
         raise SystemExit(f"No cached mixtures under {base}. Run "
                          f"compute_r2_mixture first.")
 
+    # First pass: collect r2 distributions to compute a SHARED x-axis
+    # (max 99.5th percentile across subjects), so per-subject pages can be
+    # visually compared.
+    loaded = {}
+    for sub in subjects:
+        sidecar = _load_mixture(sub, model, bids, smoothed)
+        r2_all = _load_r2(sub, model, bids, smoothed)
+        if sidecar is None or r2_all is None or "BRAIN" not in sidecar:
+            continue
+        r2 = r2_all[np.isfinite(r2_all) & (r2_all > 0) & (r2_all < 0.99)]
+        loaded[sub] = (sidecar, r2_all, r2)
+    if not loaded:
+        raise SystemExit("No mixtures loaded.")
+    x_max = float(max(np.percentile(r2, 99.5) for _, _, r2 in loaded.values()))
+
+    # Pre-compute voxel counts so we can set a shared y-axis on the bar
+    # panels — biggest count across subjects defines the cap.
+    pre_counts = {}
+    for sub, (sidecar, r2_all, _) in loaded.items():
+        info = sidecar["BRAIN"]
+        thr = {
+            "fdr": r2_fdr_threshold_from_fit(info, alpha=alpha),
+            "p50": r2_at_p_signal(info, 0.5),
+            "p95": r2_at_p_signal(info, 0.95),
+        }
+        pre_counts[sub] = {k: int(np.sum(r2_all > t)) if np.isfinite(t) else 0
+                            for k, t in thr.items()}
+    voxel_max = max(max(c.values()) for c in pre_counts.values())
+
     out.parent.mkdir(parents=True, exist_ok=True)
     counts: dict[str, dict[str, int]] = {}
+    fits: dict[str, dict] = {}
     with PdfPages(out) as pdf:
         for sub in subjects:
-            sidecar = _load_mixture(sub, model, bids, smoothed)
-            r2_all = _load_r2(sub, model, bids, smoothed)
-            if sidecar is None or r2_all is None or "BRAIN" not in sidecar:
+            if sub not in loaded:
                 continue
+            sidecar, r2_all, _ = loaded[sub]
             print(f"sub-{sub}: rendering")
-            fig, c = plot_subject_page(sub, model, sidecar, r2_all, alpha)
+            fig, c = plot_subject_page(sub, model, sidecar, r2_all, alpha,
+                                        x_max=x_max, voxel_count_max=voxel_max)
             pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
             counts[sub] = c
+            fits[sub] = sidecar["BRAIN"]
         if counts:
-            fig = plot_summary_page(counts, model, alpha)
-            pdf.savefig(fig, bbox_inches="tight")
-            plt.close(fig)
+            for fn in (lambda: plot_summary_page(counts, model, alpha),
+                       lambda: plot_thresholds_and_means_page(fits, model, alpha)):
+                fig = fn()
+                if fig is None:
+                    continue
+                pdf.savefig(fig, bbox_inches="tight")
+                plt.close(fig)
     print(f"Wrote {out}")
 
 
