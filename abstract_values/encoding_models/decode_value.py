@@ -286,8 +286,14 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
                           f'(mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
                 else:
                     sel = cv_r2[cv_r2 > thr].index
-                    print(f'    {len(sel)} voxels selected  '
-                          f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
+                    if len(sel) < 10:
+                        sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                        print(f'    {len(sel)} voxels selected  '
+                              f'(only {(cv_r2 > thr).sum()} passed {crit_label} → R² > {thr:.3f}; '
+                              f'fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
+                    else:
+                        print(f'    {len(sel)} voxels selected  '
+                              f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
             else:
                 sel = cv_r2[cv_r2 > 0.0].index
                 print(f'    {len(sel)} voxels selected  '
