@@ -53,7 +53,7 @@ import pandas as pd
 from nilearn.maskers import NiftiMasker
 
 from braincoder.models import LogGaussianPRF
-from braincoder.optimize import ParameterFitter, ResidualFitter
+from braincoder.optimize import ParameterFitter, ResidualFitter, WeightFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.models import GaussianValuePRF
@@ -61,12 +61,18 @@ from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
 def _build_model(model_type, allow_neg_amplitudes=True):
-    """Return a fresh encoding model for the requested tuning family."""
+    """Return a fresh encoding model for the requested tuning family.
+
+    For ``'weighted'`` (the basis-set analog of vonmises), use
+    LogGaussianPRF with the ``mode_fwhm_natural`` parameterisation —
+    matches ``fit_aprf_weighted.py``."""
     if model_type == 'loggauss':
         return LogGaussianPRF(allow_neg_amplitudes=allow_neg_amplitudes,
                               parameterisation='mu_sd_natural')
     if model_type == 'gaussian':
         return GaussianValuePRF(allow_neg_amplitudes=allow_neg_amplitudes)
+    if model_type == 'weighted':
+        return LogGaussianPRF(parameterisation='mode_fwhm_natural')
     raise ValueError(f'Unknown model_type: {model_type!r}')
 
 
@@ -81,8 +87,31 @@ def _grid_ranges(model_type, value_min, value_max, n_loc, n_width):
     return locs, widths
 
 
+def make_value_basis_parameters(n_basis, value_min, value_max, fwhm=None):
+    """Fixed log-Gaussian basis on the value axis (amp=1, baseline=0).
+
+    Mirrors ``fit_aprf_weighted.py``: modes are uniformly spaced over
+    [value_min, value_max]; default fwhm = 2 × inter-basis spacing in
+    CHF, matching the orientation-side vonmises basis (8 bumps with
+    width ≈ 2 × spacing)."""
+    modes = np.linspace(value_min, value_max, n_basis).astype(np.float32)
+    spacing = modes[1] - modes[0] if n_basis > 1 else (value_max - value_min)
+    if fwhm is None:
+        fwhm = float(2.0 * spacing)
+    return pd.DataFrame({
+        'mode':      modes,
+        'fwhm':      np.full(n_basis, fwhm, dtype=np.float32),
+        'amplitude': np.ones(n_basis,  dtype=np.float32),
+        'baseline':  np.zeros(n_basis, dtype=np.float32),
+    })
+
+
 def _out_subdir(model_type):
-    return 'value' if model_type == 'loggauss' else 'value-gauss'
+    return {
+        'loggauss': 'value',
+        'gaussian': 'value-gauss',
+        'weighted': 'value-weighted',
+    }[model_type]
 
 
 def get_value_paradigm(sub, sessions):
@@ -108,10 +137,165 @@ def get_value_paradigm(sub, sessions):
     return df[['x']]
 
 
+def _run_weighted_folds(sub, sessions, paradigm, data, stimulus_range,
+                        value_min, value_max,
+                        n_voxels, fdr_alpha, p_signal_thr,
+                        fdr_fallback_n_voxels,
+                        n_basis, basis_fwhm,
+                        weight_alpha, lambd, spherical_noise,
+                        smoothed, bids_folder, debug):
+    """Basis-set (WeightFitter) decoding flow — value-axis analog of decode_gabor.
+
+    Mirrors decode_gabor.py: 8 fixed log-Gaussian basis RFs, closed-form
+    weight fit, optional FDR/p_signal voxel selection against the
+    *aprf-weighted* whole-brain mixture (not aprf).
+    """
+    basis_pars = make_value_basis_parameters(n_basis, value_min, value_max,
+                                             fwhm=basis_fwhm)
+    eff_fwhm = float(basis_pars['fwhm'].iloc[0])
+    print(f'  {n_basis} log-Gaussian basis functions  fwhm={eff_fwhm:.2f} CHF')
+
+    all_pdfs = []
+    fold_meta = []
+    all_runs = [(s, r) for s in sessions for r in sub.get_runs(s)]
+
+    for test_session, test_run in all_runs:
+        print(f'\n  [fold] hold-out ses-{test_session} run-{test_run}')
+
+        test_idx  = (paradigm.index.get_level_values('session') == test_session) & \
+                    (paradigm.index.get_level_values('run') == test_run)
+        train_idx = ~test_idx
+
+        train_paradigm = paradigm.loc[train_idx]
+        test_paradigm  = paradigm.loc[test_idx]
+        train_data     = data.loc[train_idx]
+        test_data      = data.loc[test_idx]
+
+        # ── fit basis weights (closed-form lstsq, optional ridge) ───────────
+        model = _build_model('weighted')
+        weights = WeightFitter(model, basis_pars, train_data,
+                               train_paradigm).fit(alpha=weight_alpha)
+        # weights: DataFrame (n_basis × n_voxels)
+
+        # ── voxel selection ────────────────────────────────────────────────
+        if n_voxels == 0 or fdr_alpha is not None or p_signal_thr is not None:
+            inner_runs = sorted(set(zip(
+                train_paradigm.index.get_level_values('session'),
+                train_paradigm.index.get_level_values('run'))))
+            inner_r2s = []
+            for inner_ses, inner_run in inner_runs:
+                inner_test_idx = (
+                    (train_paradigm.index.get_level_values('session') == inner_ses) &
+                    (train_paradigm.index.get_level_values('run') == inner_run))
+                inner_train_paradigm = train_paradigm.loc[~inner_test_idx]
+                inner_test_paradigm  = train_paradigm.loc[inner_test_idx]
+                inner_train_data     = train_data.loc[~inner_test_idx]
+                inner_test_data      = train_data.loc[inner_test_idx]
+
+                inner_model = _build_model('weighted')
+                inner_w = WeightFitter(inner_model, basis_pars,
+                                       inner_train_data,
+                                       inner_train_paradigm).fit(alpha=weight_alpha)
+                inner_bp = inner_model.basis_predictions(inner_test_paradigm, basis_pars)
+                inner_pred = pd.DataFrame(inner_bp @ inner_w.values,
+                                          index=inner_test_data.index,
+                                          columns=inner_test_data.columns)
+                inner_r2s.append(get_rsq(inner_test_data, inner_pred))
+
+            cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
+            if fdr_alpha is not None or p_signal_thr is not None:
+                if fdr_alpha is not None:
+                    from abstract_values.encoding_models.compute_r2_mixture \
+                        import get_brain_fdr_threshold
+                    res = get_brain_fdr_threshold(
+                        sub.subject_id, model='aprf-weighted',
+                        bids_folder=bids_folder,
+                        alpha=fdr_alpha, smoothed=smoothed)
+                    crit_label = f'FDR≤{fdr_alpha:.2f}'
+                else:
+                    from abstract_values.encoding_models.compute_r2_mixture \
+                        import get_brain_p_signal_threshold
+                    res = get_brain_p_signal_threshold(
+                        sub.subject_id, model='aprf-weighted',
+                        bids_folder=bids_folder,
+                        p=p_signal_thr, smoothed=smoothed)
+                    crit_label = f'P(signal)≥{p_signal_thr:.2f}'
+                if res is None:
+                    raise RuntimeError(
+                        'aprf-weighted whole-brain mixture missing and '
+                        'auto-fit failed. Run `python -m '
+                        'abstract_values.encoding_models.compute_r2_mixture '
+                        '--models aprf-weighted` first.')
+                thr = res['threshold']
+                if res['degenerate'] or not np.isfinite(thr):
+                    sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                    print(f'    {len(sel)} voxels selected  '
+                          f'(mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
+                else:
+                    sel = cv_r2[cv_r2 > thr].index
+                    if len(sel) < 10:
+                        sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                        print(f'    {len(sel)} voxels selected  '
+                              f'(only {(cv_r2 > thr).sum()} passed {crit_label} → R² > {thr:.3f}; '
+                              f'fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
+                    else:
+                        print(f'    {len(sel)} voxels selected  '
+                              f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
+            else:
+                sel = cv_r2[cv_r2 > 0.0].index
+                print(f'    {len(sel)} voxels selected  '
+                      f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+        else:
+            basis_pred = model.basis_predictions(train_paradigm, basis_pars)
+            pred_train = pd.DataFrame(basis_pred @ weights.values,
+                                      index=train_data.index,
+                                      columns=train_data.columns)
+            r2_train = get_rsq(train_data, pred_train)
+            sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            print(f'    {len(sel)} voxels selected  '
+                  f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
+
+        fold_meta.append(dict(session=test_session, run=test_run,
+                              n_voxels_selected=len(sel)))
+        weights_sel    = weights[sel]
+        train_data_sel = train_data[sel]
+        test_data_sel  = test_data[sel]
+
+        # ── fit noise model ────────────────────────────────────────────────
+        n_iter_noise = 100 if debug else 1000
+        residfit = ResidualFitter(model, train_data_sel, train_paradigm,
+                                  parameters=basis_pars, weights=weights_sel,
+                                  lambd=lambd)
+        omega, dof = residfit.fit(
+            init_sigma2=0.1, init_dof=10.0, method='t',
+            learning_rate=0.05, spherical=spherical_noise,
+            max_n_iterations=n_iter_noise)
+        print(f'    noise model: dof={float(dof):.1f}')
+
+        # ── decode ─────────────────────────────────────────────────────────
+        pdf = model.get_stimulus_pdf(test_data_sel, stimulus_range,
+                                     parameters=basis_pars,
+                                     weights=weights_sel,
+                                     omega=omega, dof=dof,
+                                     normalize=False)
+        pdf.columns = stimulus_range
+        pdf.index = pd.MultiIndex.from_arrays([
+            test_paradigm.index.get_level_values('session'),
+            test_paradigm.index.get_level_values('run'),
+            test_paradigm.index.get_level_values('trial_nr'),
+            test_paradigm['x'].values,
+        ], names=['session', 'run', 'trial_nr', 'true_value_chf'])
+
+        all_pdfs.append(pdf)
+
+    return all_pdfs, fold_meta
+
+
 def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
          p_signal_thr=None, fdr_fallback_n_voxels=100,
          n_iterations=1000,
          n_grid_mus=20, n_grid_sds=15, n_stimulus_grid=50,
+         n_basis=8, basis_fwhm=None, weight_alpha=0.0,
          lambd=0.0, mask=None, mask_desc=None, spherical_noise=False,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False, model_type='loggauss'):
@@ -189,7 +373,24 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
               f'sub-{subject}{ses_entity}_mask-{mask_desc}'
               f'_nvoxels-{nvox_tag}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
 
-    # ── leave-one-run-out cross-validation ────────────────────────────────────
+    # ── dispatch to basis-set flow if model_type=='weighted' ──────────────────
+    if model_type == 'weighted':
+        all_pdfs, fold_meta = _run_weighted_folds(
+            sub, sessions, paradigm, data, stimulus_range,
+            value_min, value_max,
+            n_voxels, fdr_alpha, p_signal_thr, fdr_fallback_n_voxels,
+            n_basis, basis_fwhm, weight_alpha, lambd, spherical_noise,
+            smoothed, bids_folder, debug)
+        pdfs = pd.concat(all_pdfs).sort_index()
+        pdfs.to_csv(out_fn, sep='\t')
+        print(f'\n  saved to {out_fn}')
+        meta_fn = out_fn.with_name(out_fn.stem.replace('_pars', '_meta') + '.tsv')
+        pd.DataFrame(fold_meta).to_csv(meta_fn, sep='\t', index=False)
+        print(f'  meta  to {meta_fn}')
+        return
+
+    # ── per-voxel parametric (loggauss / gaussian) flow below ────────────────
+    # leave-one-run-out cross-validation
     all_pdfs = []
     fold_meta = []   # track n_voxels_selected per fold
     all_runs = [(s, r) for s in sessions for r in sub.get_runs(s)]
@@ -389,8 +590,17 @@ if __name__ == '__main__':
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--model', default='loggauss',
-                        choices=['loggauss', 'gaussian'],
-                        help='Tuning curve family (default: loggauss)')
+                        choices=['loggauss', 'gaussian', 'weighted'],
+                        help="Tuning family. 'loggauss'/'gaussian' = "
+                             "per-voxel parametric; 'weighted' = basis-set "
+                             "log-Gaussian (matched to vonmises gabor decoder).")
+    parser.add_argument('--n-basis', type=int, default=8,
+                        help='[weighted only] number of basis RFs (default: 8)')
+    parser.add_argument('--basis-fwhm', type=float, default=None,
+                        help='[weighted only] basis fwhm in CHF '
+                             '(default: 2 × inter-basis spacing)')
+    parser.add_argument('--weight-alpha', type=float, default=0.0,
+                        help='[weighted only] ridge α for WeightFitter (default: 0)')
     parser.add_argument('--debug', action='store_true',
                         help='100 iterations each (fast test)')
     args = parser.parse_args()
@@ -400,6 +610,8 @@ if __name__ == '__main__':
          p_signal_thr=args.p_signal_thr,
          fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
          n_iterations=args.n_iterations, n_stimulus_grid=args.n_stimulus_grid,
+         n_basis=args.n_basis, basis_fwhm=args.basis_fwhm,
+         weight_alpha=args.weight_alpha,
          lambd=args.lambd, mask=args.mask, mask_desc=args.mask_desc,
          spherical_noise=args.spherical_noise,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
