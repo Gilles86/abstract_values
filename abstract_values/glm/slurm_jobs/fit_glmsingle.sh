@@ -4,10 +4,11 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=06:00:00
+#SBATCH --time=12:00:00
 # 128G covers 2-session subjects with TR_UP=0.5 (2x upsample). 4x upsample
 # (TR_UP=0.25) hit OOM at ~131G and TIMEOUT at 4h on sub-07/08 — now reduced
-# in fit_glmsingle.py. 6h walltime gives margin if a node is slow.
+# in fit_glmsingle.py. 6h hit TIMEOUT for sub-07 unsmoothed + sub-10 (both
+# variants) — bumped to 12h so the slow subjects can finish.
 
 # Fit GLMsingle single-trial betas for the abstract values fMRI task.
 # Fits all sessions jointly by default — single-session fitting is a corner
