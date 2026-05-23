@@ -81,14 +81,13 @@ def _fit_and_compute_fi(model_obj, pars_df, sel, data_sel, paradigm,
     stimuli = np.linspace(value_min, value_max, n_values, dtype=np.float32)
     print(f'  computing Fisher information over {n_values} values '
           f'({value_min:.1f}–{value_max:.1f} CHF)...')
-    if dof is None:
-        fisher_info = model_obj.get_fisher_information(
-            stimuli=stimuli, omega=omega, dof=None, weights=None,
-            parameters=model_obj.parameters, analytical=True)
-    else:
-        fisher_info = model_obj.get_fisher_information(
-            stimuli=stimuli, omega=omega, dof=dof, weights=None,
-            parameters=model_obj.parameters, analytical=False, n=n_mc_samples)
+    # Always use the closed-form (analytical) path — braincoder 0.5.2+ has
+    # the multivariate-t prefactor (ν+p)/(ν+p+2), so dof can be passed
+    # directly. The MC branch is left in braincoder for reference but
+    # adds noise + an int32 overflow risk at large n × n_vox × n_stim.
+    fisher_info = model_obj.get_fisher_information(
+        stimuli=stimuli, omega=omega, dof=dof, weights=None,
+        parameters=model_obj.parameters, analytical=True)
 
     print(f'  mean FI={float(fisher_info.mean()):.4f}  '
           f'peak at {float(stimuli[fisher_info.values.argmax()]):.2f} CHF')
