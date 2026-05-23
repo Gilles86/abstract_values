@@ -32,6 +32,8 @@ FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 ROI="${ROI:-NPCr}"
 HEMI="${HEMI:-None}"
 N_VOXELS="${N_VOXELS:-250}"
+N_MC_SAMPLES="${N_MC_SAMPLES:-200}"   # reduced from braincoder default 1000 — 1000 hits int32 overflow in TF Jacobian (UnsortedSegmentSum) at 250 voxels × 200 values
+N_VALUES="${N_VALUES:-200}"
 SMOOTHED="${SMOOTHED:-0}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
@@ -42,6 +44,8 @@ ARGS=(
     --roi "$ROI"
     --hemi "$HEMI"
     --n-voxels "$N_VOXELS"
+    --n-mc-samples "$N_MC_SAMPLES"
+    --n-values "$N_VALUES"
     --bids-folder "$BIDS_FOLDER"
     --fmriprep-deriv "$FMRIPREP_DERIV"
 )
