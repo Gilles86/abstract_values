@@ -187,28 +187,38 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         cond = sub.get_mapping(ses_i)
         print(f"\n  --- session {ses_i} ({mode_desc}, condition={cond}) ---")
 
-        pars_df = pd.DataFrame({
-            "mode":      modes[mode_desc][sel.values],
-            "fwhm":      fwhm_arr[sel.values],
-            "amplitude": amp_arr[sel.values],
-            "baseline":  base_arr[sel.values],
+        # Full-voxel param frame; mask gets applied to the model below so
+        # init_pseudoWWT + ResidualFitter see consistent shapes (same pattern
+        # as compute_fisher_information_aprf.py).
+        pars_full = pd.DataFrame({
+            "mode":      modes[mode_desc],
+            "fwhm":      fwhm_arr,
+            "amplitude": amp_arr,
+            "baseline":  base_arr,
         })
 
         ses_paradigm = get_value_paradigm(sub, [ses_i])
         ses_betas = sub.get_single_trial_estimates([ses_i], desc="gabor",
                                                    smoothed=smoothed)
         ses_data = pd.DataFrame(masker.transform(ses_betas).astype(np.float32))
-        ses_data = ses_data.iloc[:, sel.values]
         print(f"  {len(ses_paradigm)} gabor trials  "
               f"value range {float(ses_paradigm['x'].min()):.1f}–"
               f"{float(ses_paradigm['x'].max()):.1f} CHF")
 
         model = LogGaussianPRF(allow_neg_amplitudes=True,
                                parameterisation="mode_fwhm_natural")
-        model.init_pseudoWWT(stimulus_grid, pars_df)
+        model.parameters = pars_full
+        model.apply_mask(sel)
+        # pseudoWWT must reflect the data being fit (the paradigm), not the
+        # simulation grid — otherwise ResidualFitter shape-mismatches at fit().
+        model.init_pseudoWWT(ses_paradigm["x"].values, model.parameters)
+
+        # Use selected voxels' data
+        ses_data_sel = ses_data[sel]
+        pars_df = model.parameters  # the post-mask DataFrame
 
         print(f"  fitting noise model ({n_noise_iterations} iter)...")
-        rfit = ResidualFitter(model, ses_data, ses_paradigm, pars_df)
+        rfit = ResidualFitter(model, ses_data_sel, ses_paradigm)
         omega, dof = rfit.fit(init_sigma2=1e-2, init_dof=10.0,
                               learning_rate=0.05,
                               max_n_iterations=n_noise_iterations)
