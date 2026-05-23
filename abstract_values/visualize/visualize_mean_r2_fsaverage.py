@@ -39,7 +39,35 @@ from pathlib import Path
 import cortex
 import nibabel as nib
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap
 from scipy.stats import norm
+
+# Register a pure-orange ramp with pycortex once at import time. Pycortex
+# resolves colormap names against the matplotlib registry, so plt.register
+# is enough — no separate cortex.utils calls needed.
+def _register_orange_cmap(name: str = "raw_orange") -> str:
+    """Single-hue orange ramp: pale → saturated → deep. Idempotent."""
+    import matplotlib.pyplot as _plt
+    try:
+        _plt.get_cmap(name)
+        return name
+    except Exception:
+        pass
+    cmap = LinearSegmentedColormap.from_list(
+        name,
+        [(1.0, 0.95, 0.86),  # pale buttercream low end
+         (1.0, 0.78, 0.45),
+         (0.94, 0.49, 0.13),
+         (0.55, 0.21, 0.05)])  # deep burnt
+    try:
+        _plt.colormaps.register(cmap, name=name)
+    except AttributeError:                       # matplotlib < 3.9 fallback
+        import matplotlib as _mpl
+        _mpl.cm.register_cmap(name=name, cmap=cmap)
+    return name
+
+
+ORANGE_CMAP = _register_orange_cmap()
 
 # BIDS_FOLDER is just a Path constant — abstract_values.utils.data imports
 # pandas + numpy but no nilearn, so it's safe in pycortex2.
@@ -131,7 +159,7 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
             alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
             v = cortex.Vertex(np.nan_to_num(mean_r2).astype(np.float32),
                               PYCORTEX_FSAVG_SUBJECT,
-                              vmin=r2_thr, vmax=vmax, cmap="hot")
+                              vmin=r2_thr, vmax=vmax, cmap=ORANGE_CMAP)
             label = f"mean_{model}_{full_desc}  (n={len(used)})"
             ds[label] = v.blend_curvature(alpha)
             print(f"{model} {full_desc}: n={len(used)} "

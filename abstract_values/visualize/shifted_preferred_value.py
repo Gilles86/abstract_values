@@ -66,9 +66,10 @@ DEFAULT_OUT = Path(BIDS_FOLDER) / "derivatives" / "qa" / "shifted_preferred_valu
 COND_COLOUR = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
 
 
-def _path(subject: str, desc: str) -> Path:
+def _path(subject: str, desc: str, smoothed: bool = False) -> Path:
+    smooth = "_smoothed" if smoothed else ""
     return (DERIV / f"sub-{subject}" / "func"
-            / f"sub-{subject}_task-abstractvalue_space-T1w_desc-{desc}_pe.nii.gz")
+            / f"sub-{subject}_task-abstractvalue_space-T1w_desc-{desc}{smooth}_pe.nii.gz")
 
 
 def _load_masked(subject: str, desc: str, mask_arr: np.ndarray,
@@ -98,12 +99,23 @@ def _resampled_mask(roi_img: nib.Nifti1Image,
 
 
 def collect_subject(subject: str, roi: str = "NPCr",
-                    r2_thr: float = 0.05) -> pd.DataFrame:
-    """Per-voxel (mode_cdf, mode_invcdf, r2) for one subject in `roi`."""
+                    r2_thr: float = 0.05,
+                    smoothed: bool = False) -> pd.DataFrame:
+    """Per-voxel (mode_cdf, mode_invcdf, r2) for one subject in `roi`.
+
+    ``smoothed=True`` reads the spatially-smoothed session-shift fits
+    (useful when only the smoothed variant is on disk, e.g. sub-07
+    while its unsmoothed encoding chain is still running).
+    """
     sub = Subject(subject, bids_folder=Path(BIDS_FOLDER))
-    mode1_img = nib.load(str(_path(subject, "mode_1")))
-    mode2_img = nib.load(str(_path(subject, "mode_2")))
-    r2_img    = nib.load(str(_path(subject, "r2")))
+    p1 = _path(subject, "mode_1", smoothed=smoothed)
+    p2 = _path(subject, "mode_2", smoothed=smoothed)
+    pr = _path(subject, "r2",     smoothed=smoothed)
+    if not (p1.exists() and p2.exists() and pr.exists()):
+        return pd.DataFrame()
+    mode1_img = nib.load(str(p1))
+    mode2_img = nib.load(str(p2))
+    r2_img    = nib.load(str(pr))
 
     roi_img = sub.get_roi_mask(roi, hemi=None)
     mask_arr = _resampled_mask(roi_img, mode1_img)
@@ -124,16 +136,30 @@ def collect_subject(subject: str, roi: str = "NPCr",
         "voxel": np.arange(len(r2)),
         "mode_cdf": mode_cdf,
         "mode_invcdf": mode_invcdf,
+        "mean_mode": 0.5 * (mode_cdf + mode_invcdf),
         "r2": r2,
     })
     df = df[df.r2 > r2_thr].reset_index(drop=True)
     return df
 
 
-def discover_subjects() -> list[str]:
-    return sorted(p.name.removeprefix("sub-")
-                  for p in DERIV.glob("sub-*")
-                  if _path(p.name.removeprefix("sub-"), "mode_1").exists())
+def discover_subjects(smoothed: bool = False,
+                       include_smoothed_fallback: bool = True) -> list[str]:
+    """Subjects with a session-shift fit on disk.
+
+    When ``include_smoothed_fallback`` is True (default) we keep subjects
+    that only have the *smoothed* variant even if the unsmoothed pipeline
+    hasn't finished yet — the per-subject loader falls back to smoothed.
+    """
+    found = []
+    for p in DERIV.glob("sub-*"):
+        s = p.name.removeprefix("sub-")
+        if _path(s, "mode_1", smoothed=smoothed).exists():
+            found.append(s)
+        elif include_smoothed_fallback and not smoothed \
+                and _path(s, "mode_1", smoothed=True).exists():
+            found.append(s)
+    return sorted(found)
 
 
 def page_scatter(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
@@ -146,13 +172,17 @@ def page_scatter(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
                              constrained_layout=True, sharex=True, sharey=True)
     axes = np.atleast_2d(axes).ravel()
     lo, hi = value_lim
+    # Colour scale = mean preferred value across conditions; alpha = r².
+    # This carries the "where in value space does this voxel live?" signal
+    # — exactly what efficient coding predicts should organise the shift.
+    cmap_pref = plt.get_cmap("plasma")
     for i, sub in enumerate(subjects):
         ax = axes[i]
         df = by_sub[sub]
-        # Colour by r²
-        sc = ax.scatter(df.mode_cdf, df.mode_invcdf, c=df.r2,
-                        cmap="viridis", vmin=0.05, vmax=0.3,
-                        s=8, alpha=0.7, linewidth=0)
+        alpha = np.clip(df["r2"].to_numpy() / 0.3, 0.15, 0.95)
+        sc = ax.scatter(df.mode_cdf, df.mode_invcdf, c=df["mean_mode"],
+                        cmap=cmap_pref, vmin=lo, vmax=hi,
+                        s=10, alpha=alpha, linewidth=0)
         ax.plot([lo, hi], [lo, hi], "--", color="0.6", lw=0.7, zorder=0)
         # Per-subject median shift
         med = float((df.mode_invcdf - df.mode_cdf).median())
@@ -164,11 +194,12 @@ def page_scatter(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
         axes[j].set_axis_off()
     fig.supxlabel("Preferred value — CDF condition  (CHF)", fontsize=9)
     fig.supylabel("Preferred value — Inverse-CDF condition  (CHF)", fontsize=9)
-    fig.suptitle("Per-voxel preferred-value shift in NPCr",
+    fig.suptitle("Per-voxel preferred-value shift in NPCr  "
+                 "(hue = mean preferred value, α ∝ r²)",
                  fontsize=10, y=1.02)
     cbar = fig.colorbar(sc, ax=axes[: len(subjects)].tolist(), shrink=0.5,
                         pad=0.02, aspect=14)
-    cbar.set_label("Session-shift fit R²", fontsize=8)
+    cbar.set_label("½ (mode_CDF + mode_InvCDF)  (CHF)", fontsize=8)
     sns.despine(fig=fig, offset=3, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
@@ -261,6 +292,35 @@ def page_group(by_sub: dict, pdf: PdfPages):
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
     return g
+
+
+def _orientation_value_pairs() -> pd.DataFrame:
+    """Return the (orientation, value_cdf, value_invcdf) lookup table.
+
+    Each orientation is presented in both sessions and maps deterministically
+    to a CHF value in each condition. We pool across subjects (the mapping
+    is identical for every subject) and pivot.
+    """
+    rows = []
+    for p in DERIV.glob("sub-*"):
+        s = p.name.removeprefix("sub-")
+        try:
+            sub = Subject(s, bids_folder=Path(BIDS_FOLDER))
+            for ses in sub.get_sessions():
+                cond = sub.get_mapping(ses)
+                ev = sub.get_events(ses, sub.get_runs(ses))
+                for _, row in ev[ev.event_type == "gabor"].iterrows():
+                    rows.append({"orientation": float(row["orientation"]),
+                                 "value": float(row["value"]),
+                                 "condition": cond})
+        except Exception:
+            pass
+    df = pd.DataFrame(rows).drop_duplicates(["orientation", "condition"])
+    return (df.pivot(index="orientation", columns="condition", values="value")
+            .reset_index().rename(columns={"cdf": "value_cdf",
+                                            "inverse_cdf": "value_invcdf"})
+            .dropna()
+            .sort_values("orientation").reset_index(drop=True))
 
 
 def _pool_value_distributions() -> dict[str, np.ndarray]:
@@ -382,6 +442,18 @@ def page_hexbin(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
     ax_main.plot(xx, yy, "-", color="#1B998B", lw=1.6, zorder=3,
                  label="Histogram-matching Q–Q  (efficient-coding prediction)")
 
+    # "Orientation-tuning" null — what the voxels would do if they were
+    # actually tuned to orientation rather than value: for each presented
+    # orientation θ, the (value_cdf(θ), value_invcdf(θ)) pair. Because both
+    # mappings are MONOTONIC in θ and use the same orientation grid, these
+    # 23 dots fall exactly on the histogram-matching Q-Q line — making the
+    # two predictions empirically indistinguishable in this experiment.
+    pairs = _orientation_value_pairs()
+    ax_main.scatter(pairs["value_cdf"], pairs["value_invcdf"],
+                    s=44, marker="o", facecolor="none",
+                    edgecolor="#FFD23F", linewidth=1.4, zorder=4,
+                    label="Orientation-tuning null  (1 dot / orientation)")
+
     # Efficient-coding prediction: rank-matched arrows from each CDF density
     # peak to the corresponding InvCDF peak. Drawn at x = peak_cdf, from
     # y = peak_cdf (the "no-shift" baseline) → y = predicted peak_invcdf.
@@ -449,31 +521,74 @@ def page_hexbin(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
     plt.close(fig)
 
 
-def run(subjects, r2_thr, out, value_lim):
-    if subjects is None:
-        subjects = discover_subjects()
-    if not subjects:
-        raise SystemExit("No session-shift fits found.")
-    print(f"Subjects: {subjects}  r²>{r2_thr}")
+def _collect_variant(subjects, r2_thr, smoothed):
     by_sub = {}
     for sub in subjects:
-        df = collect_subject(sub, r2_thr=r2_thr)
+        df = collect_subject(sub, r2_thr=r2_thr, smoothed=smoothed)
         if df.empty:
-            print(f"  sub-{sub}: 0 voxels above threshold — skipping")
             continue
-        print(f"  sub-{sub}: {len(df)} voxels above r²>{r2_thr}")
         by_sub[sub] = df
+    return by_sub
+
+
+def _render_variant(by_sub, value_lim, pdf, banner):
+    """Render the 4 per-variant pages with a leading banner page."""
+    if not by_sub:
+        return None
+    # Banner-style title page
+    fig, ax = plt.subplots(figsize=(7.5, 1.2), constrained_layout=True)
+    ax.text(0.5, 0.5, banner,
+            ha="center", va="center", fontsize=18, color="0.1",
+            transform=ax.transAxes)
+    ax.set_axis_off()
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+    page_hexbin(by_sub, value_lim, pdf)
+    page_scatter(by_sub, value_lim, pdf)
+    page_shift_hist(by_sub, pdf)
+    return page_group(by_sub, pdf)
+
+
+def run(subjects, r2_thr, out, value_lim,
+        variants=("unsmoothed", "smoothed")):
+    """Build the figure. ``variants`` controls which smoothing variants
+    are rendered as separate sections of the same PDF. Default: both.
+    Pass ``variants=("unsmoothed",)`` or ``("smoothed",)`` for one only.
+    """
+    if subjects is None:
+        # Union of subjects across requested variants
+        subjects_set = set()
+        for v in variants:
+            subjects_set.update(discover_subjects(smoothed=(v == "smoothed"),
+                                                   include_smoothed_fallback=False))
+        subjects = sorted(subjects_set,
+                          key=lambda s: (0 if s[0].isdigit() else 1, s))
+    if not subjects:
+        raise SystemExit("No session-shift fits found.")
 
     out.parent.mkdir(parents=True, exist_ok=True)
+    summaries = []
     with PdfPages(out) as pdf:
+        # Reference page (stimulus distributions) — same for both variants
         page_stimulus_distributions(value_lim, pdf)
-        page_hexbin(by_sub, value_lim, pdf)
-        page_scatter(by_sub, value_lim, pdf)
-        page_shift_hist(by_sub, pdf)
-        g = page_group(by_sub, pdf)
-    tsv = out.with_suffix(".tsv")
-    g.to_csv(tsv, sep="\t", index=False)
-    print(f"Wrote {out}\nSidecar: {tsv}")
+        for v in variants:
+            smoothed = (v == "smoothed")
+            by_sub = _collect_variant(subjects, r2_thr=r2_thr, smoothed=smoothed)
+            print(f"\n=== {v} ({len(by_sub)} subjects) ===")
+            for sub in subjects:
+                n = len(by_sub.get(sub, []))
+                print(f"  sub-{sub}: {n} voxels above r²>{r2_thr}"
+                      f"{' (skipped: no data)' if n == 0 else ''}")
+            banner = f"{v.upper()}  ·  session-shift fits  ·  r² > {r2_thr}"
+            g = _render_variant(by_sub, value_lim, pdf, banner)
+            if g is not None:
+                g["variant"] = v
+                summaries.append(g)
+    if summaries:
+        agg = pd.concat(summaries, ignore_index=True)
+        tsv = out.with_suffix(".tsv")
+        agg.to_csv(tsv, sep="\t", index=False)
+        print(f"\nWrote {out}\nSidecar: {tsv}")
 
 
 def main():
@@ -483,10 +598,16 @@ def main():
                    help="Voxel selection threshold on session-shift R²")
     p.add_argument("--value-min", type=float, default=0.5)
     p.add_argument("--value-max", type=float, default=20.0)
+    p.add_argument("--variants", nargs="+",
+                   default=["unsmoothed", "smoothed"],
+                   choices=["unsmoothed", "smoothed"],
+                   help="Smoothing variants to render as separate sections "
+                        "(default: both)")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
     run(args.subjects, args.r2_thr, Path(args.out),
-        (args.value_min, args.value_max))
+        (args.value_min, args.value_max),
+        variants=tuple(args.variants))
 
 
 if __name__ == "__main__":

@@ -59,27 +59,31 @@ DEFAULT_OUT = Path(BIDS_FOLDER) / "derivatives" / "qa" / "fisher_information_per
 COND_COLOUR = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
 
 
-def _fi_path(subject: str, session: int, nvoxels: int, mask: str) -> Path:
+def _fi_path(subject: str, session: int, nvoxels: int, mask: str,
+             smoothed: bool = False) -> Path:
+    smooth = "_smoothed" if smoothed else ""
     return (DERIV / f"sub-{subject}" / f"ses-{session}" / "func"
             / f"sub-{subject}_ses-{session}_task-abstractvalue_mask-{mask}"
-              f"_nvoxels-{nvoxels}_desc-fisherinfo_pe.tsv")
+              f"_nvoxels-{nvoxels}{smooth}_desc-fisherinfo_pe.tsv")
 
 
-def discover_subjects(nvoxels: int, mask: str) -> list[str]:
+def discover_subjects(nvoxels: int, mask: str, smoothed: bool = False) -> list[str]:
     subs = set()
     for p in DERIV.glob("sub-*"):
         s = p.name.removeprefix("sub-")
-        if _fi_path(s, 1, nvoxels, mask).exists() and _fi_path(s, 2, nvoxels, mask).exists():
+        if (_fi_path(s, 1, nvoxels, mask, smoothed).exists()
+                and _fi_path(s, 2, nvoxels, mask, smoothed).exists()):
             subs.add(s)
     return sorted(subs, key=lambda s: (0 if s[0].isdigit() else 1, s))
 
 
-def collect(subjects: list[str], nvoxels: int, mask: str) -> pd.DataFrame:
+def collect(subjects: list[str], nvoxels: int, mask: str,
+            smoothed: bool = False) -> pd.DataFrame:
     rows = []
     for sub_id in subjects:
         sub = Subject(sub_id, bids_folder=Path(BIDS_FOLDER))
         for ses in (1, 2):
-            p = _fi_path(sub_id, ses, nvoxels, mask)
+            p = _fi_path(sub_id, ses, nvoxels, mask, smoothed=smoothed)
             if not p.exists():
                 continue
             df = pd.read_csv(p, sep="\t", index_col=0)
@@ -229,22 +233,57 @@ def page_difference(df: pd.DataFrame, subjects: list[str], pdf: PdfPages):
     plt.close(fig)
 
 
-def run(subjects, nvoxels, mask, out):
+def _banner_page(text: str, pdf: PdfPages):
+    fig, ax = plt.subplots(figsize=(7.5, 1.2), constrained_layout=True)
+    ax.text(0.5, 0.5, text, ha="center", va="center",
+            fontsize=18, color="0.1", transform=ax.transAxes)
+    ax.set_axis_off()
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
+def run(subjects, nvoxels, mask, out,
+        variants=("unsmoothed", "smoothed")):
+    """Render the FI viz with one section per smoothing variant.
+
+    Each requested variant gets a banner page + group/per-subject/diff
+    pages. Subject discovery is per-variant so e.g. sub-07 (smoothed
+    only) appears only in the smoothed section.
+    """
     if subjects is None:
-        subjects = discover_subjects(nvoxels, mask)
+        subjects_set = set()
+        for v in variants:
+            subjects_set.update(discover_subjects(nvoxels, mask,
+                                                   smoothed=(v == "smoothed")))
+        subjects = sorted(subjects_set,
+                          key=lambda s: (0 if s[0].isdigit() else 1, s))
     if not subjects:
         raise SystemExit(f"No FI TSVs found for nvoxels={nvoxels}, mask={mask}")
-    print(f"Subjects: {subjects}  ({len(subjects)} with both sessions)")
 
-    df = collect(subjects, nvoxels, mask)
     out.parent.mkdir(parents=True, exist_ok=True)
+    all_dfs = []
     with PdfPages(out) as pdf:
-        page_group(df, subjects, pdf)
-        page_per_subject(df, subjects, pdf)
-        page_difference(df, subjects, pdf)
-    tsv = out.with_suffix(".tsv")
-    df.to_csv(tsv, sep="\t", index=False)
-    print(f"Wrote {out}\nSidecar: {tsv}")
+        for v in variants:
+            smoothed = (v == "smoothed")
+            # Re-discover per variant so we don't carry subjects without data
+            sub_v = [s for s in subjects
+                     if _fi_path(s, 1, nvoxels, mask, smoothed).exists()
+                     and _fi_path(s, 2, nvoxels, mask, smoothed).exists()]
+            print(f"\n=== {v} ({len(sub_v)} subjects) ===  {sub_v}")
+            if not sub_v:
+                continue
+            df = collect(sub_v, nvoxels, mask, smoothed=smoothed)
+            _banner_page(f"{v.upper()}  ·  NPCr Fisher information  ·  "
+                          f"n_voxels={nvoxels}", pdf)
+            page_group(df, sub_v, pdf)
+            page_per_subject(df, sub_v, pdf)
+            page_difference(df, sub_v, pdf)
+            df["variant"] = v
+            all_dfs.append(df)
+    if all_dfs:
+        tsv = out.with_suffix(".tsv")
+        pd.concat(all_dfs, ignore_index=True).to_csv(tsv, sep="\t", index=False)
+        print(f"\nWrote {out}\nSidecar: {tsv}")
 
 
 def main():
@@ -252,9 +291,13 @@ def main():
     p.add_argument("--subjects", nargs="+")
     p.add_argument("--nvoxels", type=int, default=100)
     p.add_argument("--mask", default="NPCr")
+    p.add_argument("--variants", nargs="+",
+                   default=["unsmoothed", "smoothed"],
+                   choices=["unsmoothed", "smoothed"])
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
-    run(args.subjects, args.nvoxels, args.mask, Path(args.out))
+    run(args.subjects, args.nvoxels, args.mask, Path(args.out),
+        variants=tuple(args.variants))
 
 
 if __name__ == "__main__":

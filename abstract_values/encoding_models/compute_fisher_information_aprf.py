@@ -224,7 +224,10 @@ def _main_session_shift(subject, sub, sessions, masker, mask_desc,
               / 'aprf-session-shift' / f'sub-{subject}' / 'func')
 
     def load_param(desc):
-        fn = ss_dir / f'sub-{subject}_task-abstractvalue_space-T1w_desc-{desc}_pe.nii.gz'
+        # smooth_label is "" for unsmoothed, "_smoothed" otherwise — matches
+        # how the session-shift fitter names its outputs.
+        fn = (ss_dir / f'sub-{subject}_task-abstractvalue_space-T1w'
+                       f'_desc-{desc}{smooth_label}_pe.nii.gz')
         if not fn.exists():
             raise FileNotFoundError(f'No session-shift parameter file: {fn}')
         return nli.load_img(str(fn))
