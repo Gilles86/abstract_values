@@ -125,19 +125,44 @@ def soft_alpha(values: np.ndarray, thr: float, sigma: float) -> np.ndarray:
     return norm.cdf(values, loc=thr, scale=sigma).astype(np.float32)
 
 
+def _fdr_threshold_from_mixture(fit: dict, alpha: float,
+                                  n_grid: int = 4000) -> float:
+    """R² threshold at which the 2-component logit-Gaussian mixture's
+    tail-FDR is ≤ α. Mirrors :func:`braincoder.utils.stats.r2_fdr_threshold`
+    but inlined so this script runs in the pycortex2 env without
+    pulling in braincoder.
+    """
+    z = np.linspace(fit['noise_mu'] - 5 * fit['noise_sigma'],
+                    fit['signal_mu'] + 8 * fit['signal_sigma'],
+                    n_grid)
+    sf_n = 1.0 - norm.cdf(z, fit['noise_mu'],  fit['noise_sigma'])
+    sf_s = 1.0 - norm.cdf(z, fit['signal_mu'], fit['signal_sigma'])
+    denom = fit['noise_weight'] * sf_n + fit['signal_weight'] * sf_s
+    fdr = np.where(denom > 1e-12,
+                   fit['noise_weight'] * sf_n / np.maximum(denom, 1e-12),
+                   1.0)
+    hits = np.where(fdr <= alpha)[0]
+    if len(hits) == 0:
+        return float("inf")
+    z_thr = z[hits[0]]
+    return float(1.0 / (1.0 + np.exp(-z_thr)))      # inverse logit → R²
+
+
 def _per_subject_fdr_threshold(subject: str, model: str, bids_folder: Path,
                                 alpha: float, smoothed: bool):
-    """Look up the per-subject whole-brain FDR-α R² threshold.
+    """Look up the per-subject whole-brain FDR-α R² threshold from the
+    cached p_signal.json written by
+    ``abstract_values.encoding_models.compute_r2_mixture``.
 
-    Reads the cached p_signal.json written by
-    ``abstract_values.encoding_models.compute_r2_mixture``. Returns the
-    threshold as a fraction (0–1), or None if the mixture is missing or
-    flagged degenerate. The .cv encoder dirs share the mixture with the
-    non-CV encoder (the mixture is fit on cv-R²), so ``aprf.cv`` falls
-    back to ``aprf`` when its own dir lacks a p_signal.json.
+    Returns the threshold as a fraction (0–1), or ``None`` if the
+    mixture file is missing or flagged degenerate. The .cv encoder dirs
+    share the mixture with the non-CV encoder (the mixture is fit on
+    cv-R²), so ``aprf.cv`` falls back to ``aprf`` when its own dir lacks
+    a p_signal.json.
+
+    No braincoder / abstract_values imports — works in the pycortex2
+    env directly.
     """
-    # Allow the user to ask for either `aprf` or `aprf.cv` and route to the
-    # same mixture cache.
     base_model = model.split(".")[0]
     p = (Path(bids_folder) / "derivatives" / "encoding_models"
          / base_model / f"sub-{subject}"
@@ -149,21 +174,17 @@ def _per_subject_fdr_threshold(subject: str, model: str, bids_folder: Path,
     brain = info.get("BRAIN", info)        # backward-compat
     if brain.get("degenerate"):
         return None
-    # The cached JSON stores thresholds for several α values keyed by name.
-    # Fall back to the analytic R² → p_signal inversion if α isn't pre-tabulated.
+    # Pre-tabulated keys: fdr_05, fdr_01, etc.
     fdr_key = f"fdr_{int(round(alpha * 100)):02d}"
     if fdr_key in brain:
         return float(brain[fdr_key])
-    # Compute on-the-fly via the same helper used elsewhere.
-    from abstract_values.encoding_models.compute_r2_mixture import \
-        get_brain_fdr_threshold
-    res = get_brain_fdr_threshold(subject, model=base_model,
-                                   bids_folder=Path(bids_folder),
-                                   alpha=alpha,
-                                   smoothed=smoothed)
-    if res is None or res.get("degenerate"):
+    # Otherwise re-derive from the cached mixture parameters.
+    needed = ("noise_mu", "noise_sigma", "signal_mu", "signal_sigma",
+              "noise_weight", "signal_weight")
+    if not all(k in brain for k in needed):
         return None
-    return float(res["threshold"])
+    thr = _fdr_threshold_from_mixture(brain, alpha)
+    return None if not np.isfinite(thr) else float(thr)
 
 
 def main(subjects: list[str], models: list[str], bids_folder: Path,
