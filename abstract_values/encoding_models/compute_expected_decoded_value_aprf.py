@@ -86,18 +86,12 @@ def _load_session_shift_params(subject, smoothed, masker, bids_folder):
     return fwhm, amp, base, r2, modes
 
 
-def _simulate_and_decode(model, pars_df, omega, dof,
-                          stimulus_grid: np.ndarray,
-                          n_simulations: int, batch_stimuli: int = 25):
-    """Simulate noisy responses + decode them per stimulus.
-
-    Returns a DataFrame with columns: value, sim_idx, E (posterior mean).
-
-    Memory note: we simulate one batch of stimuli at a time
-    (``batch_stimuli`` stimuli × ``n_simulations`` repeats); the full
-    pdf cube would otherwise blow up at 200 stimuli × 1000 sims × 200
-    grid × 100 voxels.
-    """
+def _simulate_and_decode_legacy(model, pars_df, omega, dof,
+                                 stimulus_grid: np.ndarray,
+                                 n_simulations: int, batch_stimuli: int = 25):
+    """Legacy manual loop, kept for reference. Prefer
+    ``EncodingModel.get_expected_uncertainty`` (added in braincoder
+    0.5.2+) — same aggregation in one call."""
     stim_df_full = pd.DataFrame({"x": stimulus_grid.astype(np.float32)})
     stim_df_full.index.name = "stimulus"
     n_total = len(stimulus_grid)
@@ -105,17 +99,12 @@ def _simulate_and_decode(model, pars_df, omega, dof,
     for start in range(0, n_total, batch_stimuli):
         stop = min(start + batch_stimuli, n_total)
         stim_batch = stim_df_full.iloc[start:stop].copy()
-        # simulate(stim, pars, noise, n_repeats) returns DataFrame of shape
-        # (len(stim) * n_repeats, n_voxels). The MultiIndex carries
-        # (stimulus, repeat).
         sim_data = model.simulate(stim_batch, pars_df, noise=omega, dof=dof,
                                   n_repeats=n_simulations)
         pdf = model.get_stimulus_pdf(sim_data, parameters=pars_df,
                                      omega=omega, dof=dof,
                                      stimulus_range=stim_df_full,
                                      normalize=False)
-        # pdf columns include the full value grid; drop the extra index level
-        # carrying the per-batch stimulus.
         if pdf.columns.nlevels > 1:
             pdf = pdf.droplevel(1, axis=1)
         # Expected value per simulated trial
@@ -226,19 +215,16 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         print(f"  noise model: dof={dof_str}")
 
         print(f"  simulating {n_simulations} repeats × {n_values} stimuli "
-              f"({n_simulations * n_values} trials)...")
-        E_long = _simulate_and_decode(model, pars_df, omega, dof,
-                                       stimulus_grid, n_simulations,
-                                       batch_stimuli=batch_stimuli)
-
-        agg = (E_long.assign(error=E_long["E"] - E_long["value"],
-                              abs_error=(E_long["E"] - E_long["value"]).abs())
-               .groupby("value").agg(mean_E=("E", "mean"),
-                                      var_E=("E", "var"),
-                                      mean_error=("error", "mean"),
-                                      mean_abs_error=("abs_error", "mean"),
-                                      n_sims=("E", "count"))
-               .reset_index())
+              f"({n_simulations * n_values} trials)…")
+        # Single call: braincoder.EncodingModel.get_expected_uncertainty
+        # does the simulate → decode → aggregate cycle and returns the
+        # per-stimulus DataFrame directly. Replaces ~40 lines of manual
+        # batching/groupby with one method call.
+        agg = model.get_expected_uncertainty(
+            stimulus_grid, omega=omega, dof=dof,
+            parameters=pars_df, n_simulations=n_simulations,
+            batch_stimuli=batch_stimuli, progress=True,
+        ).reset_index().rename(columns={"value": "value"})
 
         out_dir = (bids_folder / "derivatives" / "encoding_models"
                    / "aprf-session-shift" / f"sub-{subject}"
