@@ -92,6 +92,60 @@ def collect(subjects, mask, nvoxels, nsims, smoothed):
     return pd.concat(rows, ignore_index=True)
 
 
+def _orientation_lookup(subjects: list[str]) -> dict[str, pd.DataFrame]:
+    """Per-condition (orientation_deg, value_chf) lookup tables.
+
+    The CHF↔orientation map is the same for every subject — each
+    condition presents the same 23-value × 23-orientation grid. We
+    rebuild it from gabor events.tsv across subjects (any subject's
+    events file would do; we pool to be safe).
+    """
+    table: dict[str, set[tuple[float, float]]] = {"cdf": set(),
+                                                   "inverse_cdf": set()}
+    for s in subjects:
+        try:
+            sub = Subject(s, bids_folder=Path(BIDS_FOLDER))
+            for ses in sub.get_sessions():
+                cond = sub.get_mapping(ses)
+                ev = sub.get_events(ses, sub.get_runs(ses))
+                for _, row in ev[ev.event_type == "gabor"].iterrows():
+                    table[cond].add((float(row["orientation"]),
+                                      float(row["value"])))
+        except Exception:
+            pass
+    out = {}
+    for cond, pairs in table.items():
+        df = (pd.DataFrame(sorted(pairs), columns=["orientation_deg", "value"])
+              .drop_duplicates("value")
+              .sort_values("value")
+              .reset_index(drop=True))
+        out[cond] = df
+    return out
+
+
+def _attach_orientation(df: pd.DataFrame,
+                         lookup: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Add an ``orientation_deg`` column to a per-(condition, value)
+    DataFrame by piecewise-linear interpolation along the per-condition
+    value→orientation pairs."""
+    out_rows = []
+    for cond, sub_df in df.groupby("condition"):
+        lut = lookup.get(cond)
+        if lut is None or lut.empty:
+            sub_df = sub_df.copy()
+            sub_df["orientation_deg"] = np.nan
+        else:
+            sub_df = sub_df.copy()
+            sub_df["orientation_deg"] = np.interp(
+                sub_df["value"].values,
+                lut["value"].values,
+                lut["orientation_deg"].values,
+                left=np.nan, right=np.nan,
+            )
+        out_rows.append(sub_df)
+    return pd.concat(out_rows, ignore_index=True)
+
+
 def _banner_page(text, pdf):
     fig, ax = plt.subplots(figsize=(7.5, 1.2), constrained_layout=True)
     ax.text(0.5, 0.5, text, ha="center", va="center",
@@ -138,6 +192,51 @@ def page_group_bias_uncertainty(df, subjects, pdf):
                  fontsize=10, color="0.2")
     ax.legend(loc="upper right", fontsize=8)
 
+    sns.despine(fig=fig, offset=5, trim=True)
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
+def page_orientation_uncertainty(df, subjects, pdf, lookup):
+    """Same per-condition group uncertainty curve, but x = corresponding
+    orientation rather than CHF value. For each condition the value→orientation
+    map differs, so the two curves get shifted/stretched horizontally — and
+    if NPCr is value-coding (efficient-coding remap), the SD-vs-orientation
+    curves should DIFFER between conditions. (If NPCr were orientation-tuned,
+    they'd overlay.)"""
+    if df.empty:
+        return
+    df_o = _attach_orientation(df, lookup)
+    df_o = df_o.dropna(subset=["orientation_deg"])
+
+    fig, ax = plt.subplots(figsize=(7.5, 4.0), constrained_layout=True)
+    for cond, sub_df in df_o.groupby("condition"):
+        # We bin on orientation_deg because each subject's grid hits the same
+        # CHF values but those map to DIFFERENT orientations per condition;
+        # interpolation onto a common orientation grid gives clean overlay.
+        ori_grid = np.linspace(0, 180, 60, dtype=np.float32)
+        # Per-subject interpolation, then group mean ± SEM
+        per_sub = []
+        for s, ssub in sub_df.groupby("subject"):
+            ssub = ssub.sort_values("orientation_deg")
+            sd_interp = np.interp(ori_grid,
+                                   ssub["orientation_deg"].values,
+                                   ssub["sd_E"].values,
+                                   left=np.nan, right=np.nan)
+            per_sub.append(sd_interp)
+        per_sub = np.array(per_sub)
+        mean_sd = np.nanmean(per_sub, axis=0)
+        sem_sd  = np.nanstd(per_sub, axis=0, ddof=1) / np.sqrt(
+            np.sum(~np.isnan(per_sub), axis=0))
+        ax.plot(ori_grid, mean_sd, color=COND_COLOUR[cond], lw=1.8, label=cond)
+        ax.fill_between(ori_grid, mean_sd - sem_sd, mean_sd + sem_sd,
+                        color=COND_COLOUR[cond], alpha=0.22, linewidth=0)
+    ax.set_xlabel("Corresponding orientation (deg)")
+    ax.set_ylabel(r"$\sqrt{\mathrm{Var}[\hat{V}]}$  (CHF)")
+    ax.set_title(f"NPCr decoder SD vs corresponding orientation  "
+                 f"(n={df['subject'].nunique()})",
+                 fontsize=10, color="0.2")
+    ax.legend(loc="upper right", fontsize=8)
     sns.despine(fig=fig, offset=5, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
@@ -226,6 +325,13 @@ def run(subjects, mask, nvoxels, nsims, out,
         raise SystemExit(f"No expected_decoded TSVs found for "
                           f"mask={mask}, nvoxels={nvoxels}, nsims={nsims}")
 
+    # Build the value→orientation lookup once. Same map across subjects.
+    print("Building value↔orientation lookup from gabor events…")
+    lookup = _orientation_lookup(subjects)
+    for cond, lut in lookup.items():
+        if not lut.empty:
+            print(f"  {cond}: {len(lut)} distinct (orientation, value) pairs")
+
     out.parent.mkdir(parents=True, exist_ok=True)
     all_dfs = []
     with PdfPages(out) as pdf:
@@ -241,6 +347,7 @@ def run(subjects, mask, nvoxels, nsims, out,
             _banner_page(f"{v.upper()}  ·  NPCr expected uncertainty  ·  "
                           f"n_voxels={nvoxels}  ·  n_sims={nsims}", pdf)
             page_group_bias_uncertainty(df, sub_v, pdf)
+            page_orientation_uncertainty(df, sub_v, pdf, lookup)
             page_per_subject(df, sub_v, pdf)
             page_per_value_diff(df, sub_v, pdf)
             df["variant"] = v
