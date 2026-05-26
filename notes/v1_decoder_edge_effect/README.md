@@ -21,16 +21,70 @@ overlap to within ~1° at every orientation. The previously-seen
 "inverted-U + cardinal/oblique modulation" pattern (`sd_and_preferred.pdf`)
 disappears when the simulation grid is restricted to trained orientations.
 
-## Per-voxel preferred orientations: a secondary, weaker effect
+## Anti-cardinal V1 SD peak at 90°  (the leading interior effect)
 
-For 800 top-R² V1 voxels across 8 subjects, the preferred-orientation
-distribution does have a mild oblique bias (31% at 22.5–67.5°, 26% at
-112.5–157.5°, 12.6% at 67.5–112.5°). This is consistent with the
-oblique-cardinal debate in the V1 fMRI literature (see references) but
-it's a **weak effect** that doesn't translate into a visible SD
-modulation when the simulation is restricted to the trained range. The
-decoder's information capacity at oblique vs cardinal orientations is
-not dominated by voxel-count differences in this dataset.
+Re-running with FDR-α=0.05 voxel selection on the trained-only grid
+(cohort n=10), the V1 SD curve has a robust **peak at the cardinal 90°**
+that survives every subject. See `v1_cardinal_noisiness.pdf`.
+
+Per-voxel preferred-orientation distribution (800 top-R² V1 voxels,
+8 subjects on local disk):
+
+| Bin                | % of voxels |
+|---                 |---          |
+| 0–22.5°            | 17.6%       |
+| 22.5–67.5°         | **31.4%**  (peak around 45°)   |
+| 67.5–112.5°        | **12.6%**  (DIP around 90°)    |
+| 112.5–157.5°       | **26.1%**  (peak around 135°)  |
+| 157.5–180°         | 12.2%       |
+
+Cohort V1 decoder SD at 30° (oblique-ish) vs 90° (cardinal), FDR-α=0.05
+voxel selection, trained-only grid:
+
+| Subject | SD(30°) | SD(90°) | Δ |
+|---     |---|---|---|
+| 03      | 14.79° | 15.83° | +1.04° |
+| 04      |  9.41° | 13.38° | +3.98° |
+| 05      |  8.54° | 17.67° | +9.13° |
+| 06      |  7.01° |  7.16° | +0.15° |
+| 07      | 12.08° | 13.83° | +1.76° |
+| 08      | 14.55° | 16.70° | +2.15° |
+| 09      | 11.06° | 14.18° | +3.11° |
+| 10      | 10.46° | 13.57° | +3.11° |
+| pil01   | 18.42° | 18.90° | +0.48° |
+| pil02   | 15.09° | 18.41° | +3.33° |
+
+**All 10 subjects** have SD(90°) > SD(30°). Group Δ(SD₉₀ − SD₃₀) =
+**+2.82° ± 0.81**, one-sample t(9) = **3.49, p = 0.007**.
+
+Mechanism: voxel-level preferences pile up around 45° and 135° and are
+sparse at the cardinals (12.6% in the 67.5–112.5° band). Fewer voxels
+tuned to a stimulus → less Fisher information → broader posterior →
+higher decoder SD. The boundary trained orientations (7.5° / 172.5°)
+are also elevated (15.85° / 16.81°) for the same reason — they're
+adjacent to the sparse cardinal regions 0°/180°.
+
+This is the anti-cardinal strand of the V1 fMRI literature
+(Henriksson et al 2017; Maloney & Clifford 2015 emphasises that fMRI
+sensitivity to fine-grained cardinal-oblique structure is consistent
+with this picture; classical single-cell cardinal effect is largely
+not visible at fMRI's spatial scale).
+
+### Dissociation from behaviour
+
+The behavioural SD shows the **opposite pattern**: bid noise *dips* at
+the cardinals (0°, 90°, 180°) — the categorical-anchor W-shape (see
+`compare_v1_npcr_uncertainty.pdf`). Together with the V1 result this
+is a clean double dissociation:
+
+- **V1 decoder**: precision *worst* at cardinals (anti-cardinal voxel
+  population).
+- **Behaviour**: precision *best* at cardinals (categorical anchors).
+
+So the categorical anchor effect in behaviour cannot be inherited from
+V1's orientation code — it must come from a downstream process
+(working-memory anchor / category-boundary representation, or NPCr-side
+value retrieval gated by category).
 
 ## Empirical sanity check
 
@@ -160,3 +214,7 @@ apply on the value axis.
   two priors overlap.
 - `real_prior_comparison.tsv` — per-orientation SD for both priors
   on sub-04.
+- `v1_cardinal_noisiness.pdf` — cohort SD-vs-orientation curve (FDR05,
+  trained-grid, n=10) with the per-voxel preferred-orientation
+  distribution below. Shows the 90°-peak / anti-cardinal effect
+  directly.
