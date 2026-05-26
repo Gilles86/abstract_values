@@ -285,10 +285,24 @@ def page_behavior_overlay(pdf):
                         g["mean"] - g["sem"],
                         g["mean"] + g["sem"],
                         color=COND_COLOUR[cond], alpha=0.22, linewidth=0)
+    # Mark the three behavioural-precision anchor points: orientation
+    # extremes (min/max CHF in both mappings) + the shared median (90° →
+    # 22 CHF under both). Subjects show SD dips at all three.
+    for anchor in (7.5, 90.0, 172.5):
+        ax.axvline(anchor, color="0.5", lw=0.6, ls=":", zorder=0)
+    ymax = ax.get_ylim()[1]
+    ax.text(90, ymax * 0.97, "shared\nmedian (22 CHF)",
+            ha="center", va="top", fontsize=7.5, color="0.4")
+    ax.text(7.5, ymax * 0.97, "min\nCHF",
+            ha="left", va="top", fontsize=7.5, color="0.4")
+    ax.text(172.5, ymax * 0.97, "max\nCHF",
+            ha="right", va="top", fontsize=7.5, color="0.4")
     ax.set_xlim(0, 180); ax.set_xticks([0, 45, 90, 135, 180])
     ax.set_xlabel("Orientation (deg)")
     ax.set_ylabel("Behavioural SD of bid error (CHF)")
-    ax.set_title("Behaviour vs orientation", fontsize=9, color="0.2")
+    ax.set_title("Behaviour vs orientation  —  SD dips at 0°, 90°, 180°  "
+                 "(min, shared median, max)",
+                 fontsize=9, color="0.2")
     ax.legend(loc="upper right", fontsize=7.5)
 
     fig.suptitle("Behavioural noisiness — BDM bid error", fontsize=10,
