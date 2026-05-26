@@ -69,6 +69,24 @@ def make_basis_parameters(n_basis=8, kappa=2.0):
 
 
 # ── circular statistics (period π) ──────────────────────────────────────────
+#
+# Prior choice — explicit: the simulation/posterior grid is
+#   np.linspace(0, np.pi, n_orientations, endpoint=False)
+# i.e. ONE full period uniformly sampled. The inter-grid spacing equals
+# the wrap-around gap, so the implicit prior is UNIFORM on the π-periodic
+# axis (the right prior for axial orientation). Posterior aggregation
+# uses the doubled-angle Jammalamadaka–Sarma trick (SCALE = 2 below) so
+# wrap is preserved end-to-end.
+#
+# Known caveat — V1 boundary effect: simulating + decoding at θ = 0°
+# (grid index 0) and at θ ≈ 179.5° (grid index −1) gives slightly higher
+# SD than at the interior 22.5°. Looks like a discretisation artifact in
+# `get_stimulus_pdf`'s trapezoidal normalisation across the wrap edge —
+# real cardinal-effect modulation should be smooth across the grid. The
+# circular-mean re-normalisation handles the angle correctly but the SD
+# magnitude inherits the np.trapezoid imbalance. To rule it out, either
+# refit with a larger grid (e.g. 360 points) or sample over a window
+# centred away from 0.
 
 PERIOD = np.pi
 SCALE = 2 * np.pi / PERIOD          # 2 — double angles before averaging

@@ -216,6 +216,11 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         sel_tag = f"nvoxels-{n_voxels}"
         print(f"  {len(sel)} voxels selected  (R² ≥ {float(r2.loc[sel].min()):.3f})")
 
+    # BOUNDED uniform prior on [value_min, value_max] CHF — endpoint=True
+    # (default for np.linspace) so the trapezoidal integrator in
+    # get_expected_value sees a closed grid. This is the right prior for
+    # the value axis (no wrap), but it does mean the posterior gets
+    # truncated when the true value sits very near a boundary.
     stimulus_grid = np.linspace(value_min, value_max, n_values, dtype=np.float32)
 
     for ses_i in sessions:
