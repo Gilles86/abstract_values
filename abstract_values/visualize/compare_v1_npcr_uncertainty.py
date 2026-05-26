@@ -239,39 +239,60 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
 
 
 def page_behavior_overlay(pdf):
-    """Quick behavioral noisiness reference."""
-    p = Path("/Users/gdehol/git/abstract_values/notes/figures/behavior_noisiness.tsv")
-    if not p.exists():
+    """Behavioural noisiness: per-condition summary + per-orientation curve."""
+    p_agg = Path("/Users/gdehol/git/abstract_values/notes/figures/behavior_noisiness.tsv")
+    p_ori = Path("/Users/gdehol/git/abstract_values/notes/figures/behavior_noisiness_per_orientation.tsv")
+    if not p_agg.exists() or not p_ori.exists():
         return
-    df = pd.read_csv(p, sep="\t")
-    fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.4),
-                             constrained_layout=True)
+    df_agg = pd.read_csv(p_agg, sep="\t")
+    df_ori = pd.read_csv(p_ori, sep="\t")
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.6),
+                             constrained_layout=True,
+                             gridspec_kw=dict(width_ratios=[1.2, 1.2, 2.4]))
     metrics = [("mean_abs_error", "Mean abs error (CHF)"),
                ("sd_error",       "SD of error (CHF)")]
-    for ax, (m, lbl) in zip(axes, metrics):
-        # Paired subject lines + per-condition mean diamond
-        for sub, g in df.groupby("subject"):
+    for ax, (m, lbl) in zip(axes[:2], metrics):
+        for sub, g in df_agg.groupby("subject"):
             if g["condition"].nunique() < 2:
                 continue
             row_c = g[g.condition == "cdf"]
             row_i = g[g.condition == "inverse_cdf"]
             if row_c.empty or row_i.empty:
                 continue
-            ax.plot([0, 1],
-                    [row_c[m].iloc[0], row_i[m].iloc[0]],
+            ax.plot([0, 1], [row_c[m].iloc[0], row_i[m].iloc[0]],
                     "-o", color="0.7", lw=0.8, ms=4, zorder=1)
         for i, cond in enumerate(("cdf", "inverse_cdf")):
-            vals = df[df.condition == cond][m]
+            vals = df_agg[df_agg.condition == cond][m]
             ax.scatter([i], [vals.mean()], s=140, marker="D",
-                       facecolor=COND_COLOUR[cond],
-                       edgecolor="black", linewidth=1.4, zorder=5)
+                       facecolor=COND_COLOUR[cond], edgecolor="black",
+                       linewidth=1.4, zorder=5)
             ax.text(i, vals.mean(), f"  {vals.mean():.2f}",
                     fontsize=8, color="0.2", va="center")
         ax.set_xticks([0, 1])
         ax.set_xticklabels(["CDF", "InvCDF"])
         ax.set_ylabel(lbl)
-    fig.suptitle("Behavioural noisiness — BDM bid error per condition",
-                 fontsize=10, y=1.04, color="0.15")
+
+    # Per-orientation behavioural SD curve — matches the V1/NPCr panels
+    ax = axes[2]
+    for cond, sub_df in df_ori.groupby("condition"):
+        g = sub_df.groupby("orientation_deg")["sd_error"].agg(
+            ["mean", "sem", "count"]).reset_index()
+        ax.plot(g["orientation_deg"], g["mean"],
+                "-o", color=COND_COLOUR[cond], lw=1.6, ms=4,
+                label=f"{cond}  (n={int(g['count'].max())})")
+        ax.fill_between(g["orientation_deg"],
+                        g["mean"] - g["sem"],
+                        g["mean"] + g["sem"],
+                        color=COND_COLOUR[cond], alpha=0.22, linewidth=0)
+    ax.set_xlim(0, 180); ax.set_xticks([0, 45, 90, 135, 180])
+    ax.set_xlabel("Orientation (deg)")
+    ax.set_ylabel("Behavioural SD of bid error (CHF)")
+    ax.set_title("Behaviour vs orientation", fontsize=9, color="0.2")
+    ax.legend(loc="upper right", fontsize=7.5)
+
+    fig.suptitle("Behavioural noisiness — BDM bid error", fontsize=10,
+                 y=1.04, color="0.15")
     sns.despine(fig=fig, offset=5, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
