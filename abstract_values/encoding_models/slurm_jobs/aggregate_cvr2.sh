@@ -40,12 +40,7 @@ ARGS=(
 echo "aggregate_cvr2: sub-${PARTICIPANT_LABEL}  model_dir=${MODEL_DIR}  smoothed=${SMOOTHED}"
 echo "Args: ${ARGS[*]}"
 
-# init_conda.sh evals a `conda shell.zsh hook`; sourced under `set -e` in this
-# bash job that throws a 127 and aborts before conda is ready. Relax strict
-# mode just around the source (matches the FI job script, which has no set -e).
-set +e
 . $HOME/init_conda.sh
-set -euo pipefail
 
 conda run -n abstract_values python -u \
     -m abstract_values.encoding_models.aggregate_cvr2 \
