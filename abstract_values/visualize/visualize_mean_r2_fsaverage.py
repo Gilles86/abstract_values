@@ -125,17 +125,69 @@ def soft_alpha(values: np.ndarray, thr: float, sigma: float) -> np.ndarray:
     return norm.cdf(values, loc=thr, scale=sigma).astype(np.float32)
 
 
+def _per_subject_fdr_threshold(subject: str, model: str, bids_folder: Path,
+                                alpha: float, smoothed: bool):
+    """Look up the per-subject whole-brain FDR-α R² threshold.
+
+    Reads the cached p_signal.json written by
+    ``abstract_values.encoding_models.compute_r2_mixture``. Returns the
+    threshold as a fraction (0–1), or None if the mixture is missing or
+    flagged degenerate. The .cv encoder dirs share the mixture with the
+    non-CV encoder (the mixture is fit on cv-R²), so ``aprf.cv`` falls
+    back to ``aprf`` when its own dir lacks a p_signal.json.
+    """
+    # Allow the user to ask for either `aprf` or `aprf.cv` and route to the
+    # same mixture cache.
+    base_model = model.split(".")[0]
+    p = (Path(bids_folder) / "derivatives" / "encoding_models"
+         / base_model / f"sub-{subject}"
+         / f"sub-{subject}_desc-p_signal.json")
+    if not p.exists():
+        return None
+    import json
+    info = json.loads(p.read_text())
+    brain = info.get("BRAIN", info)        # backward-compat
+    if brain.get("degenerate"):
+        return None
+    # The cached JSON stores thresholds for several α values keyed by name.
+    # Fall back to the analytic R² → p_signal inversion if α isn't pre-tabulated.
+    fdr_key = f"fdr_{int(round(alpha * 100)):02d}"
+    if fdr_key in brain:
+        return float(brain[fdr_key])
+    # Compute on-the-fly via the same helper used elsewhere.
+    from abstract_values.encoding_models.compute_r2_mixture import \
+        get_brain_fdr_threshold
+    res = get_brain_fdr_threshold(subject, model=base_model,
+                                   bids_folder=Path(bids_folder),
+                                   alpha=alpha,
+                                   smoothed=smoothed)
+    if res is None or res.get("degenerate"):
+        return None
+    return float(res["threshold"])
+
+
 def main(subjects: list[str], models: list[str], bids_folder: Path,
          r2_thr: float, r2_sigma: float, desc: str = "r2",
-         smoothing: tuple[str, ...] = ("", "_smoothed")) -> None:
+         smoothing: tuple[str, ...] = ("", "_smoothed"),
+         fdr_alpha: float | None = None) -> None:
     """Build one pycortex dataset per (model, smoothing) combination present
     on disk. By default both unsmoothed and smoothed variants are shown side
-    by side; the smoothed variant is loaded from `desc-<desc>_smoothed`."""
+    by side; the smoothed variant is loaded from `desc-<desc>_smoothed`.
+
+    When ``fdr_alpha`` is set, per-subject FDR-α R² thresholds from the
+    whole-brain mixture replace the fixed ``r2_thr`` for the alpha mask
+    (subjects whose mixture is degenerate fall back to the fixed
+    threshold). The colourbar minimum becomes the cohort-mean FDR
+    threshold; the alpha mask uses each subject's own threshold before
+    averaging — so a subject with a more selective mixture won't blur
+    into the group map at their weak voxels."""
     ds: dict[str, cortex.Vertex] = {}
     for model in models:
         for smooth in smoothing:
+            smoothed_bool = (smooth == "_smoothed")
             full_desc = f"{desc}{smooth}"
-            per_sub = []
+            per_sub = []          # raw fsaverage R² stacks (one row per subject)
+            per_sub_thr = []      # per-subject FDR threshold (None if missing)
             used: list[str] = []
             for sub in subjects:
                 arr = load_bilateral(sub, model, bids_folder, desc=full_desc)
@@ -143,6 +195,12 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
                     continue
                 per_sub.append(arr)
                 used.append(sub)
+                if fdr_alpha is not None:
+                    thr = _per_subject_fdr_threshold(
+                        sub, model, bids_folder, fdr_alpha, smoothed_bool)
+                    per_sub_thr.append(thr if thr is not None else r2_thr)
+                else:
+                    per_sub_thr.append(r2_thr)
             if not per_sub:
                 print(f"{model} {full_desc}: no subjects with fsaverage data — skipping")
                 continue
@@ -150,21 +208,39 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
             stack = np.stack(per_sub, axis=0)        # (n_subjects, n_vertices)
             mean_r2 = np.nanmean(stack, axis=0)
 
+            if fdr_alpha is not None:
+                # Apply each subject's threshold to its own map BEFORE
+                # averaging into the alpha mask: a vertex is "trusted"
+                # only if it would survive that subject's FDR α.
+                alpha_per_sub = []
+                for arr, thr in zip(per_sub, per_sub_thr):
+                    alpha_per_sub.append(soft_alpha(arr, thr, r2_sigma))
+                alpha = np.nanmean(alpha_per_sub, axis=0)
+                cohort_thr = float(np.mean(per_sub_thr))
+            else:
+                alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
+                cohort_thr = r2_thr
+
             # vmax: 99.5th percentile of positive R², but never below the
             # threshold (matplotlib's Normalize errors out if vmin >= vmax).
             pos = mean_r2[mean_r2 > 0]
-            vmax = float(np.nanpercentile(pos, 99.5)) if pos.size else r2_thr * 2
-            vmax = max(vmax, r2_thr * 2)
+            vmax = float(np.nanpercentile(pos, 99.5)) if pos.size else cohort_thr * 2
+            vmax = max(vmax, cohort_thr * 2)
 
-            alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
             v = cortex.Vertex(np.nan_to_num(mean_r2).astype(np.float32),
                               PYCORTEX_FSAVG_SUBJECT,
-                              vmin=r2_thr, vmax=vmax, cmap=ORANGE_CMAP)
-            label = f"mean_{model}_{full_desc}  (n={len(used)})"
+                              vmin=cohort_thr, vmax=vmax, cmap=ORANGE_CMAP)
+            thr_note = ""
+            if fdr_alpha is not None:
+                # Show per-subject threshold spread to make the average meaningful.
+                spread = (f"{min(per_sub_thr):.2f}–{max(per_sub_thr):.2f}"
+                          if per_sub_thr else "n/a")
+                thr_note = f"  FDR α={fdr_alpha:.2f} thr/subject ∈ [{spread}]"
+            label = f"mean_{model}_{full_desc}  (n={len(used)}){thr_note}"
             ds[label] = v.blend_curvature(alpha)
             print(f"{model} {full_desc}: n={len(used)} "
                   f"[{', '.join(used)}], range [{mean_r2.min():.2f}, {mean_r2.max():.2f}], "
-                  f"colorbar [{r2_thr:.1f}, {vmax:.1f}]")
+                  f"colorbar [{cohort_thr:.2f}, {vmax:.2f}]{thr_note}")
 
     if not ds:
         raise SystemExit("Nothing to show — run sample_r2_to_surface.py first.")
@@ -192,6 +268,11 @@ if __name__ == "__main__":
     p.add_argument("--r2-sigma", type=float, default=0.02,
                    help="Gaussian-CDF transition width on the fraction scale "
                         "(default 0.02)")
+    p.add_argument("--fdr-alpha", type=float, default=None,
+                   help="If set, use per-subject FDR-α R² thresholds from "
+                        "the whole-brain mixture (compute_r2_mixture) instead "
+                        "of the fixed --r2-thr for alpha masking. Subjects "
+                        "with a degenerate mixture fall back to --r2-thr.")
     p.add_argument("--smoothing", nargs="+", default=["", "_smoothed"],
                    choices=["", "_smoothed"],
                    help="Which BOLD-smoothing variants to include "
@@ -214,4 +295,5 @@ if __name__ == "__main__":
 
     main(subjects, args.models, Path(args.bids_folder),
          args.r2_thr, args.r2_sigma, desc=args.desc,
-         smoothing=tuple(args.smoothing))
+         smoothing=tuple(args.smoothing),
+         fdr_alpha=args.fdr_alpha)
