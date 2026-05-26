@@ -78,8 +78,9 @@ echo "sample_r2_to_surface: sub-${PARTICIPANT_LABEL}  model_dir=${MODEL_DIR}  de
 echo "FREESURFER_HOME=${FREESURFER_HOME}"
 echo "Args: ${ARGS[*]}"
 
-. $HOME/init_conda.sh
-
-conda run -n abstract_values python -u \
+# Use the env's python binary directly — `conda run` buffers output and
+# has historically failed silently for this script (16/16 sub-07/10 jobs
+# failed in <4 s with no useful stderr).
+PYTHONUNBUFFERED=1 $HOME/data/conda/envs/abstract_values/bin/python -u \
     -m abstract_values.surface.sample_r2_to_surface \
     "${ARGS[@]}"
