@@ -268,11 +268,12 @@ if __name__ == "__main__":
     p.add_argument("--r2-sigma", type=float, default=0.02,
                    help="Gaussian-CDF transition width on the fraction scale "
                         "(default 0.02)")
-    p.add_argument("--fdr-alpha", type=float, default=None,
-                   help="If set, use per-subject FDR-α R² thresholds from "
-                        "the whole-brain mixture (compute_r2_mixture) instead "
-                        "of the fixed --r2-thr for alpha masking. Subjects "
-                        "with a degenerate mixture fall back to --r2-thr.")
+    p.add_argument("--fdr-alpha", type=float, default=0.05,
+                   help="Per-subject FDR-α R² thresholds from the whole-brain "
+                        "mixture (compute_r2_mixture) for alpha masking. "
+                        "Subjects with a degenerate or missing mixture fall "
+                        "back to --r2-thr. Pass --fdr-alpha 0 to disable "
+                        "(use the fixed --r2-thr cohort-wide).")
     p.add_argument("--smoothing", nargs="+", default=["", "_smoothed"],
                    choices=["", "_smoothed"],
                    help="Which BOLD-smoothing variants to include "
@@ -293,7 +294,9 @@ if __name__ == "__main__":
         raise SystemExit("No subjects found — pass --subjects or run "
                          "sample_r2_to_surface.py first.")
 
+    # --fdr-alpha 0 (or negative) is the explicit "disable" sentinel.
+    fdr_alpha = args.fdr_alpha if (args.fdr_alpha and args.fdr_alpha > 0) else None
     main(subjects, args.models, Path(args.bids_folder),
          args.r2_thr, args.r2_sigma, desc=args.desc,
          smoothing=tuple(args.smoothing),
-         fdr_alpha=args.fdr_alpha)
+         fdr_alpha=fdr_alpha)
