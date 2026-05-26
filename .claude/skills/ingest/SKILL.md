@@ -129,36 +129,37 @@ rsync -av "$BIDS_ROOT/sourcedata/behavior/sub-{subject}/" "$CLUSTER:$CLUSTER_BID
 
 Under `--scope behavior`: stop here without syncing to cluster.
 
-### Step 5: Submit SLURM chain on cluster
+### Step 5: Run the cluster pipeline (Snakemake driver)
 
-Skip this step entirely when `--scope` is `behavior` or `behavior-cluster`, or when no
-MRI was processed for any session.
+Skip when `--scope` is `behavior`/`behavior-cluster` or no MRI was processed.
 
-Use the `ingest_new_session.sh` script's cluster section as reference, but submit directly via SSH.
-The key is to pass `--session` as the HIGHEST session number so that session-shift models are included.
+The cluster side is **Snakemake**, not `ingest_new_session.sh` (legacy). The full chain
+(fmriprep → ROI masks → GLMsingle → encoding → decoding → Fisher info) lives in
+`abstract_values/snakemake/Snakefile`; subjects are processed by being listed in
+`config.yaml` and walked by a long-running driver (`run_driver.sh`, itself a SLURM job).
+ROI masks are Snakemake rules now — no manual `create_roi_masks.py` step (the
+"Prerequisite check" below is obsolete for this path).
 
+**5a.** Add the subject to `snakemake/config.yaml` (`"{subject}"` under `subjects:`,
+`"{subject}": {n_sessions}` under `subject_sessions:`), commit, push.
+
+**5b.** Decide whether to (re)submit the driver. **Only ever one driver per repo workdir**
+— `run_driver.sh` runs `snakemake --unlock` on startup, so a second driver rips the lock
+from a live one. Check first:
 ```bash
-ssh sciencecluster bash <<'REMOTE'
-set -euo pipefail
-cd ~/git/abstract_values && git pull --ff-only
-
-# ... submit fmriprep, GLMsingle, encoding models ...
-# (see ingest_new_session.sh steps 4-17 for the full SLURM chain)
-REMOTE
+ssh sciencecluster 'squeue -u gdehol -h -o "%j %T" | grep -i snake'
 ```
+- **No driver running** → `git pull` on cluster, `sbatch abstract_values/snakemake/run_driver.sh`.
+- **Driver already running** (new subject arrived mid-run — common) → do **5a + `git pull`
+  only** to *stage* the subject. Do **not** submit a second driver, and do **not** scancel
+  to force a unified restart: a 24h-walltime driver will be resubmitted anyway, and
+  Snakemake persistence resumes the in-progress subject + starts the staged one. Tell the
+  user it begins at the next resubmit (offer to fire it once the current driver ends —
+  safe; `run_driver.sh` bakes in `--unlock || true` + `--rerun-incomplete`).
 
-**IMPORTANT**: Rather than reimplementing the SLURM chain, use `ingest_new_session.sh` on the cluster
-if only one session is being added. For multi-session first-time ingestion, submit the chain manually
-with the highest session number to include session-shift models.
-
-Actually, the simplest approach: run `ingest_new_session.sh` from the LOCAL machine, which SSHs to
-the cluster. But skip steps 1-3 since we already did them. So just run the cluster portion.
-
-For new subjects with multiple sessions to ingest at once:
-1. Do steps 1-4 for ALL sessions first
-2. Then run `./ingest_new_session.sh --subject {subject} --session {max_session}` but only
-   the cluster steps (4+). Since steps 1-3 are idempotent (rsync), it's fine to re-run the
-   full script for the last session.
+  Cancelling is especially bad if fmriprep has entered FreeSurfer **recon-all**: `scancel`
+  strands a `.../freesurfer/sub-XX*/scripts/IsRunning.lh+rh` lock and loses hours. Check
+  before any cancel: `ls .../freesurfer/sub-{running}*/scripts/IsRunning* 2>/dev/null`.
 
 ### Step 6: Refresh behavior overview notebook (local)
 

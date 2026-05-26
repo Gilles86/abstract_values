@@ -46,5 +46,12 @@
       "/data/ds-abstractvalue",
       "/Volumes/g_econ_department$/projects/2026/dehollander_bedi_ruff_abstract_values"
     ]
+  },
+  "sandbox": {
+    "excludedCommands": [
+      "ssh",
+      "rsync",
+      "scp"
+    ]
   }
 }
