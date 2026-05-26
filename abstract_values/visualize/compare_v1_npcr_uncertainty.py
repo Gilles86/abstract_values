@@ -58,7 +58,10 @@ sns.set_context("paper")
 DERIV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models"
 DEFAULT_OUT = Path(BIDS_FOLDER) / "derivatives" / "qa" / "compare_v1_npcr_uncertainty.pdf"
 COND_COLOUR = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
-SELECTIONS = ("nvoxels-100", "nvoxels-fdr05")
+# FDR-α=0.05 R²-mixture voxel selection is the preferred default — see
+# notes/v1_decoder_edge_effect/ + the FI / decode pipelines which adopt
+# the same convention. nv=100 is kept as a sanity-check secondary page.
+SELECTIONS = ("nvoxels-fdr05", "nvoxels-100")
 SMOOTHINGS = (False, True)
 
 
@@ -194,7 +197,13 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     if df_v1.empty and df_n.empty:
         return
 
-    ori_grid = np.linspace(0, 180, 60, dtype=np.float32)
+    # Plot only over the orientations the subjects actually saw
+    # (7.5°–172.5°, the per-condition CHF↔orientation mapping is monotone
+    # in this range). Extending the plot to 0°/180° would suggest
+    # decoder data we don't have — none of the simulations / NPCr
+    # projections are valid there.
+    TRAINED_MIN, TRAINED_MAX = 7.5, 172.5
+    ori_grid = np.linspace(TRAINED_MIN, TRAINED_MAX, 60, dtype=np.float32)
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.2),
                              constrained_layout=True, sharey=False)
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
@@ -230,8 +239,8 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     ax.legend(loc="upper right", fontsize=7.5)
 
     for ax in axes:
-        ax.set_xlim(0, 180)
-        ax.set_xticks([0, 45, 90, 135, 180])
+        ax.set_xlim(TRAINED_MIN, TRAINED_MAX)
+        ax.set_xticks([15, 45, 90, 135, 165])
     sns.despine(fig=fig, offset=5, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)

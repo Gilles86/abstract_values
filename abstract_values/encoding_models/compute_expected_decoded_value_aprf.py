@@ -129,6 +129,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
          n_voxels=100, n_simulations=1000, n_values=200,
          n_noise_iterations=1000, batch_stimuli=25,
          value_min=0.5, value_max=50.0,
+         match_trained=True,
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
          smoothed=False):
@@ -216,12 +217,21 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         sel_tag = f"nvoxels-{n_voxels}"
         print(f"  {len(sel)} voxels selected  (R² ≥ {float(r2.loc[sel].min()):.3f})")
 
-    # BOUNDED uniform prior on [value_min, value_max] CHF — endpoint=True
-    # (default for np.linspace) so the trapezoidal integrator in
-    # get_expected_value sees a closed grid. This is the right prior for
-    # the value axis (no wrap), but it does mean the posterior gets
-    # truncated when the true value sits very near a boundary.
-    stimulus_grid = np.linspace(value_min, value_max, n_values, dtype=np.float32)
+    # Stimulus / simulation grid construction:
+    #   match_trained=True (default): the unique CHF values actually
+    #       presented in *this session* (per-session, since CDF and
+    #       InvCDF have different 23-value grids). Bounded uniform prior
+    #       on those discrete points. Matches the V1 trained-grid
+    #       convention — see notes/v1_decoder_edge_effect/.
+    #   match_trained=False: the legacy continuous grid
+    #       np.linspace(value_min, value_max, n_values) — wide bounds
+    #       (e.g. [0.5, 50] CHF) that include CHF values never presented
+    #       during training, which inflates SD by extrapolation.
+    if not match_trained:
+        stimulus_grid = np.linspace(value_min, value_max, n_values,
+                                     dtype=np.float32)
+        print(f"  simulation grid: continuous [{value_min}, {value_max}] CHF "
+              f"({n_values} pts)")
 
     for ses_i in sessions:
         mode_desc = f"mode_{ses_i}"
@@ -242,6 +252,11 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         })
 
         ses_paradigm = get_value_paradigm(sub, [ses_i])
+        if match_trained:
+            stimulus_grid = np.array(
+                sorted(ses_paradigm["x"].unique()), dtype=np.float32)
+            print(f"  simulation grid: {len(stimulus_grid)} trained CHF "
+                  f"values ({stimulus_grid.min():.2f}–{stimulus_grid.max():.2f})")
         ses_betas = sub.get_single_trial_estimates([ses_i], desc="gabor",
                                                    smoothed=smoothed)
         ses_data = pd.DataFrame(masker.transform(ses_betas).astype(np.float32))
@@ -311,7 +326,13 @@ if __name__ == "__main__":
     parser.add_argument("--fdr-fallback-n-voxels", type=int, default=100,
                         help="Top-N fallback when the mixture is flagged degenerate")
     parser.add_argument("--n-simulations", type=int, default=1000)
-    parser.add_argument("--n-values", type=int, default=200)
+    parser.add_argument("--n-values", type=int, default=200,
+                        help="Continuous-grid size; only used when "
+                             "--full-grid is passed.")
+    parser.add_argument("--full-grid", action="store_true",
+                        help="Use the continuous [--value-min, --value-max] "
+                             "grid (default: use the actually-presented 23 "
+                             "CHF values per session as the bounded prior).")
     parser.add_argument("--value-min", type=float, default=0.5)
     parser.add_argument("--value-max", type=float, default=50.0)
     parser.add_argument("--n-noise-iterations", type=int, default=1000)
@@ -327,6 +348,7 @@ if __name__ == "__main__":
          n_voxels=args.n_voxels, n_simulations=args.n_simulations,
          n_values=args.n_values, value_min=args.value_min,
          value_max=args.value_max,
+         match_trained=not args.full_grid,
          fdr_alpha=args.fdr_alpha, p_signal_thr=args.p_signal_thr,
          fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
          n_noise_iterations=args.n_noise_iterations,
