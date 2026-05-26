@@ -208,6 +208,7 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
          n_orientations=180, n_simulations=1000,
          n_noise_iterations=1000, batch_stimuli=25,
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
+         match_trained=True,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
          smoothed=False):
     """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
@@ -301,9 +302,27 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
 
     weights_sel = weights[sel]
 
-    # Stimulus grid spans [0, π) at uniform resolution
-    stim_grid = np.linspace(0, np.pi, n_orientations, endpoint=False,
-                            dtype=np.float32)
+    # Simulation grid = the actually-presented orientations (23 in [7.5°,
+    # 172.5°] step 7.5°). Matches Brouwer–Heeger / Jehee convention: don't
+    # ask the decoder to recover stimuli that were never in the encoder's
+    # training set. Querying outside that range inflates SD purely as an
+    # extrapolation artifact — see notes/v1_decoder_edge_effect/README.md.
+    #
+    # The `n_orientations` argument is now interpreted as the FULL uniform
+    # fallback grid (used only when match_trained=False). The default below
+    # is the 23-orientation trained set.
+    if match_trained:
+        ses_paradigms = [get_gabor_paradigm(sub, [s]) for s in sessions]
+        presented = sorted(set(np.round(np.concatenate(
+            [p["x"].values for p in ses_paradigms]), 5)))
+        stim_grid = np.asarray(presented, dtype=np.float32)
+        print(f"  simulation grid: {len(stim_grid)} trained orientations "
+              f"({np.rad2deg(stim_grid.min()):.1f}°–"
+              f"{np.rad2deg(stim_grid.max()):.1f}°)")
+    else:
+        stim_grid = np.linspace(0, np.pi, n_orientations, endpoint=False,
+                                dtype=np.float32)
+        print(f"  simulation grid: uniform [0°, 180°), {n_orientations} pts")
 
     for ses_i in sessions:
         cond = sub.get_mapping(ses_i)
@@ -324,8 +343,8 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
         dof_str = f"{float(dof):.1f}" if dof is not None else "None (Gaussian)"
         print(f"  noise model: dof={dof_str}")
 
-        print(f"  simulating {n_simulations} repeats × {n_orientations} "
-              f"orientations ({n_simulations * n_orientations} trials)…")
+        print(f"  simulating {n_simulations} repeats × {len(stim_grid)} "
+              f"orientations ({n_simulations * len(stim_grid)} trials)…")
         true_arr, decoded_arr = simulate_decode_session(
             model, basis_pars, weights_sel, omega, dof,
             stim_grid, n_simulations, batch_stimuli=batch_stimuli)
@@ -361,7 +380,14 @@ if __name__ == "__main__":
     parser.add_argument("--fdr-fallback-n-voxels", type=int, default=100)
     parser.add_argument("--n-basis", type=int, default=8)
     parser.add_argument("--kappa", type=float, default=2.0)
-    parser.add_argument("--n-orientations", type=int, default=180)
+    parser.add_argument("--n-orientations", type=int, default=180,
+                        help="Uniform-grid size; only used when "
+                             "--full-grid is passed.")
+    parser.add_argument("--full-grid", action="store_true",
+                        help="Use the uniform [0°, 180°) grid (default: "
+                             "use the actually-presented 23 orientations "
+                             "to avoid edge-extrapolation SD inflation; "
+                             "see notes/v1_decoder_edge_effect/).")
     parser.add_argument("--n-simulations", type=int, default=1000)
     parser.add_argument("--n-noise-iterations", type=int, default=1000)
     parser.add_argument("--batch-stimuli", type=int, default=25)
@@ -379,5 +405,6 @@ if __name__ == "__main__":
          batch_stimuli=args.batch_stimuli,
          fdr_alpha=args.fdr_alpha, p_signal_thr=args.p_signal_thr,
          fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
+         match_trained=not args.full_grid,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed)
