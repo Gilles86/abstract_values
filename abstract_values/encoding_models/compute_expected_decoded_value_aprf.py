@@ -129,8 +129,16 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
          n_voxels=100, n_simulations=1000, n_values=200,
          n_noise_iterations=1000, batch_stimuli=25,
          value_min=0.5, value_max=50.0,
+         fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
          smoothed=False):
+    """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
+    aprf-weighted whole-brain R² mixture instead of the per-subject top-N.
+    ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture is
+    flagged degenerate (sub-06 has been one such case). ``p_signal_thr``
+    is an alternative selection on P(signal | r²). Mutually exclusive."""
+    assert not (fdr_alpha is not None and p_signal_thr is not None), \
+        "Pass at most one of --fdr-alpha / --p-signal-thr"
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -160,11 +168,53 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         valid &= m > 0
     r2_valid = r2[valid]
 
-    if n_voxels == 0:
+    # Voxel selection: top-N by joint R², or FDR/p_signal against the
+    # aprf-weighted whole-brain mixture (same cutoff logic as decode_value
+    # / decode_gabor). Fallback to top-N when the mixture is degenerate.
+    if fdr_alpha is not None or p_signal_thr is not None:
+        if fdr_alpha is not None:
+            from abstract_values.encoding_models.compute_r2_mixture \
+                import get_brain_fdr_threshold
+            res = get_brain_fdr_threshold(
+                subject, model="aprf-weighted", bids_folder=bids_folder,
+                alpha=fdr_alpha, smoothed=smoothed)
+            crit_label = f"FDR≤{fdr_alpha:.2f}"
+            sel_tag = f"nvoxels-fdr{int(round(fdr_alpha * 100)):02d}"
+        else:
+            from abstract_values.encoding_models.compute_r2_mixture \
+                import get_brain_p_signal_threshold
+            res = get_brain_p_signal_threshold(
+                subject, model="aprf-weighted", bids_folder=bids_folder,
+                p=p_signal_thr, smoothed=smoothed)
+            crit_label = f"P(signal)≥{p_signal_thr:.2f}"
+            sel_tag = f"nvoxels-psig{int(round(p_signal_thr * 100)):02d}"
+        if res is None:
+            raise RuntimeError("aprf-weighted whole-brain mixture missing "
+                                 "and auto-fit failed. Run "
+                                 "compute_r2_mixture --models aprf-weighted first.")
+        thr = res["threshold"]
+        if res["degenerate"] or not np.isfinite(thr):
+            sel = r2_valid.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+            print(f"  {len(sel)} voxels selected  (mixture degenerate ⇒ "
+                  f"fallback to top-{fdr_fallback_n_voxels} by R²)")
+        else:
+            sel = r2_valid[r2_valid > thr].index
+            if len(sel) < 10:
+                sel = r2_valid.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                print(f"  {len(sel)} voxels selected  "
+                      f"(only {(r2_valid > thr).sum()} passed {crit_label} → "
+                      f"R² > {thr:.3f}; fallback to top-{fdr_fallback_n_voxels})")
+            else:
+                print(f"  {len(sel)} voxels selected  ({crit_label} → "
+                      f"R² > {thr:.3f})")
+    elif n_voxels == 0:
         sel = r2_valid[r2_valid > 0].index
+        sel_tag = "nvoxels-0"
+        print(f"  {len(sel)} voxels selected (all r²>0)")
     else:
         sel = r2_valid.sort_values(ascending=False).index[:n_voxels]
-    print(f"  {len(sel)} voxels selected  (R² ≥ {float(r2.loc[sel].min()):.3f})")
+        sel_tag = f"nvoxels-{n_voxels}"
+        print(f"  {len(sel)} voxels selected  (R² ≥ {float(r2.loc[sel].min()):.3f})")
 
     stimulus_grid = np.linspace(value_min, value_max, n_values, dtype=np.float32)
 
@@ -232,7 +282,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         out_dir.mkdir(parents=True, exist_ok=True)
         out_fn = (out_dir /
                   f"sub-{subject}_ses-{ses_i}_task-abstractvalue"
-                  f"_mask-{mask_desc}_nvoxels-{n_voxels}_nsims-{n_simulations}"
+                  f"_mask-{mask_desc}_{sel_tag}_nsims-{n_simulations}"
                   f"{smooth_label}_desc-expected_decoded_pe.tsv")
         agg.to_csv(out_fn, sep="\t", index=False)
         print(f"  saved {out_fn}")
@@ -247,6 +297,14 @@ if __name__ == "__main__":
     parser.add_argument("--roi", default="NPCr")
     parser.add_argument("--hemi", default="None")
     parser.add_argument("--n-voxels", type=int, default=100)
+    parser.add_argument("--fdr-alpha", type=float, default=None,
+                        help="FDR α on the aprf-weighted whole-brain mixture "
+                             "(mutually exclusive with --p-signal-thr)")
+    parser.add_argument("--p-signal-thr", type=float, default=None,
+                        help="P(signal|r²) threshold on the same mixture "
+                             "(mutually exclusive with --fdr-alpha)")
+    parser.add_argument("--fdr-fallback-n-voxels", type=int, default=100,
+                        help="Top-N fallback when the mixture is flagged degenerate")
     parser.add_argument("--n-simulations", type=int, default=1000)
     parser.add_argument("--n-values", type=int, default=200)
     parser.add_argument("--value-min", type=float, default=0.5)
@@ -264,6 +322,8 @@ if __name__ == "__main__":
          n_voxels=args.n_voxels, n_simulations=args.n_simulations,
          n_values=args.n_values, value_min=args.value_min,
          value_max=args.value_max,
+         fdr_alpha=args.fdr_alpha, p_signal_thr=args.p_signal_thr,
+         fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
          n_noise_iterations=args.n_noise_iterations,
          batch_stimuli=args.batch_stimuli,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,

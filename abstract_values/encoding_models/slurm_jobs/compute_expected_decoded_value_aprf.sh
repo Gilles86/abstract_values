@@ -29,10 +29,17 @@ fi
 ROI="${ROI:-NPCr}"
 HEMI="${HEMI:-None}"
 N_VOXELS="${N_VOXELS:-100}"
+FDR_ALPHA="${FDR_ALPHA:-}"
+P_SIGNAL_THR="${P_SIGNAL_THR:-}"
 N_SIMULATIONS="${N_SIMULATIONS:-1000}"
 N_VALUES="${N_VALUES:-200}"
 BATCH_STIMULI="${BATCH_STIMULI:-25}"
 SMOOTHED="${SMOOTHED:-0}"
+
+if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
+    echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
+    exit 1
+fi
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -47,6 +54,8 @@ ARGS=(
     --batch-stimuli "$BATCH_STIMULI"
     --bids-folder "$BIDS_FOLDER"
 )
+[ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
+[ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 
 echo "compute_eu_aprf: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  n_simulations=${N_SIMULATIONS}"
