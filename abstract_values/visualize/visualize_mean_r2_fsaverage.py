@@ -45,20 +45,25 @@ from scipy.stats import norm
 # Register a pure-orange ramp with pycortex once at import time. Pycortex
 # resolves colormap names against the matplotlib registry, so plt.register
 # is enough — no separate cortex.utils calls needed.
-def _register_orange_cmap(name: str = "raw_orange") -> str:
-    """Single-hue orange ramp: pale → saturated → deep. Idempotent."""
+def _register_r2_cmap(name: str = "r2_warm") -> str:
+    """Perceptually-uniform warm ramp for R² on the fsaverage surface.
+
+    Builds a ``magma``-derived palette truncated to skip the near-black low
+    end (which read as muddy against curvature) and the near-white high end
+    (which read as washed out). Result: deep purple → red → orange → yellow,
+    perceptually uniform, prints / projects well, plays nicely with
+    `blend_curvature`. Falls back gracefully on older matplotlib registries.
+    """
+    import numpy as _np
     import matplotlib.pyplot as _plt
     try:
         _plt.get_cmap(name)
         return name
     except Exception:
         pass
-    cmap = LinearSegmentedColormap.from_list(
-        name,
-        [(1.0, 0.95, 0.86),  # pale buttercream low end
-         (1.0, 0.78, 0.45),
-         (0.94, 0.49, 0.13),
-         (0.55, 0.21, 0.05)])  # deep burnt
+    base = _plt.get_cmap("magma")
+    colors = base(_np.linspace(0.22, 0.92, 256))
+    cmap = LinearSegmentedColormap.from_list(name, colors)
     try:
         _plt.colormaps.register(cmap, name=name)
     except AttributeError:                       # matplotlib < 3.9 fallback
@@ -67,7 +72,8 @@ def _register_orange_cmap(name: str = "raw_orange") -> str:
     return name
 
 
-ORANGE_CMAP = _register_orange_cmap()
+R2_CMAP = _register_r2_cmap()
+ORANGE_CMAP = R2_CMAP                            # backward-compat alias
 
 # BIDS_FOLDER is just a Path constant — abstract_values.utils.data imports
 # pandas + numpy but no nilearn, so it's safe in pycortex2.
@@ -148,6 +154,44 @@ def _fdr_threshold_from_mixture(fit: dict, alpha: float,
     return float(1.0 / (1.0 + np.exp(-z_thr)))      # inverse logit → R²
 
 
+def _fit_r2_mixture_inline(r2: np.ndarray, n_init: int = 8,
+                            max_iter: int = 500, seed: int = 0) -> dict | None:
+    """Fit a 2-component Gaussian mixture on logit(R²). Returns the same
+    dict shape as the per-subject p_signal.json (``noise_mu``, ``noise_sigma``,
+    ``signal_mu``, ``signal_sigma``, ``noise_weight``, ``signal_weight``)
+    suitable to feed straight into :func:`_fdr_threshold_from_mixture`.
+
+    Mirrors ``braincoder.utils.stats.fit_r2_mixture`` but uses sklearn's
+    GaussianMixture so it runs in pycortex2 (no braincoder dependency).
+    Filters to finite R² in (0, 1) before logit.
+    """
+    from sklearn.mixture import GaussianMixture
+    r2 = np.asarray(r2, dtype=np.float64).ravel()
+    r2 = r2[np.isfinite(r2)]
+    r2 = r2[(r2 > 1e-6) & (r2 < 1 - 1e-6)]
+    if len(r2) < 1000:
+        return None      # not enough vertices to trust the fit
+    z = np.log(r2 / (1.0 - r2)).reshape(-1, 1)
+    gmm = GaussianMixture(n_components=2, n_init=n_init,
+                          max_iter=max_iter, random_state=seed)
+    gmm.fit(z)
+    means = gmm.means_.ravel()
+    sigmas = np.sqrt(gmm.covariances_.ravel())
+    weights = gmm.weights_
+    # noise = lower-mean component; signal = higher-mean component
+    n_idx = int(np.argmin(means))
+    s_idx = 1 - n_idx
+    return {
+        "noise_mu":      float(means[n_idx]),
+        "noise_sigma":   float(sigmas[n_idx]),
+        "noise_weight":  float(weights[n_idx]),
+        "signal_mu":     float(means[s_idx]),
+        "signal_sigma":  float(sigmas[s_idx]),
+        "signal_weight": float(weights[s_idx]),
+        "n_vertices":    int(len(r2)),
+    }
+
+
 def _per_subject_fdr_threshold(subject: str, model: str, bids_folder: Path,
                                 alpha: float, smoothed: bool):
     """Look up the per-subject whole-brain FDR-α R² threshold from the
@@ -190,18 +234,22 @@ def _per_subject_fdr_threshold(subject: str, model: str, bids_folder: Path,
 def main(subjects: list[str], models: list[str], bids_folder: Path,
          r2_thr: float, r2_sigma: float, desc: str = "r2",
          smoothing: tuple[str, ...] = ("", "_smoothed"),
-         fdr_alpha: float | None = None) -> None:
+         fdr_alpha: float | None = None,
+         fdr_mode: str = "group") -> None:
     """Build one pycortex dataset per (model, smoothing) combination present
     on disk. By default both unsmoothed and smoothed variants are shown side
     by side; the smoothed variant is loaded from `desc-<desc>_smoothed`.
 
-    When ``fdr_alpha`` is set, per-subject FDR-α R² thresholds from the
-    whole-brain mixture replace the fixed ``r2_thr`` for the alpha mask
-    (subjects whose mixture is degenerate fall back to the fixed
-    threshold). The colourbar minimum becomes the cohort-mean FDR
-    threshold; the alpha mask uses each subject's own threshold before
-    averaging — so a subject with a more selective mixture won't blur
-    into the group map at their weak voxels."""
+    ``fdr_mode``:
+      - ``"group"`` (default): fit a 2-component logit-Gaussian mixture on
+        the **group-mean R²** vertex distribution and use the resulting
+        FDR-α threshold for the (single) alpha mask. The right object for
+        what's actually being displayed.
+      - ``"per_subject"``: legacy behaviour — look up each subject's own
+        whole-brain mixture threshold from the cached p_signal.json, apply
+        per-subject alpha masks, then average. Subjects with a degenerate /
+        missing mixture fall back to ``r2_thr``.
+    """
     ds: dict[str, cortex.Vertex] = {}
     for model in models:
         for smooth in smoothing:
@@ -216,7 +264,7 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
                     continue
                 per_sub.append(arr)
                 used.append(sub)
-                if fdr_alpha is not None:
+                if fdr_alpha is not None and fdr_mode == "per_subject":
                     thr = _per_subject_fdr_threshold(
                         sub, model, bids_folder, fdr_alpha, smoothed_bool)
                     per_sub_thr.append(thr if thr is not None else r2_thr)
@@ -229,18 +277,41 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
             stack = np.stack(per_sub, axis=0)        # (n_subjects, n_vertices)
             mean_r2 = np.nanmean(stack, axis=0)
 
-            if fdr_alpha is not None:
-                # Apply each subject's threshold to its own map BEFORE
-                # averaging into the alpha mask: a vertex is "trusted"
-                # only if it would survive that subject's FDR α.
-                alpha_per_sub = []
-                for arr, thr in zip(per_sub, per_sub_thr):
-                    alpha_per_sub.append(soft_alpha(arr, thr, r2_sigma))
-                alpha = np.nanmean(alpha_per_sub, axis=0)
-                cohort_thr = float(np.mean(per_sub_thr))
-            else:
+            thr_note = ""
+            if fdr_alpha is None:
                 alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
                 cohort_thr = r2_thr
+            elif fdr_mode == "per_subject":
+                # Each subject's threshold applied to its own map first.
+                alpha_per_sub = [soft_alpha(arr, thr, r2_sigma)
+                                  for arr, thr in zip(per_sub, per_sub_thr)]
+                alpha = np.nanmean(alpha_per_sub, axis=0)
+                cohort_thr = float(np.mean(per_sub_thr))
+                spread = (f"{min(per_sub_thr):.3f}–{max(per_sub_thr):.3f}"
+                          if per_sub_thr else "n/a")
+                thr_note = f"  FDR α={fdr_alpha:.2f} per-subj ∈ [{spread}]"
+            else:                                # group-mean mixture
+                fit = _fit_r2_mixture_inline(mean_r2)
+                if fit is None:
+                    print(f"  warning: group mixture fit failed "
+                          f"(n_vertices={int(np.isfinite(mean_r2).sum())}); "
+                          f"falling back to fixed --r2-thr")
+                    cohort_thr = r2_thr
+                    thr_note = "  (mixture fit failed → r2_thr fallback)"
+                else:
+                    cohort_thr = _fdr_threshold_from_mixture(fit, fdr_alpha)
+                    if not np.isfinite(cohort_thr):
+                        print(f"  warning: no R² achieves FDR α={fdr_alpha}; "
+                              f"falling back to fixed --r2-thr")
+                        cohort_thr = r2_thr
+                        thr_note = "  (FDR α unreachable → r2_thr fallback)"
+                    else:
+                        thr_note = (f"  FDR α={fdr_alpha:.2f} on group R² → "
+                                    f"thr={cohort_thr:.3f}  "
+                                    f"(noise μ={1/(1+np.exp(-fit['noise_mu'])):.3f}, "
+                                    f"signal μ={1/(1+np.exp(-fit['signal_mu'])):.3f}, "
+                                    f"w_signal={fit['signal_weight']:.2f})")
+                alpha = soft_alpha(mean_r2, cohort_thr, r2_sigma)
 
             # vmax: 99.5th percentile of positive R², but never below the
             # threshold (matplotlib's Normalize errors out if vmin >= vmax).
@@ -250,18 +321,12 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
 
             v = cortex.Vertex(np.nan_to_num(mean_r2).astype(np.float32),
                               PYCORTEX_FSAVG_SUBJECT,
-                              vmin=cohort_thr, vmax=vmax, cmap=ORANGE_CMAP)
-            thr_note = ""
-            if fdr_alpha is not None:
-                # Show per-subject threshold spread to make the average meaningful.
-                spread = (f"{min(per_sub_thr):.2f}–{max(per_sub_thr):.2f}"
-                          if per_sub_thr else "n/a")
-                thr_note = f"  FDR α={fdr_alpha:.2f} thr/subject ∈ [{spread}]"
+                              vmin=cohort_thr, vmax=vmax, cmap=R2_CMAP)
             label = f"mean_{model}_{full_desc}  (n={len(used)}){thr_note}"
             ds[label] = v.blend_curvature(alpha)
             print(f"{model} {full_desc}: n={len(used)} "
-                  f"[{', '.join(used)}], range [{mean_r2.min():.2f}, {mean_r2.max():.2f}], "
-                  f"colorbar [{cohort_thr:.2f}, {vmax:.2f}]{thr_note}")
+                  f"[{', '.join(used)}], range [{mean_r2.min():.3f}, {mean_r2.max():.3f}], "
+                  f"colorbar [{cohort_thr:.3f}, {vmax:.3f}]{thr_note}")
 
     if not ds:
         raise SystemExit("Nothing to show — run sample_r2_to_surface.py first.")
@@ -292,12 +357,21 @@ if __name__ == "__main__":
                         "much steeper transition into the colored region; "
                         "vertices with R² ~thr ± 0.01 sweep from ≈0 to ≈1 "
                         "alpha. Pass a larger value for a softer fade.)")
-    p.add_argument("--fdr-alpha", type=float, default=0.05,
-                   help="Per-subject FDR-α R² thresholds from the whole-brain "
-                        "mixture (compute_r2_mixture) for alpha masking. "
-                        "Subjects with a degenerate or missing mixture fall "
-                        "back to --r2-thr. Pass --fdr-alpha 0 to disable "
-                        "(use the fixed --r2-thr cohort-wide).")
+    p.add_argument("--fdr-alpha", type=float, default=0.01,
+                   help="FDR-α target on the R² mixture for the alpha mask. "
+                        "Default 0.01. Smoothed maps need a stricter α than "
+                        "unsmoothed because smoothing inflates the signal "
+                        "mixture component — α=0.05 can leave the threshold "
+                        "below the noise mode (all vertices survive). Pass "
+                        "--fdr-alpha 0 to disable (use the fixed --r2-thr "
+                        "cohort-wide).")
+    p.add_argument("--fdr-mode", default="group",
+                   choices=["group", "per_subject"],
+                   help="'group' (default): fit the 2-component R² mixture "
+                        "on the group-mean fsaverage R² (the actual map "
+                        "being displayed). 'per_subject': legacy path that "
+                        "looks up each subject's cached whole-brain "
+                        "p_signal.json and averages per-subject alpha masks.")
     p.add_argument("--smoothing", nargs="+", default=["", "_smoothed"],
                    choices=["", "_smoothed"],
                    help="Which BOLD-smoothing variants to include "
@@ -323,4 +397,4 @@ if __name__ == "__main__":
     main(subjects, args.models, Path(args.bids_folder),
          args.r2_thr, args.r2_sigma, desc=args.desc,
          smoothing=tuple(args.smoothing),
-         fdr_alpha=fdr_alpha)
+         fdr_alpha=fdr_alpha, fdr_mode=args.fdr_mode)
