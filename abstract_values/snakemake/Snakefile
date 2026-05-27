@@ -305,6 +305,13 @@ rule fit_glmsingle:
 def _aprf_resources():
     return dict(cpus_per_task=8, mem_mb=32_000, runtime=2*60)
 
+# Cross-validated fits do leave-one-run-out (~16 folds for a 2-session subject),
+# so they need far more walltime than the single fit. 2h TIMEOUTs the CV jobs
+# for sub-13/14; 12h matches the heavy-fit precedent above and stays under the
+# 1-day `normal` QoS cap.
+def _aprf_cv_resources():
+    return dict(cpus_per_task=8, mem_mb=32_000, runtime=12*60)
+
 rule fit_aprf:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "aprf", "{smooth}")
@@ -320,7 +327,7 @@ rule fit_aprf_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "aprf_cv", "{smooth}")
     log: "logs/fit_aprf_cv{smooth}_{subject}.log"
-    resources: **_aprf_resources()
+    resources: **_aprf_cv_resources()
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
@@ -343,7 +350,7 @@ rule fit_aprf_session_shift_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "aprf_session_shift_cv", "{smooth}")
     log: "logs/fit_aprf_session_shift_cv{smooth}_{subject}.log"
-    resources: **_aprf_resources()
+    resources: **_aprf_cv_resources()
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MODEL=session-shift "
@@ -366,7 +373,7 @@ rule fit_aprf_weighted_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "aprf_weighted_cv", "{smooth}")
     log: "logs/fit_aprf_weighted_cv{smooth}_{subject}.log"
-    resources: **_aprf_resources()
+    resources: **_aprf_cv_resources()
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
@@ -394,7 +401,7 @@ rule fit_aprf_gauss_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "aprf_gauss_cv", "{smooth}")
     log: "logs/fit_aprf_gauss_cv{smooth}_{subject}.log"
-    resources: **_aprf_resources()
+    resources: **_aprf_cv_resources()
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MODEL=gaussian "
@@ -418,7 +425,7 @@ rule fit_aprf_gauss_session_shift_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "aprf_gauss_session_shift_cv", "{smooth}")
     log: "logs/fit_aprf_gauss_session_shift_cv{smooth}_{subject}.log"
-    resources: **_aprf_resources()
+    resources: **_aprf_cv_resources()
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MODEL=gauss-session-shift "
@@ -441,7 +448,7 @@ rule fit_vonmises_cv:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "vonmises_cv", "{smooth}")
     log: "logs/fit_vonmises_cv{smooth}_{subject}.log"
-    resources: **_aprf_resources()
+    resources: **_aprf_cv_resources()
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
