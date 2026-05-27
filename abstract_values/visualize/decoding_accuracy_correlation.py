@@ -211,24 +211,30 @@ def page_decoder(df, decoder_label, value_unit, pdf):
         return
 
     # One row per (smoothing × lambda) so the panels stay simple; columns
-    # are r and ρ. Empirically lambda=0 vs 0.1 makes a small difference;
-    # leaving the contrast visible lets the user pick the better regularizer.
+    # are r and ρ. Within each panel, the `noise` hue contrasts the two
+    # residual models (full = legacy residual covariance vs spherical =
+    # iid Gaussian). Lambda=0 vs 0.1 makes a small difference; leaving
+    # the contrast visible lets the user pick the better regularizer.
     df = df.copy()
     df["cfg"] = df.apply(
         lambda r: f"{'smoothed' if r['smoothed'] else 'unsmoothed'}, "
                    f"λ={r['lambda']}", axis=1)
     cfgs = sorted(df["cfg"].unique())
     n = len(cfgs)
-    fig, axes = plt.subplots(n, 2, figsize=(10.5, 2.5 * n + 0.8),
+    fig, axes = plt.subplots(n, 2, figsize=(11.0, 2.6 * n + 0.8),
                               constrained_layout=True, squeeze=False)
-    fig.suptitle(f"Real-trial decoding accuracy — {decoder_label}",
+    fig.suptitle(f"Real-trial decoding accuracy — {decoder_label}  "
+                 f"(noise: full ‖ spherical)",
                  fontsize=10, y=1.02, color="0.15")
+    hue_arg = "noise" if df["noise"].nunique() > 1 else None
     for i, cfg in enumerate(cfgs):
         sub = df[df["cfg"] == cfg]
         _swarm_with_mean(axes[i, 0], sub, "nvoxels", "pearson_r",
+                          hue_col=hue_arg,
                           ylabel=f"Pearson r (true vs decoded {value_unit})",
                           title=f"{cfg}  ·  Pearson r")
         _swarm_with_mean(axes[i, 1], sub, "nvoxels", "spearman_rho",
+                          hue_col=hue_arg,
                           ylabel=f"Spearman ρ (true vs decoded {value_unit})",
                           title=f"{cfg}  ·  Spearman ρ")
         # Match y across the row (r and ρ live on the same scale)
