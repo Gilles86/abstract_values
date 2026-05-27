@@ -43,6 +43,7 @@ from braincoder.optimize import ParameterFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.models import (
+    FullyShiftedLogGaussianPRF,
     GaussianValuePRF,
     SessionShiftedGaussianValuePRF,
     SessionShiftedLogGaussianPRF,
@@ -52,7 +53,7 @@ from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 # ── model registry ──────────────────────────────────────────────────────────
 
-_SHIFT_MODELS = {'session-shift', 'gauss-session-shift'}
+_SHIFT_MODELS = {'session-shift', 'fully-shifted', 'gauss-session-shift'}
 
 
 def _build_model(model_type):
@@ -61,6 +62,8 @@ def _build_model(model_type):
                               parameterisation='mode_fwhm_natural')
     if model_type == 'session-shift':
         return SessionShiftedLogGaussianPRF(allow_neg_amplitudes=False)
+    if model_type == 'fully-shifted':
+        return FullyShiftedLogGaussianPRF(allow_neg_amplitudes=False)
     if model_type == 'gaussian':
         return GaussianValuePRF(allow_neg_amplitudes=False)
     if model_type == 'gauss-session-shift':
@@ -72,6 +75,7 @@ def _out_subdir(model_type):
     return {
         'standard':            'aprf.cv',
         'session-shift':       'aprf-shift.cv',
+        'fully-shifted':       'aprf-fully-shifted.cv',
         'gaussian':            'aprf-gauss.cv',
         'gauss-session-shift': 'aprf-gauss-shift.cv',
     }[model_type]
@@ -207,20 +211,53 @@ def main(subject, n_iterations=1000, mask=None,
         test_paradigm  = paradigm.loc[test_mask].reset_index(drop=True)[paradigm_cols]
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
-        model  = _build_model(model_type)
-        fitter = ParameterFitter(model, train_data, train_paradigm)
-
-        print('    grid search...')
-        if needs_session:
-            grid_pars = fitter.fit_grid(modes, modes, fwhms, amplitudes, baselines,
-                                        use_correlation_cost=True)
+        if model_type == 'fully-shifted':
+            # 8 params per voxel — grid intractable. Warm-start from a
+            # session-shift fit on the same training fold, then duplicate
+            # fwhm/amp/baseline to per-session and refine with Adam.
+            ss_model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=False)
+            ss_fitter = ParameterFitter(ss_model, train_data, train_paradigm)
+            print('    [warm-start] session-shift grid...')
+            ss_grid = ss_fitter.fit_grid(modes, modes, fwhms,
+                                          amplitudes, baselines,
+                                          use_correlation_cost=True)
+            ss_grid = ss_fitter.refine_baseline_and_amplitude(ss_grid)
+            print(f'    [warm-start] descent ({n_iterations // 2} iters)...')
+            ss_pars = ss_fitter.fit(max_n_iterations=n_iterations // 2,
+                                      init_pars=ss_grid)
+            fs_init = pd.DataFrame({
+                'mode_1':      ss_pars['mode_1'].values,
+                'mode_2':      ss_pars['mode_2'].values,
+                'fwhm_1':      ss_pars['fwhm'].values,
+                'fwhm_2':      ss_pars['fwhm'].values,
+                'amplitude_1': ss_pars['amplitude'].values,
+                'amplitude_2': ss_pars['amplitude'].values,
+                'baseline_1':  ss_pars['baseline'].values,
+                'baseline_2':  ss_pars['baseline'].values,
+            }, index=ss_pars.index)
+            model  = FullyShiftedLogGaussianPRF(allow_neg_amplitudes=False)
+            fitter = ParameterFitter(model, train_data, train_paradigm)
+            print(f'    [fully-shifted] descent ({n_iterations} iters)...')
+            pars = fitter.fit(max_n_iterations=n_iterations,
+                              init_pars=fs_init)
         else:
-            grid_pars = fitter.fit_grid(modes, fwhms, amplitudes, baselines,
-                                        use_correlation_cost=True)
-        grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
+            model  = _build_model(model_type)
+            fitter = ParameterFitter(model, train_data, train_paradigm)
 
-        print(f'    gradient descent ({n_iterations} iters)...')
-        pars = fitter.fit(max_n_iterations=n_iterations, init_pars=grid_pars)
+            print('    grid search...')
+            if needs_session:
+                grid_pars = fitter.fit_grid(modes, modes, fwhms,
+                                              amplitudes, baselines,
+                                              use_correlation_cost=True)
+            else:
+                grid_pars = fitter.fit_grid(modes, fwhms,
+                                              amplitudes, baselines,
+                                              use_correlation_cost=True)
+            grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
+
+            print(f'    gradient descent ({n_iterations} iters)...')
+            pars = fitter.fit(max_n_iterations=n_iterations,
+                              init_pars=grid_pars)
 
         test_pred = model.predict(parameters=pars, paradigm=test_paradigm)
         cv_r2 = get_rsq(test_data, test_pred)
@@ -243,9 +280,11 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--model', default='standard',
-                        choices=['standard', 'session-shift',
+                        choices=['standard', 'session-shift', 'fully-shifted',
                                  'gaussian', 'gauss-session-shift'],
-                        help='Model type (default: standard)')
+                        help='Model type (default: standard). '
+                             'fully-shifted: all 5 params per session, '
+                             'warm-started from session-shift.')
     parser.add_argument('--n-iterations', type=int, default=1000)
     parser.add_argument('--mask', default=None)
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))

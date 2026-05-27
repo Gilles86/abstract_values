@@ -50,20 +50,24 @@ from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
 def get_gabor_paradigm(sub, sessions):
-    """Return DataFrame with column 'x' (orientation in radians, float32).
+    """Return DataFrame with columns ['x', 'session'] (orientation in
+    radians, session index matching the position in `sessions`).
 
     Rows are in the same order as the gabor betas written by fit_glmsingle:
     for each session → run (sorted) → event sorted by onset, gabor only.
+    The session column lets downstream code fit per-session weights
+    without re-globbing events.
     """
     rows = []
-    for session in sessions:
+    for ses_idx, session in enumerate(sessions):
         runs = sub.get_runs(session)
         events = sub.get_events(session, runs)
         for run in runs:
             run_ev = events.loc[run].reset_index().sort_values('onset')
             for _, row in run_ev[run_ev['event_type'] == 'gabor'].iterrows():
-                rows.append(np.deg2rad(float(row['orientation'])))
-    return pd.DataFrame({'x': np.array(rows, dtype=np.float32)})
+                rows.append((np.deg2rad(float(row['orientation'])), ses_idx))
+    arr = np.asarray(rows, dtype=np.float32)
+    return pd.DataFrame({'x': arr[:, 0], 'session': arr[:, 1]})
 
 
 def make_basis_parameters(n_basis, kappa):
@@ -77,21 +81,41 @@ def make_basis_parameters(n_basis, kappa):
     })
 
 
+def _fit_weights_one_session(model, basis_pars, data_ses, paradigm_ses):
+    """Closed-form lstsq for the 8 basis weights on a single session's
+    trials. Returns weights DataFrame (n_basis × n_voxels) AND R²."""
+    weights = WeightFitter(model, basis_pars, data_ses, paradigm_ses).fit()
+    basis_pred = model.basis_predictions(paradigm_ses, basis_pars)
+    pred = pd.DataFrame(basis_pred @ weights.values,
+                         index=data_ses.index, columns=data_ses.columns)
+    r2 = get_rsq(data_ses, pred)
+    return weights, r2
+
+
 def main(subject, n_basis=8, kappa=2.0, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False):
+         smoothed=False, session_shift=False):
+    """When ``session_shift=True``, fit the 8 basis weights *separately*
+    per session via closed-form lstsq, write them to
+    ``derivatives/encoding_models/vonmises-session-shift/`` along with
+    a per-session R² map. The default (joint) fit pools all sessions
+    and writes to ``vonmises/`` as before."""
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
-    # Always fit jointly across all of the subject's sessions.
     sessions = sorted(sub.get_sessions())
 
+    if session_shift and len(sessions) < 2:
+        raise ValueError("--session-shift requires at least 2 sessions")
+
+    mode_label = "session-shift" if session_shift else "joint"
     print(f'sub-{subject}  all-sessions ({sessions})  '
-          f'n_basis={n_basis}  kappa={kappa}')
+          f'n_basis={n_basis}  kappa={kappa}  mode={mode_label}')
 
     # ── paradigm ─────────────────────────────────────────────────────────────
     paradigm = get_gabor_paradigm(sub, sessions)
-    print(f'  {len(paradigm)} gabor trials')
+    print(f'  {len(paradigm)} gabor trials  '
+          f'(per-session: {paradigm.groupby("session").size().to_dict()})')
 
     # ── betas ─────────────────────────────────────────────────────────────────
     betas_img = sub.get_single_trial_estimates(sessions, desc='gabor',
@@ -110,34 +134,79 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
     basis_pars = make_basis_parameters(n_basis, kappa)
     print(f'  basis mus (deg): {np.rad2deg(basis_pars["mu"].values).round(1).tolist()}')
 
-    # ── fit weights ───────────────────────────────────────────────────────────
     model = AxialVonMisesPRF()
-    weights = WeightFitter(model, basis_pars, data, paradigm).fit()
-    # weights: DataFrame (n_basis, n_voxels)
-
-    # ── R² ────────────────────────────────────────────────────────────────────
-    basis_pred = model.basis_predictions(paradigm, basis_pars)  # (n_trials, n_basis)
-    pred = pd.DataFrame(basis_pred @ weights.values,
-                        index=data.index, columns=data.columns)
-    r2 = get_rsq(data, pred)
-    print(f'  mean R²={float(r2.mean()):.4f}')
-
-    # ── save ──────────────────────────────────────────────────────────────────
-    out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises'
-               / f'sub-{subject}' / 'func')
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     smooth_label = '_smoothed' if smoothed else ''
+
+    if not session_shift:
+        # ── joint fit (legacy behaviour) ─────────────────────────────────────
+        # Drop the session column from the paradigm — the joint model
+        # doesn't read it.
+        paradigm_joint = paradigm[['x']].reset_index(drop=True)
+        weights, r2 = _fit_weights_one_session(
+            model, basis_pars, data, paradigm_joint)
+        print(f'  mean R²={float(r2.mean()):.4f}')
+
+        out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises'
+                   / f'sub-{subject}' / 'func')
+        out_dir.mkdir(parents=True, exist_ok=True)
+        fn = (f'sub-{subject}_task-abstractvalue'
+              f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
+        weights_img = image.concat_imgs(
+            [masker.inverse_transform(weights.loc[i]) for i in range(n_basis)])
+        weights_img.to_filename(str(out_dir / fn.format(desc='weights')))
+        masker.inverse_transform(r2).to_filename(
+            str(out_dir / fn.format(desc='r2')))
+        print(f'  saved to {out_dir}')
+        return
+
+    # ── session-shift: per-session weights via per-session lstsq ──────────────
+    # Each session gets its own 8-channel weight vector per voxel.
+    # Output layout mirrors aprf-session-shift: outputs in the
+    # 'vonmises-session-shift' sibling dir with per-session weight files.
+    out_dir = (bids_folder / 'derivatives' / 'encoding_models'
+               / 'vonmises-session-shift' / f'sub-{subject}' / 'func')
+    out_dir.mkdir(parents=True, exist_ok=True)
     fn = (f'sub-{subject}_task-abstractvalue'
           f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
 
-    # 4D weights image: volume i = weights for basis function i
-    weights_img = image.concat_imgs(
-        [masker.inverse_transform(weights.loc[i]) for i in range(n_basis)])
-    weights_img.to_filename(str(out_dir / fn.format(desc='weights')))
+    # We also report a joint R² computed by stitching per-session preds
+    # back together, so it's directly comparable to the joint-fit R².
+    per_session_pred = pd.DataFrame(np.nan,
+                                    index=data.index, columns=data.columns)
+    for ses_idx, ses in enumerate(sessions):
+        ses_mask = paradigm['session'].values == ses_idx
+        data_ses     = data.iloc[ses_mask].reset_index(drop=True)
+        paradigm_ses = paradigm.loc[ses_mask, ['x']].reset_index(drop=True)
+        if len(data_ses) == 0:
+            print(f'  session {ses}: no trials, skipping')
+            continue
+        weights, r2 = _fit_weights_one_session(
+            model, basis_pars, data_ses, paradigm_ses)
+        print(f'  session {ses}: mean R²={float(r2.mean()):.4f}  '
+              f'({len(data_ses)} trials)')
 
-    masker.inverse_transform(r2).to_filename(str(out_dir / fn.format(desc='r2')))
+        # Save per-session weights as 4-D volume + per-session R²
+        weights_img = image.concat_imgs(
+            [masker.inverse_transform(weights.loc[i]) for i in range(n_basis)])
+        weights_img.to_filename(
+            str(out_dir / fn.format(desc=f'weights_{ses_idx + 1}')))
+        masker.inverse_transform(r2).to_filename(
+            str(out_dir / fn.format(desc=f'r2_{ses_idx + 1}')))
 
+        # Stitch this session's predictions back into the joint design
+        basis_pred = model.basis_predictions(paradigm_ses, basis_pars)
+        ses_pred = pd.DataFrame(basis_pred @ weights.values,
+                                  index=data_ses.index,
+                                  columns=data_ses.columns)
+        per_session_pred.iloc[ses_mask] = ses_pred.values
+
+    # Joint R² (stitched) — what you'd report as "this model's overall fit"
+    # for nested-model cvR² comparison against the joint vonmises fit.
+    valid = ~per_session_pred.isna().any(axis=1)
+    r2_joint = get_rsq(data[valid], per_session_pred[valid])
+    print(f'  joint R² (stitched) ={float(r2_joint.mean()):.4f}')
+    masker.inverse_transform(r2_joint).to_filename(
+        str(out_dir / fn.format(desc='r2')))
     print(f'  saved to {out_dir}')
 
 
@@ -156,8 +225,12 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--session-shift', action='store_true',
+                        help="Fit per-session basis weights (output: "
+                             "vonmises-session-shift). Default: joint fit.")
     args = parser.parse_args()
 
     main(args.subject, n_basis=args.n_basis,
          kappa=args.kappa, mask=args.mask, bids_folder=args.bids_folder,
-         fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed)
+         fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
+         session_shift=args.session_shift)

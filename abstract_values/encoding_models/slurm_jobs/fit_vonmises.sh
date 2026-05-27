@@ -15,6 +15,8 @@
 # Optional overrides (--export key=value):
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
+#   SESSION_SHIFT   set to "1" to fit per-session basis weights (output:
+#                   derivatives/encoding_models/vonmises-session-shift)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
@@ -22,6 +24,7 @@ fi
 
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
+SESSION_SHIFT="${SESSION_SHIFT:-0}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -33,6 +36,7 @@ ARGS=(
 )
 
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$SESSION_SHIFT" = "1" ] && ARGS+=(--session-shift)
 
 echo "fit_vonmises: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}"
 echo "Args: ${ARGS[*]}"

@@ -15,7 +15,8 @@
 # Optional overrides (--export key=value):
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
-#   MODEL           model type: standard or session-shift (default: standard)
+#   MODEL           standard | session-shift | fully-shifted | gaussian |
+#                   gauss-session-shift  (default: standard)
 #   N_ITERATIONS    max gradient descent iterations (default: 1000)
 #
 # Note: encoding models are always fitted jointly across all of a subject's

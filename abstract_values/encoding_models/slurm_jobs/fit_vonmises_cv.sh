@@ -24,6 +24,7 @@ fi
 
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
+SESSION_SHIFT="${SESSION_SHIFT:-0}"
 N_BASIS="${N_BASIS:-8}"
 KAPPA="${KAPPA:-2.0}"
 
@@ -39,6 +40,7 @@ ARGS=(
 )
 
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$SESSION_SHIFT" = "1" ] && ARGS+=(--session-shift)
 
 echo "fit_vonmises_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}  n_basis=${N_BASIS}  kappa=${KAPPA}"
 echo "Args: ${ARGS[*]}"

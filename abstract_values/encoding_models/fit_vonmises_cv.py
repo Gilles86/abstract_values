@@ -71,7 +71,7 @@ def make_basis_parameters(n_basis, kappa):
 
 def main(subject, n_basis=8, kappa=2.0, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False):
+         smoothed=False, session_shift=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
@@ -108,7 +108,8 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
 
     # ── output directory ──────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
-    out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises.cv'
+    out_subdir = 'vonmises-shift.cv' if session_shift else 'vonmises.cv'
+    out_dir = (bids_folder / 'derivatives' / 'encoding_models' / out_subdir
                / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -138,13 +139,38 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
         test_paradigm  = paradigm.loc[test_mask].reset_index(drop=True)[['x']]
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
-        # Fit weights on training runs
-        weights = WeightFitter(model, basis_pars, train_data, train_paradigm).fit()
-
-        # Predict on test run
-        basis_pred = model.basis_predictions(test_paradigm, basis_pars)
-        test_pred  = pd.DataFrame(basis_pred @ weights.values,
-                                  index=test_data.index, columns=test_data.columns)
+        if session_shift:
+            # Fit per-session basis weights on training runs, then predict
+            # the test fold with the weights of *its* session. This is
+            # the V1 analogue of aprf-session-shift's per-session mode.
+            train_sessions = (paradigm.loc[train_mask]
+                               .index.get_level_values('session'))
+            weights_by_ses = {}
+            for ses in sorted(set(train_sessions)):
+                ses_mask = (train_sessions == ses)
+                weights_by_ses[ses] = WeightFitter(
+                    model, basis_pars,
+                    train_data.iloc[ses_mask].reset_index(drop=True),
+                    train_paradigm.iloc[ses_mask].reset_index(drop=True),
+                ).fit()
+            # Predict the test fold with that session's weights. If the
+            # test session wasn't in the training set (impossible under
+            # leave-one-run-out with ≥2 runs/session, but guard anyway),
+            # fall back to whichever session's weights are available.
+            wts = weights_by_ses.get(test_session,
+                                       next(iter(weights_by_ses.values())))
+            basis_pred = model.basis_predictions(test_paradigm, basis_pars)
+            test_pred  = pd.DataFrame(basis_pred @ wts.values,
+                                       index=test_data.index,
+                                       columns=test_data.columns)
+        else:
+            # Joint fit (legacy): one set of weights for all training trials.
+            weights = WeightFitter(model, basis_pars, train_data,
+                                    train_paradigm).fit()
+            basis_pred = model.basis_predictions(test_paradigm, basis_pars)
+            test_pred  = pd.DataFrame(basis_pred @ weights.values,
+                                       index=test_data.index,
+                                       columns=test_data.columns)
         cv_r2 = get_rsq(test_data, test_pred)
         print(f'    mean CV R² = {float(cv_r2.mean()):.4f}')
 
@@ -171,8 +197,12 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--session-shift', action='store_true',
+                        help="Per-session basis weights (output: "
+                             "vonmises-shift.cv)")
     args = parser.parse_args()
 
     main(args.subject, n_basis=args.n_basis,
          kappa=args.kappa, mask=args.mask, bids_folder=args.bids_folder,
-         fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed)
+         fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
+         session_shift=args.session_shift)

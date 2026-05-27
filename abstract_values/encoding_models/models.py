@@ -133,6 +133,72 @@ class GaussianValuePRF(GaussianPRF):
         return norm(x, mode, sigma) * amplitude + baseline
 
 
+class FullyShiftedLogGaussianPRF(GaussianPRF):
+    """LogGaussianPRF where ALL parameters shift freely between sessions.
+
+    The maximally-flexible nested model for the no-shift / mode-shift /
+    fully-shifted cvR² comparison: if cvR² for this model isn't higher
+    than for :class:`SessionShiftedLogGaussianPRF`, then only the mode
+    actually remaps between conditions — the clean theoretical story
+    for the abstract-values paper.
+
+    Parameters (per voxel)
+    ----------------------
+    mode_1, mode_2          : per-session log-Gaussian modes (CHF)
+    fwhm_1, fwhm_2          : per-session FWHMs in natural CHF space
+    amplitude_1, amplitude_2: per-session peak response amplitudes
+    baseline_1, baseline_2  : per-session additive offsets
+    """
+
+    parameter_labels = [
+        'mode_1', 'mode_2', 'fwhm_1', 'fwhm_2',
+        'amplitude_1', 'amplitude_2', 'baseline_1', 'baseline_2',
+    ]
+
+    def __init__(self, allow_neg_amplitudes=True, **kwargs):
+        if allow_neg_amplitudes:
+            self.transformations = [
+                'softplus', 'softplus', 'softplus', 'softplus',
+                'identity', 'identity', 'identity', 'identity',
+            ]
+        else:
+            self.transformations = [
+                'softplus', 'softplus', 'softplus', 'softplus',
+                'softplus', 'softplus', 'identity', 'identity',
+            ]
+
+        self._basis_predictions_without_amplitude = self._session_predict
+        self._basis_predictions_with_amplitude    = self._session_predict
+
+        GaussianPRF.__init__(self, allow_neg_amplitudes=allow_neg_amplitudes,
+                             model_stimulus_amplitude=True, **kwargs)
+
+    def _session_predict(self, paradigm, parameters):
+        x       = paradigm[..., None, 0]
+        session = paradigm[..., None, 1]
+
+        tf.debugging.assert_equal(
+            tf.reduce_all((session == 0.0) | (session == 1.0)), True,
+            message='Session column must contain only 0 and 1')
+
+        mode_1    = parameters[:, None, :, 0]
+        mode_2    = parameters[:, None, :, 1]
+        fwhm_1    = parameters[:, None, :, 2]
+        fwhm_2    = parameters[:, None, :, 3]
+        amp_1     = parameters[:, None, :, 4]
+        amp_2     = parameters[:, None, :, 5]
+        base_1    = parameters[:, None, :, 6]
+        base_2    = parameters[:, None, :, 7]
+
+        is_ses1 = session < 0.5
+        mode      = tf.where(is_ses1, mode_1, mode_2)
+        fwhm      = tf.where(is_ses1, fwhm_1, fwhm_2)
+        amplitude = tf.where(is_ses1, amp_1,  amp_2)
+        baseline  = tf.where(is_ses1, base_1, base_2)
+
+        return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
+
+
 class SessionShiftedGaussianValuePRF(GaussianPRF):
     """Symmetric Gaussian pRF where the mode shifts freely between sessions.
 
