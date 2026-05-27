@@ -73,11 +73,18 @@ def _v1_tsv_path(subject, session, sel_tag, smoothed, nsims=1000):
               f"{smooth}_desc-expected_decoded_orientation_pe.tsv")
 
 
-def _npcr_tsv_path(subject, session, sel_tag, smoothed, nsims=1000):
+def _npcr_tsv_path(subject, session, sel_tag, smoothed, nsims=1000, noise=""):
+    """`noise=""` → default (residual-covariance) noise model;
+    `noise="spherical"` → isotropic-Gaussian noise model. The spherical
+    variant is what falls out if you ignore voxel correlations during
+    decoding; comparing the two answers 'how much of the NPCr posterior
+    width comes from off-diagonal residual structure?'.
+    """
     smooth = "_smoothed" if smoothed else ""
+    noise_tag = f"_noise-{noise}" if noise else ""
     return (DERIV / "aprf-session-shift" / f"sub-{subject}" / f"ses-{session}" / "func"
             / f"sub-{subject}_ses-{session}_task-abstractvalue"
-              f"_mask-NPCr_{sel_tag}_nsims-{nsims}{smooth}_desc-expected_decoded_pe.tsv")
+              f"_mask-NPCr_{sel_tag}_nsims-{nsims}{noise_tag}{smooth}_desc-expected_decoded_pe.tsv")
 
 
 def discover_subjects():
@@ -138,12 +145,12 @@ def _orientation_lookup(subjects):
     return out
 
 
-def load_npcr(subjects, sel_tag, smoothed, lookup, nsims=1000):
+def load_npcr(subjects, sel_tag, smoothed, lookup, nsims=1000, noise=""):
     rows = []
     for s in subjects:
         sub = Subject(s, bids_folder=Path(BIDS_FOLDER))
         for ses in (1, 2):
-            p = _npcr_tsv_path(s, ses, sel_tag, smoothed, nsims=nsims)
+            p = _npcr_tsv_path(s, ses, sel_tag, smoothed, nsims=nsims, noise=noise)
             if not p.exists():
                 continue
             df = pd.read_csv(p, sep="\t")
@@ -192,9 +199,15 @@ def _interp_group(df, ori_grid):
 
 def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     df_v1 = load_v1(subjects, sel_tag, smoothed)
-    df_n = load_npcr(subjects, sel_tag, smoothed, lookup)
+    # NPCr: load both noise variants. Default ("") = residual covariance
+    # from the Student-t fit on training residuals; spherical = iid
+    # Gaussian noise (ignoring off-diagonal voxel correlations). Plotting
+    # them overlaid shows how much of the decoded SD comes from the
+    # correlation structure.
+    df_n_def = load_npcr(subjects, sel_tag, smoothed, lookup, noise="")
+    df_n_sph = load_npcr(subjects, sel_tag, smoothed, lookup, noise="spherical")
 
-    if df_v1.empty and df_n.empty:
+    if df_v1.empty and df_n_def.empty and df_n_sph.empty:
         return
 
     # Plot only over the orientations the subjects actually saw
@@ -224,19 +237,29 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     ax.set_title("V1 (vonmises)  —  decoded ORIENTATION", fontsize=9, color="0.2")
     ax.legend(loc="upper right", fontsize=7.5)
 
-    # NPCr panel
+    # NPCr panel — default-noise (solid) + spherical-noise (dashed) overlay
     ax = axes[1]
-    for cond, sub_df in df_n.groupby("condition"):
-        mean_sd, sem_sd, n = _interp_group(sub_df, ori_grid)
-        ax.plot(ori_grid, mean_sd, color=COND_COLOUR[cond], lw=1.8,
-                label=f"{cond}  (n={n})")
-        ax.fill_between(ori_grid, mean_sd - sem_sd, mean_sd + sem_sd,
-                        color=COND_COLOUR[cond], alpha=0.22, linewidth=0)
+    has_spherical = not df_n_sph.empty
+    for noise_label, df_noise, ls, alpha_band in (
+            ("default",   df_n_def, "-",  0.22),
+            ("spherical", df_n_sph, "--", 0.12)):
+        if df_noise.empty:
+            continue
+        for cond, sub_df in df_noise.groupby("condition"):
+            mean_sd, sem_sd, n = _interp_group(sub_df, ori_grid)
+            ax.plot(ori_grid, mean_sd, color=COND_COLOUR[cond], lw=1.6,
+                    linestyle=ls,
+                    label=f"{cond}  {noise_label}  (n={n})")
+            ax.fill_between(ori_grid, mean_sd - sem_sd, mean_sd + sem_sd,
+                            color=COND_COLOUR[cond], alpha=alpha_band,
+                            linewidth=0)
     ax.set_xlabel("Corresponding orientation (deg)")
     ax.set_ylabel(r"NPCr decoder SD  $\sqrt{\mathrm{Var}[\hat{V}]}$  (CHF)")
-    ax.set_title("NPCr (aprf, value)  —  projected via CHF→orientation",
-                 fontsize=9, color="0.2")
-    ax.legend(loc="upper right", fontsize=7.5)
+    subt = ("NPCr (aprf, value)  —  default (solid) vs spherical (dashed) noise"
+            if has_spherical
+            else "NPCr (aprf, value)  —  projected via CHF→orientation")
+    ax.set_title(subt, fontsize=9, color="0.2")
+    ax.legend(loc="upper right", fontsize=7)
 
     for ax in axes:
         ax.set_xlim(TRAINED_MIN, TRAINED_MAX)
@@ -244,7 +267,7 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     sns.despine(fig=fig, offset=5, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
-    return df_v1, df_n
+    return df_v1, df_n_def, df_n_sph
 
 
 def page_behavior_overlay(pdf):
