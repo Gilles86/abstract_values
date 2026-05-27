@@ -344,15 +344,30 @@ def page(subjects, sel_tag, smoothed, noise, lookup, pdf):
         df_v1_real["posterior_sd_deg"] = np.rad2deg(df_v1_real["posterior_sd"])
         df_v1_real["bias_deg"]         = (df_v1_real["decoded_deg"]
                                             - df_v1_real["orientation_deg"])
+        # Mapping-specific bias = raw bias minus the across-condition mean
+        # per orientation. Removes the shared regression-toward-prior-median
+        # bias (which is identical between conditions because they share a
+        # prior median) and keeps only the condition-specific divergence.
+        df_v1_real["bias_demeaned_deg"] = (
+            df_v1_real["bias_deg"]
+            - df_v1_real.groupby("orientation_deg")["bias_deg"]
+                          .transform("mean"))
     if not df_npcr_real.empty:
         df_npcr_real["decoded_chf"] = df_npcr_real["decoded_value"]
         df_npcr_real["bias_chf"]    = (df_npcr_real["decoded_value"]
                                          - df_npcr_real["true_stim"])
+        df_npcr_real["bias_demeaned_chf"] = (
+            df_npcr_real["bias_chf"]
+            - df_npcr_real.groupby("orientation_deg")["bias_chf"]
+                            .transform("mean"))
 
     # Behavioral bid bias per (condition, orientation): mean(bid − true_CHF).
-    # Shared regression-to-mean cancels in the within-orientation CDF−InvCDF
-    # difference; we show both raw + difference on the NPCr bias panel.
     df_behavior_bias = _load_behavior_bias()
+    if not df_behavior_bias.empty:
+        df_behavior_bias["bias_demeaned_chf"] = (
+            df_behavior_bias["bias_chf"]
+            - df_behavior_bias.groupby("orientation_deg")["bias_chf"]
+                                 .transform("mean"))
 
     # Use simulated data only for the SD panels; empirical for the mean.
     df_v1   = df_v1_sim if df_v1_sim is not None else pd.DataFrame()
@@ -509,84 +524,74 @@ def page(subjects, sel_tag, smoothed, noise, lookup, pdf):
     ax.set_ylabel("NPCr expected SD (CHF)")
     _panel_letter(ax, "D")
 
-    # ═══ E — V1 bias (decoded − true): condition-invariant, near zero ══
+    # ═══ E — V1 mapping-specific bias (cross-condition mean subtracted) ═
+    # By construction the two condition curves are mirror images about
+    # zero (subtracting the within-orientation mean of both conditions
+    # leaves equal-and-opposite residuals). The amplitude is what matters:
+    # zero amplitude means V1 has no condition-specific bias.
     ax = axes[0, 2]
     ax.axhline(0, color="0.6", lw=0.7, zorder=0)
     bias_iter = (df_v1_real.groupby("condition")
                   if (not df_v1_real.empty
                       and "condition" in df_v1_real.columns)
                   else iter([]))
-    bias_per_cond_v1 = {}
+    v1_bias_max = 0.0
     for cond, sub in bias_iter:
-        mean, sem, n = _aggregate(sub, "orientation_deg", "bias_deg",
-                                    ori_grid)
+        mean, sem, n = _aggregate(sub, "orientation_deg",
+                                    "bias_demeaned_deg", ori_grid)
         if mean is None: continue
         _draw_line_with_band(ax, ori_grid, mean, sem,
                               COND_COLOUR[cond], "_nolegend_", lw=1.5)
-        bias_per_cond_v1[cond] = mean
-        dy = 1.5 if cond == "cdf" else -1.5
+        amp = float(np.nanmax(np.abs(mean)))
+        v1_bias_max = max(v1_bias_max, amp + float(np.nanmax(sem)))
+        dy = amp * 0.18 if cond == "cdf" else -amp * 0.18
         _label_endpoint(ax, ori_grid, mean, COND_COLOUR[cond],
                           "CDF" if cond == "cdf" else "InvCDF", dy=dy)
-    # CDF − InvCDF difference: kills the shared regression-to-mean component
-    if {"cdf", "inverse_cdf"} <= set(bias_per_cond_v1):
-        diff = bias_per_cond_v1["cdf"] - bias_per_cond_v1["inverse_cdf"]
-        ax.plot(ori_grid, diff, color="0.35", lw=1.0, ls=":",
-                label="_nolegend_")
-        ax.text(ori_grid[-1] + 2, diff[-1], "Δ", color="0.35",
-                fontsize=8, ha="left", va="center", fontweight="bold")
     _common_x(ax)
-    ax.set_ylabel("V1 bias (deg)")
+    if v1_bias_max > 0:
+        ax.set_ylim(-v1_bias_max * 1.20, v1_bias_max * 1.20)
+    ax.set_ylabel("V1 mapping-specific bias (deg)")
     _panel_letter(ax, "E")
 
-    # ═══ F — NPCr bias + behavioral bid bias overlay ════════════════════
+    # ═══ F — NPCr mapping-specific bias + behavioral overlay ═══════════
+    # Same demeaning as panel E. Behavioral BDM bid bias gets the same
+    # treatment (subtract within-orientation mean across conditions) so
+    # the comparison is apples-to-apples — both 'how much does this
+    # readout deviate from the prior-driven baseline in a way that
+    # depends on which mapping is active'.
     ax = axes[1, 2]
     ax.axhline(0, color="0.6", lw=0.7, zorder=0)
     bias_iter = (df_npcr_real.groupby("condition")
                   if (not df_npcr_real.empty
                       and "condition" in df_npcr_real.columns)
                   else iter([]))
-    bias_per_cond_npcr = {}
+    npcr_bias_max = 0.0
     for cond, sub in bias_iter:
-        mean, sem, n = _aggregate(sub, "orientation_deg", "bias_chf",
-                                    ori_grid)
+        mean, sem, n = _aggregate(sub, "orientation_deg",
+                                    "bias_demeaned_chf", ori_grid)
         if mean is None: continue
         _draw_line_with_band(ax, ori_grid, mean, sem,
                               COND_COLOUR[cond], "_nolegend_", lw=1.5)
-        bias_per_cond_npcr[cond] = mean
-        dy = 2 if cond == "cdf" else -2
+        amp = float(np.nanmax(np.abs(mean)))
+        npcr_bias_max = max(npcr_bias_max, amp + float(np.nanmax(sem)))
+        dy = amp * 0.18 if cond == "cdf" else -amp * 0.18
         _label_endpoint(ax, ori_grid, mean, COND_COLOUR[cond],
                           "CDF" if cond == "cdf" else "InvCDF", dy=dy)
-    # CDF − InvCDF difference (regression-to-mean cancels)
-    if {"cdf", "inverse_cdf"} <= set(bias_per_cond_npcr):
-        diff = (bias_per_cond_npcr["cdf"]
-                 - bias_per_cond_npcr["inverse_cdf"])
-        ax.plot(ori_grid, diff, color="0.35", lw=1.0, ls=":",
-                label="_nolegend_")
-        ax.text(ori_grid[-1] + 2, diff[-1], "Δ", color="0.35",
-                fontsize=8, ha="left", va="center", fontweight="bold")
-    # Behavioral bid bias overlay — same units (CHF), lighter linestyle so
-    # it reads as 'reference behavioral pattern', not 'another decoder'.
     if not df_behavior_bias.empty:
         for cond, sub in df_behavior_bias.groupby("condition"):
-            mean, sem, n = _aggregate(sub, "orientation_deg", "bias_chf",
-                                        ori_grid)
+            mean, sem, n = _aggregate(sub, "orientation_deg",
+                                        "bias_demeaned_chf", ori_grid)
             if mean is None: continue
             ax.plot(ori_grid, mean, color=COND_COLOUR[cond], lw=1.2,
-                    ls="--", alpha=0.7, label="_nolegend_")
-        # Annotate one of the dashed behavioral curves once
-        any_cond = next(iter(df_behavior_bias.groupby("condition")), None)
-        if any_cond is not None:
-            cond, sub = any_cond
-            mean, _, _ = _aggregate(sub, "orientation_deg", "bias_chf",
-                                      ori_grid)
-            if mean is not None:
-                mid = len(ori_grid) // 4
-                ax.text(ori_grid[mid], float(mean[mid]) + 1,
-                        "Behaviour (BDM bid bias)",
-                        fontsize=7, color="0.35", ha="left", va="bottom",
-                        style="italic")
+                    ls="--", alpha=0.75, label="_nolegend_")
+        # Single label naming the dashed lines.
+        ax.text(0.02, 0.97, "Dashed: behavioural BDM bid bias",
+                transform=ax.transAxes, fontsize=7, color="0.35",
+                ha="left", va="top", style="italic")
     _common_x(ax)
-    ax.set_ylabel("NPCr bias (CHF)")
+    if npcr_bias_max > 0:
+        ax.set_ylim(-npcr_bias_max * 1.20, npcr_bias_max * 1.20)
+    ax.set_ylabel("NPCr mapping-specific bias (CHF)")
     _panel_letter(ax, "F")
 
     # Trim spines — keep custom x-limit (with label-room) by not asking
