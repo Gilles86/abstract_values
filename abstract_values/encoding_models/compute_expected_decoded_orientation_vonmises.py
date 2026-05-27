@@ -210,7 +210,8 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          match_trained=True,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False, spherical_noise=True):
+         smoothed=False, spherical_noise=True,
+         session_shift_weights=False):
     """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
     vonmises whole-brain R² mixture instead of top-N by joint R²."""
     assert not (fdr_alpha is not None and p_signal_thr is not None), \
@@ -302,6 +303,33 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
 
     weights_sel = weights[sel]
 
+    # Optional: load per-session basis weights from vonmises-session-shift/
+    # for the per-session simulation. Voxel selection still uses the joint
+    # R² above (consistent voxel set across conditions); only the weights
+    # used inside the per-session loop change.
+    per_session_weights = None
+    if session_shift_weights:
+        import nibabel as nib
+        ss_dir = (bids_folder / "derivatives" / "encoding_models"
+                  / "vonmises-session-shift" / f"sub-{subject}" / "func")
+        per_session_weights = {}
+        for ses_idx, ses in enumerate(sessions):
+            # weights_{idx+1} is a 4D image (n_basis volumes), per voxel.
+            wfn = (ss_dir
+                   / f"sub-{subject}_task-abstractvalue"
+                     f"_space-T1w_desc-weights_{ses_idx + 1}{smooth_label}_pe.nii.gz")
+            if not wfn.exists():
+                raise FileNotFoundError(
+                    f"--session-shift-weights requested but missing: {wfn}")
+            w_img = nib.load(str(wfn))
+            # Apply same masker → (n_voxels, n_basis); the file has n_basis
+            # volumes so masker.transform returns (n_basis, n_voxels).
+            w_mat = masker.transform(w_img).astype(np.float32)
+            w_df = pd.DataFrame(w_mat, columns=data.columns)
+            per_session_weights[ses] = w_df[sel]
+            print(f"  loaded session-shift weights for ses-{ses}: "
+                  f"{w_df.shape} → {per_session_weights[ses].shape} (post-mask)")
+
     # Simulation grid = the actually-presented orientations (23 in [7.5°,
     # 172.5°] step 7.5°). Matches Brouwer–Heeger / Jehee convention: don't
     # ask the decoder to recover stimuli that were never in the encoder's
@@ -333,10 +361,17 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
         ses_data = pd.DataFrame(masker.transform(ses_betas).astype(np.float32))
         ses_data_sel = ses_data[sel]
 
+        # Use session-specific weights when the session-shift fit was
+        # requested; otherwise fall back to the joint weights.
+        ses_weights = (per_session_weights[ses_i]
+                        if per_session_weights is not None else weights_sel)
+        if per_session_weights is not None:
+            print(f"  using session-shift weights for ses-{ses_i}")
+
         print(f"  fitting noise model ({n_noise_iterations} iter)…")
         residfit = ResidualFitter(model, ses_data_sel, ses_paradigm,
                                    parameters=basis_pars,
-                                   weights=weights_sel)
+                                   weights=ses_weights)
         omega, dof = residfit.fit(init_sigma2=1e-2, init_dof=10.0,
                                    learning_rate=0.05,
                                    max_n_iterations=n_noise_iterations,
@@ -347,13 +382,17 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
         print(f"  simulating {n_simulations} repeats × {len(stim_grid)} "
               f"orientations ({n_simulations * len(stim_grid)} trials)…")
         true_arr, decoded_arr = simulate_decode_session(
-            model, basis_pars, weights_sel, omega, dof,
+            model, basis_pars, ses_weights, omega, dof,
             stim_grid, n_simulations, batch_stimuli=batch_stimuli)
 
         agg = aggregate_per_stimulus(true_arr, decoded_arr, stim_grid)
 
+        # Outputs from session-shift weights land in a sibling dir to keep
+        # them distinct from the joint-fit EU outputs.
+        out_subdir = ("vonmises-session-shift" if per_session_weights is not None
+                       else "vonmises")
         out_dir = (bids_folder / "derivatives" / "encoding_models"
-                   / "vonmises" / f"sub-{subject}"
+                   / out_subdir / f"sub-{subject}"
                    / f"ses-{ses_i}" / "func")
         out_dir.mkdir(parents=True, exist_ok=True)
         noise_tag = "_noise-spherical" if spherical_noise else ""
@@ -409,6 +448,13 @@ if __name__ == "__main__":
                           action="store_false",
                           help="Fit full residual covariance instead of "
                                "spherical. Output: no _noise-* tag.")
+    parser.add_argument("--session-shift-weights", action="store_true",
+                        help="Load per-session basis weights from "
+                             "vonmises-session-shift/ instead of fitting "
+                             "joint weights. Lets V1 voxels remap between "
+                             "sessions — the fair-comparison setup for "
+                             "the V1/NPCr mapping figure. Output goes to "
+                             "vonmises-session-shift/.")
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, roi=args.roi, hemi=args.hemi,
@@ -421,4 +467,5 @@ if __name__ == "__main__":
          fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
          match_trained=not args.full_grid,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed, spherical_noise=args.spherical_noise)
+         smoothed=args.smoothed, spherical_noise=args.spherical_noise,
+         session_shift_weights=args.session_shift_weights)

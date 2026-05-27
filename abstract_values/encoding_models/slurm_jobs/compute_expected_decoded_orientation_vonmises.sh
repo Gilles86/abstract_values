@@ -37,6 +37,7 @@ BATCH_STIMULI="${BATCH_STIMULI:-25}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-1}"  # default: iid Gaussian (see Python script)
 FULL_GRID="${FULL_GRID:-0}"
+SESSION_SHIFT_WEIGHTS="${SESSION_SHIFT_WEIGHTS:-0}"
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
@@ -61,6 +62,7 @@ ARGS=(
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
 [ "$FULL_GRID" = "1" ] && ARGS+=(--full-grid)
+[ "$SESSION_SHIFT_WEIGHTS" = "1" ] && ARGS+=(--session-shift-weights)
 
 echo "compute_eu_vonmises: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  full_grid=${FULL_GRID}"
 echo "Args: ${ARGS[*]}"
