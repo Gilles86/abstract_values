@@ -596,8 +596,11 @@ def main():
     p.add_argument("--subjects", nargs="+")
     p.add_argument("--r2-thr", type=float, default=0.05,
                    help="Voxel selection threshold on session-shift R²")
-    p.add_argument("--value-min", type=float, default=0.5)
-    p.add_argument("--value-max", type=float, default=20.0)
+    # CHF range presented in the experiment: CDF 5.5–38.5, InvCDF 2.5–41.5.
+    # Defaults cover the full union with a little headroom for the kernel
+    # extrapolation at the edges of the hexbin / scatter views.
+    p.add_argument("--value-min", type=float, default=0.0)
+    p.add_argument("--value-max", type=float, default=45.0)
     p.add_argument("--variants", nargs="+",
                    default=["unsmoothed", "smoothed"],
                    choices=["unsmoothed", "smoothed"],
