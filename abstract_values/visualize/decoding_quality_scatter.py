@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.stats import pearsonr
+from pingouin import circ_r
 
 from abstract_values.utils.data import BIDS_FOLDER
 
@@ -113,22 +114,29 @@ def _load(quantity, subject, true_col, roi, nvoxels, smoothed):
     return true[ok], dec[ok]
 
 
-def _circular_corr(a_rad, b_rad):
-    """Jammalamadaka–Sarma circular-circular correlation on a π-periodic
-    axis (doubled-angle). Returns r in [-1, 1]."""
-    a, b = 2.0 * np.asarray(a_rad), 2.0 * np.asarray(b_rad)
-    a0 = np.arctan2(np.sin(a).mean(), np.cos(a).mean())
-    b0 = np.arctan2(np.sin(b).mean(), np.cos(b).mean())
-    sa, sb = np.sin(a - a0), np.sin(b - b0)
-    denom = np.sqrt((sa**2).sum() * (sb**2).sum())
-    return float((sa * sb).sum() / denom) if denom > 0 else np.nan
+def _circular_fidelity(true_rad, dec_rad):
+    """Orientation decoding fidelity: resultant length of the (doubled,
+    π-periodic) decoding error, in [0, 1]. 1 = perfect, 0 = chance.
+
+    This is NOT a circular-circular correlation (Jammalamadaka–Sarma /
+    pingouin ``circ_corrcc``): that measures whether deviations from the
+    circular mean co-rotate, so an axially-*correct* decode that straddles
+    the 0/180° boundary (true just above 0°, decoded just below 180° ≡ 0°)
+    contributes a negative sine product and drags the coefficient
+    spuriously negative (this is why sub-10's V1 read r_circ=-0.18 despite
+    a 16° median error). The error resultant has no such pathology and is
+    on the same [0,1] fidelity scale as the value-decoding Pearson r, so the
+    panels are directly comparable. ``circ_r`` needs angles in [-π, π],
+    hence the ``np.angle(exp(·))`` wrap of the doubled error."""
+    err2 = np.angle(np.exp(2j * (np.asarray(dec_rad) - np.asarray(true_rad))))
+    return float(circ_r(err2))
 
 
 def _panel(ax, true, dec, label, circular, colour):
     if circular:
+        r = _circular_fidelity(true, dec)             # [0,1] fidelity (true/dec in rad)
         true, dec = np.rad2deg(true), np.rad2deg(dec)
-        r = _circular_corr(np.deg2rad(true), np.deg2rad(dec))
-        rtxt = f"$r_{{circ}}$ = {r:.2f}"
+        rtxt = rf"$\rho$ = {r:.2f}"
         lim = (0, 180); ticks = [0, 45, 90, 135, 180]
     else:
         r, _ = pearsonr(true, dec)
