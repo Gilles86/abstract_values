@@ -35,7 +35,7 @@ N_SIMULATIONS="${N_SIMULATIONS:-1000}"
 N_ORIENTATIONS="${N_ORIENTATIONS:-180}"
 BATCH_STIMULI="${BATCH_STIMULI:-25}"
 SMOOTHED="${SMOOTHED:-0}"
-SPHERICAL="${SPHERICAL:-0}"
+SPHERICAL="${SPHERICAL:-1}"  # default: iid Gaussian (see Python script)
 FULL_GRID="${FULL_GRID:-0}"
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
@@ -59,7 +59,7 @@ ARGS=(
 [ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
 [ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
-[ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise)
+[ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
 [ "$FULL_GRID" = "1" ] && ARGS+=(--full-grid)
 
 echo "compute_eu_vonmises: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  full_grid=${FULL_GRID}"

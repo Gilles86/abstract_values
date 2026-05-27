@@ -75,7 +75,7 @@ FI_ROIS_APRF     = config["fi_rois_aprf"]
 EU_ROIS  = [{"desc": r, "hemi": "None"}
             for r in config.get("expected_decoded_rois", ["NPCr"])]
 EU_NV    = config.get("expected_decoded_nv",    ["100", "fdr05"])
-EU_NOISE = config.get("expected_decoded_noise", ["default", "spherical"])
+EU_NOISE = config.get("expected_decoded_noise", ["spherical", "residual"])
 BIDS             = config["bids_folder"]
 REPO             = config["repo_root"]
 ENV              = config["conda_env"]
@@ -92,7 +92,7 @@ wildcard_constraints:
     # whole-brain R²-mixture voxel-selection criteria.
     nv      = r"(\d+|fdr\d+|psig\d+)",
     lam     = r"[0-9.]+",
-    noise   = r"(default|spherical)",
+    noise   = r"(spherical|residual)",
     session = r"(all|\d+)",
     # model_dir: on-disk encoder dir name. Allows `.` and `-` because the
     # CV dirs use the historical `aprf.cv` / `aprf-shift.cv` / `aprf-weighted.cv`
@@ -684,6 +684,7 @@ rule compute_expected_decoded_value_aprf:
         nv_export=lambda wc: (
             f"FDR_ALPHA=0.05 N_VOXELS=0 " if wc.nv == "fdr05"
             else f"N_VOXELS={wc.nv} "),
+        # "spherical" wildcard → SPHERICAL=1, "residual" → SPHERICAL=0.
         sph_flag=lambda wc: "1" if wc.noise == "spherical" else "0",
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "

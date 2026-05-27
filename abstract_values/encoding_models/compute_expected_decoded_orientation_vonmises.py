@@ -210,7 +210,7 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          match_trained=True,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False, spherical_noise=False):
+         smoothed=False, spherical_noise=True):
     """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
     vonmises whole-brain R² mixture instead of top-N by joint R²."""
     assert not (fdr_alpha is not None and p_signal_thr is not None), \
@@ -397,9 +397,18 @@ if __name__ == "__main__":
     parser.add_argument("--fmriprep-deriv", default="fmriprep",
                         choices=["fmriprep", "fmriprep-t2w", "fmriprep-flair"])
     parser.add_argument("--smoothed", action="store_true")
-    parser.add_argument("--spherical-noise", action="store_true",
-                        help="Fit isotropic (spherical) residual covariance "
-                             "instead of full Omega. Output: _noise-spherical.")
+    # Spherical noise is the default — see compute_expected_decoded_value_aprf.py
+    # for the rationale (cleaner per-stimulus SDs, better-conditioned on small
+    # voxel sets).
+    sph_grp = parser.add_mutually_exclusive_group()
+    sph_grp.add_argument("--spherical-noise",    dest="spherical_noise",
+                          action="store_true", default=True,
+                          help="(default) iid Gaussian residual noise. "
+                               "Output: _noise-spherical filename tag.")
+    sph_grp.add_argument("--no-spherical-noise", dest="spherical_noise",
+                          action="store_false",
+                          help="Fit full residual covariance instead of "
+                               "spherical. Output: no _noise-* tag.")
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, roi=args.roi, hemi=args.hemi,

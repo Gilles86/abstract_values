@@ -238,7 +238,7 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     ax = axes[0]
     v1_has_spherical = not df_v1_sph.empty
     for noise_label, df_noise, ls, alpha_band in (
-            ("default",   df_v1_def, "-",  0.22),
+            ("residual",  df_v1_def, "-",  0.22),
             ("spherical", df_v1_sph, "--", 0.12)):
         if df_noise.empty:
             continue
@@ -258,7 +258,7 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
             ax.axvspan(lo, hi, color="0.85", alpha=0.5, zorder=0)
     ax.set_xlabel("Orientation (deg)")
     ax.set_ylabel(r"V1 decoder SD  $\sqrt{\mathrm{Var}[\hat{\theta}]}$  (deg)")
-    v1_subt = ("V1 (vonmises)  —  default (solid) vs spherical (dashed) noise"
+    v1_subt = ("V1 (vonmises)  —  residual (solid) vs spherical (dashed) noise"
                if v1_has_spherical
                else "V1 (vonmises)  —  decoded ORIENTATION")
     ax.set_title(v1_subt, fontsize=9, color="0.2")
@@ -268,7 +268,7 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     ax = axes[1]
     has_spherical = not df_n_sph.empty
     for noise_label, df_noise, ls, alpha_band in (
-            ("default",   df_n_def, "-",  0.22),
+            ("residual",  df_n_def, "-",  0.22),
             ("spherical", df_n_sph, "--", 0.12)):
         if df_noise.empty:
             continue
@@ -283,7 +283,7 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
                             linewidth=0)
     ax.set_xlabel("Corresponding orientation (deg)")
     ax.set_ylabel(r"NPCr decoder SD  $\sqrt{\mathrm{Var}[\hat{V}]}$  (CHF)")
-    subt = ("NPCr (aprf, value)  —  default (solid) vs spherical (dashed) noise"
+    subt = ("NPCr (aprf, value)  —  residual (solid) vs spherical (dashed) noise"
             if has_spherical
             else "NPCr (aprf, value)  —  projected via CHF→orientation")
     ax.set_title(subt, fontsize=9, color="0.2")

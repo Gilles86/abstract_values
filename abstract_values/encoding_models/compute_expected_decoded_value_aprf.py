@@ -132,7 +132,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
          match_trained=True,
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False, spherical_noise=False):
+         smoothed=False, spherical_noise=True):
     """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
     aprf-weighted whole-brain R² mixture instead of the per-subject top-N.
     ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture is
@@ -345,9 +345,19 @@ if __name__ == "__main__":
     parser.add_argument("--fmriprep-deriv", default="fmriprep",
                         choices=["fmriprep", "fmriprep-t2w", "fmriprep-flair"])
     parser.add_argument("--smoothed", action="store_true")
-    parser.add_argument("--spherical-noise", action="store_true",
-                        help="Fit isotropic (spherical) residual covariance "
-                             "instead of full Omega. Output: _noise-spherical.")
+    # Default noise model is spherical (iid Gaussian residuals on the
+    # selected voxels). Empirically gives cleaner per-stimulus SD curves
+    # and avoids ill-conditioned covariance estimates on small voxel
+    # subsets. Pass --no-spherical-noise to go back to full residual Omega.
+    sph_grp = parser.add_mutually_exclusive_group()
+    sph_grp.add_argument("--spherical-noise",    dest="spherical_noise",
+                          action="store_true", default=True,
+                          help="(default) iid Gaussian residual noise. "
+                               "Output: _noise-spherical filename tag.")
+    sph_grp.add_argument("--no-spherical-noise", dest="spherical_noise",
+                          action="store_false",
+                          help="Fit full residual covariance instead of "
+                               "spherical. Output: no _noise-* tag.")
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions,
