@@ -183,25 +183,24 @@ def load_npcr(subjects, sel_tag, smoothed, noise, lookup):
             if rows else pd.DataFrame())
 
 
-def _load_pars_posterior_sd(subjects, folder, mask, true_col,
-                              sel_tag, smoothed, noise_label,
-                              to_orientation_fn=None):
-    """Compute per-trial posterior SD from pars.tsv files and aggregate
-    by (subject, session, condition, true-stimulus bin). 'Decoded
-    uncertainty' as defined in the literature: SD of the posterior
-    P(stim|y) per trial, NOT the SD of point estimates across trials
-    (which is what the EU pipeline's var_E captures).
+def _load_pars_empirical(subjects, folder, mask, true_col,
+                          sel_tag, smoothed, noise_label,
+                          to_orientation_fn=None):
+    """Per-trial posterior **mean** and **SD** from pars.tsv files,
+    aggregated by (subject, session, condition, true_stim bin).
+    Returns one row per cell with columns ``decoded_mean`` and
+    ``posterior_sd``.
 
-    `to_orientation_fn(true_val, condition)` optional: when given,
-    converts the true_value into orientation_deg so V1 and NPCr can
-    share an x-axis.
+    The empirical decoded mean is the per-trial sum p_i · v_i over the
+    posterior, then averaged across trials with the same true stimulus.
+    This is the quantity that actually tests the 'decoder follows the
+    mapping' claim — far more interesting than the model-simulated
+    ``mean_E`` from the EU pipeline, because it's measured on real
+    held-out BOLD trials rather than predicted from the encoding fit.
     """
-    from re import match
     base = DECODING_ROOT / folder
     if not base.exists():
         return pd.DataFrame()
-    # nv may need a different naming token in pars.tsv; the decoding
-    # filename convention uses nvoxels-<token> too.
     nv_tag = sel_tag.replace("nvoxels-", "")
     smooth_seg = "_smoothed" if smoothed else ""
     out_rows = []
@@ -213,17 +212,12 @@ def _load_pars_posterior_sd(subjects, folder, mask, true_col,
             sub_obj = Subject(subj, bids_folder=Path(BIDS_FOLDER))
         except Exception:
             continue
-        # Decoding outputs are not per-session — they pool the full
-        # held-out set. Each row carries its own session column.
-        # `noise-<label>` is part of the filename; allow either explicit
-        # spherical or full.
         glob_pat = (f"sub-{subj}_mask-{mask}_nvoxels-{nv_tag}"
                      f"_noise-{noise_label}{smooth_seg}*_pars.tsv")
         for p in (sub_dir / "func").glob(glob_pat):
             df = pd.read_csv(p, sep="\t")
             if df.empty or true_col not in df.columns:
                 continue
-            # bin centres = numeric column names
             bins = []
             for c in df.columns:
                 try: bins.append(float(c))
@@ -234,24 +228,23 @@ def _load_pars_posterior_sd(subjects, folder, mask, true_col,
             mean = probs @ bins
             second = probs @ (bins ** 2)
             sd = np.sqrt(np.maximum(second - mean ** 2, 0.0))
-            df["posterior_sd"] = sd
-            df["true_stim"]    = df[true_col]
-            # Session → condition lookup
+            df["decoded_value"] = mean
+            df["posterior_sd"]  = sd
+            df["true_stim"]     = df[true_col]
             cond_lookup = {ses: sub_obj.get_mapping(ses)
                            for ses in sub_obj.get_sessions()}
             df["condition"] = df["session"].map(cond_lookup)
             df = df.dropna(subset=["condition"])
             df["subject"] = subj
-            # Aggregate per (subject, session, condition, true_stim bin)
             agg = (df.groupby(
                 ["subject", "session", "condition", "true_stim"])
-                    ["posterior_sd"].mean().reset_index())
+                    [["decoded_value", "posterior_sd"]]
+                    .mean().reset_index())
             if to_orientation_fn is not None:
                 agg["orientation_deg"] = agg.apply(
                     lambda r: to_orientation_fn(r["true_stim"],
                                                   r["condition"]), axis=1)
             else:
-                # V1: true_stim is orientation in radians
                 agg["orientation_deg"] = np.rad2deg(agg["true_stim"])
             out_rows.append(agg)
     if not out_rows:
@@ -286,22 +279,29 @@ def _draw_line_with_band(ax, x, mean, sem, color, label, lw=2.0):
 
 
 def page(subjects, sel_tag, smoothed, noise, lookup, pdf):
-    df_v1   = load_v1(subjects, sel_tag, smoothed, noise)
-    df_npcr = load_npcr(subjects, sel_tag, smoothed, noise, lookup)
-    # Decoded uncertainty (per-trial posterior SD) from real pars.tsv.
-    # Currently only the legacy `noise-full` real-trial decoder exists
-    # cohort-wide; the spherical real-trial batch was submitted but may
-    # still be in flight. Pull whichever variant is most populated.
-    real_noise_label = "spherical"
-    df_v1_real   = _load_pars_posterior_sd(
-        subjects, "gabor", "BensonV1", "true_orientation_rad",
-        sel_tag, smoothed, real_noise_label)
-    if df_v1_real.empty:
-        real_noise_label = "full"
-        df_v1_real = _load_pars_posterior_sd(
-            subjects, "gabor", "BensonV1", "true_orientation_rad",
-            sel_tag, smoothed, real_noise_label)
-    # NPCr: needs CHF→orientation lookup
+    # Simulated curves (from EU TSV — sqrt(var_E)) used for panels B/D
+    # only. The "decoded mean" panels A/C below use **empirical** per-trial
+    # posterior means from real held-out BOLD (pars.tsv), not the
+    # simulator's mean_E. The simulated mean would just retrace the
+    # encoding model and isn't an interesting test of the mapping
+    # invariance / remapping claim.
+    df_v1_sim   = load_v1(subjects, sel_tag, smoothed, noise)
+    df_npcr_sim = load_npcr(subjects, sel_tag, smoothed, noise, lookup)
+
+    # Empirical (real-trial) data. Per ROI, prefer spherical real-trial
+    # decodes when available; fall back to noise-full when the spherical
+    # batch hasn't completed for that selection × ROI cell.
+    def _try_load(folder, mask, true_col, to_ori=None):
+        for label in ("spherical", "full"):
+            df = _load_pars_empirical(
+                subjects, folder, mask, true_col,
+                sel_tag, smoothed, label, to_orientation_fn=to_ori)
+            if not df.empty:
+                return df, label
+        return pd.DataFrame(), "none"
+
+    df_v1_real,   v1_noise   = _try_load(
+        "gabor", "BensonV1", "true_orientation_rad")
     def _npcr_chf_to_ori(chf, condition):
         lut = lookup.get(condition)
         if lut is None or lut.empty:
@@ -309,189 +309,175 @@ def page(subjects, sel_tag, smoothed, noise, lookup, pdf):
         return float(np.interp(chf, lut["value_chf"].values,
                                  lut["orientation_deg"].values,
                                  left=np.nan, right=np.nan))
-    df_npcr_real = _load_pars_posterior_sd(
-        subjects, "value", "NPCr", "true_value_chf",
-        sel_tag, smoothed, real_noise_label,
-        to_orientation_fn=_npcr_chf_to_ori)
-    # SD is in posterior_sd; for V1 convert radians→degrees.
+    df_npcr_real, npcr_noise = _try_load(
+        "value", "NPCr", "true_value_chf", to_ori=_npcr_chf_to_ori)
+    real_noise_label = (f"V1:{v1_noise}, NPCr:{npcr_noise}"
+                         if v1_noise != npcr_noise
+                         else v1_noise)
+    # Convert V1 decoded mean to degrees (TSV has radians).
     if not df_v1_real.empty:
+        df_v1_real["decoded_deg"]      = np.rad2deg(df_v1_real["decoded_value"])
         df_v1_real["posterior_sd_deg"] = np.rad2deg(df_v1_real["posterior_sd"])
+    if not df_npcr_real.empty:
+        df_npcr_real["decoded_chf"] = df_npcr_real["decoded_value"]
 
-    if df_v1.empty and df_npcr.empty:
+    # Use simulated data only for the SD panels; empirical for the mean.
+    df_v1   = df_v1_sim if df_v1_sim is not None else pd.DataFrame()
+    df_npcr = df_npcr_sim if df_npcr_sim is not None else pd.DataFrame()
+    if df_v1.empty and df_npcr.empty and df_v1_real.empty and df_npcr_real.empty:
         return
 
-    # Empirical bias = decoded mean minus true (NPCr in CHF, V1 in degrees).
-    # Subject to central-tendency (regression-to-mean) bias — but plotting
-    # both conditions overlaid makes the condition-specific deviation
-    # readable: the central-tendency component is shared, the divergence
-    # between curves is the mapping-specific piece.
-    if not df_v1.empty:
-        df_v1["bias_deg"] = df_v1["decoded_deg"] - df_v1["orientation_deg"]
-    if not df_npcr.empty:
-        df_npcr["bias_chf"] = df_npcr["decoded_chf"] - df_npcr["true_chf"]
-
     ori_grid = np.linspace(TRAINED_MIN, TRAINED_MAX, 60)
-    fig, axes = plt.subplots(2, 4, figsize=(17.5, 7.5),
+    # 2×2 paper double-column (7.25" wide). Rows = ROI (V1 top, NPCr
+    # bottom); columns = quantity (decoded mean | expected SD). The
+    # narrow figure forces the panel-letter + direct-label discipline
+    # the scientific-figures skill calls for.
+    fig, axes = plt.subplots(2, 2, figsize=(7.25, 6.6),
                               constrained_layout=True)
+    # No suptitle — the figure should stand on the panels alone.
+    # Caption (not rendered) carries n, error metric, model details.
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
-    fig.suptitle(
-        "V1 vs NPCr: physical-stimulus code vs adapted-mapping code\n"
-        f"({sel_tag} · simulated noise={noise} · real-trial noise="
-        f"{real_noise_label} · {smooth_lbl})",
-        fontsize=11, y=1.02, color="0.15")
 
-    def _styled(ax, xlabel, ylabel, title, ylim=None):
-        ax.set_xlim(TRAINED_MIN, TRAINED_MAX)
+    # Direct-label helpers: write the condition name at the right endpoint
+    # of each curve in the curve's own color. Pulls the legend onto the
+    # data and removes the eight separate frame-less legend boxes.
+    def _label_endpoint(ax, x, y, color, text, dx=2.0, dy=0.0, fontsize=8):
+        ax.text(x[-1] + dx, y[-1] + dy, text, color=color, fontsize=fontsize,
+                ha="left", va="center", fontweight="bold")
+
+    def _common_x(ax):
+        ax.set_xlim(TRAINED_MIN, TRAINED_MAX + 25)  # +25 leaves room for endpoint labels
         ax.set_xticks([15, 45, 90, 135, 165])
-        if ylim is not None:
-            ax.set_ylim(*ylim)
-        ax.set_xlabel(xlabel); ax.set_ylabel(ylabel)
-        ax.set_title(title, fontsize=8.5, color="0.2")
+        ax.set_xlabel("Orientation (deg)")
 
-    # ═══ ROW 0: V1 ══════════════════════════════════════════════════════
-    # ─── (0,0) Decoded mean — should sit on identity in BOTH conditions ─
+    def _panel_letter(ax, letter):
+        ax.text(-0.18, 1.05, letter,
+                transform=ax.transAxes, fontsize=12, fontweight="bold",
+                va="bottom", ha="right")
+
+    # ═══ A — V1 decoded orientation: condition-invariant (lies on identity) ═
     ax = axes[0, 0]
     ax.plot([TRAINED_MIN, TRAINED_MAX], [TRAINED_MIN, TRAINED_MAX],
-            color="0.6", ls="--", lw=1.0, label="Identity", zorder=0)
-    for cond, sub in df_v1.groupby("condition"):
+            color="0.55", ls="--", lw=0.9, zorder=0)
+    # Inline label on the identity line — no arrow, rotated 45° to lie on
+    # the line itself. Placed at ~135° to leave room for the right-endpoint
+    # condition labels.
+    ax.text(135, 142, "y = x", color="0.4", fontsize=7.5,
+             rotation=45, rotation_mode="anchor",
+             ha="center", va="bottom")
+    # Empirical decoded orientation from real held-out trials (pars.tsv).
+    cond_lines_v1 = []
+    v1_iter = (df_v1_real.groupby("condition")
+                if (not df_v1_real.empty and "condition" in df_v1_real.columns)
+                else iter([]))
+    for cond, sub in v1_iter:
         mean, sem, n = _aggregate(sub, "orientation_deg", "decoded_deg",
                                     ori_grid)
         if mean is None: continue
         _draw_line_with_band(ax, ori_grid, mean, sem,
-                              COND_COLOUR[cond], f"{cond}  (n={n})")
+                              COND_COLOUR[cond], "_nolegend_")
+        cond_lines_v1.append((cond, ori_grid, mean, n))
+    # Direct labels at right endpoint
+    for cond, x, y, n in cond_lines_v1:
+        # Stagger labels vertically so cdf/invcdf don't overprint
+        dy = 8 if cond == "cdf" else -8
+        _label_endpoint(ax, x, y, COND_COLOUR[cond],
+                          "CDF" if cond == "cdf" else "InvCDF", dy=dy)
+    _common_x(ax)
     ax.set_ylim(TRAINED_MIN, TRAINED_MAX)
     ax.set_yticks([15, 45, 90, 135, 165])
-    ax.set_aspect("equal")
-    _styled(ax, "True orientation (deg)", "V1 decoded θ (deg)",
-            "V1: decoded ORIENTATION (condition-invariant)")
-    ax.legend(loc="lower right", fontsize=7)
+    ax.set_xlim(TRAINED_MIN, TRAINED_MAX + 25)
+    ax.set_ylabel("V1 decoded orientation (deg)")
+    _panel_letter(ax, "A")
 
-    # ─── (0,1) Expected uncertainty (V1) ────────────────────────────────
+    # ═══ B — V1 expected SD: condition-invariant precision ═════════════
     ax = axes[0, 1]
-    sd_max = 0
+    cond_lines_v1_sd = []
     for cond, sub in df_v1.groupby("condition"):
         mean, sem, n = _aggregate(sub, "orientation_deg", "decoded_sd_deg",
                                     ori_grid)
         if mean is None: continue
         _draw_line_with_band(ax, ori_grid, mean, sem,
-                              COND_COLOUR[cond], f"{cond}  (n={n})", lw=1.8)
-        sd_max = max(sd_max, float(np.nanmax(mean + sem)))
-    _styled(ax, "True orientation (deg)", "V1 expected SD (deg)",
-            "V1 expected uncertainty (sim, sqrt(var_E))",
-            ylim=(0, sd_max * 1.15) if sd_max > 0 else None)
-    ax.legend(loc="upper right", fontsize=7)
+                              COND_COLOUR[cond], "_nolegend_", lw=1.6)
+        cond_lines_v1_sd.append((cond, ori_grid, mean, n))
+    sd_v1_max = max((float(np.nanmax(m)) for _, _, m, _ in cond_lines_v1_sd),
+                    default=1.0)
+    for cond, x, y, n in cond_lines_v1_sd:
+        dy = sd_v1_max * 0.06 if cond == "cdf" else -sd_v1_max * 0.06
+        _label_endpoint(ax, x, y, COND_COLOUR[cond],
+                          "CDF" if cond == "cdf" else "InvCDF", dy=dy)
+    _common_x(ax)
+    ax.set_ylim(0, sd_v1_max * 1.20)
+    ax.set_ylabel("V1 expected SD (deg)")
+    _panel_letter(ax, "B")
 
-    # ─── (0,2) Decoded uncertainty (V1, real-trial posterior SD) ───────
-    ax = axes[0, 2]
-    if df_v1_real.empty:
-        ax.text(0.5, 0.5, f"No V1 pars.tsv (noise={real_noise_label})\nfor "
-                "this selection — real-trial spherical batch may still be in flight.",
-                transform=ax.transAxes, ha="center", va="center",
-                fontsize=9, color="0.5"); ax.set_xticks([]); ax.set_yticks([])
-    else:
-        v1_max = 0
-        for cond, sub in df_v1_real.groupby("condition"):
-            mean, sem, n = _aggregate(sub, "orientation_deg",
-                                        "posterior_sd_deg", ori_grid)
-            if mean is None: continue
-            _draw_line_with_band(ax, ori_grid, mean, sem,
-                                  COND_COLOUR[cond], f"{cond}  (n={n})", lw=1.8)
-            v1_max = max(v1_max, float(np.nanmax(mean + sem)))
-        _styled(ax, "True orientation (deg)",
-                "V1 posterior SD per trial (deg)",
-                f"V1 decoded uncertainty (real, noise={real_noise_label})",
-                ylim=(0, v1_max * 1.15) if v1_max > 0 else None)
-        ax.legend(loc="upper right", fontsize=7)
-
-    # ─── (0,3) Empirical bias (V1: decoded - true, per condition) ──────
-    ax = axes[0, 3]
-    ax.axhline(0, color="0.6", lw=0.8, zorder=0)
-    for cond, sub in df_v1.groupby("condition"):
-        mean, sem, n = _aggregate(sub, "orientation_deg", "bias_deg",
-                                    ori_grid)
-        if mean is None: continue
-        _draw_line_with_band(ax, ori_grid, mean, sem,
-                              COND_COLOUR[cond], f"{cond}  (n={n})", lw=1.8)
-    _styled(ax, "True orientation (deg)",
-            "V1 bias (decoded − true)  (deg)",
-            "V1 bias: should be ~0, condition-invariant")
-    ax.legend(loc="upper right", fontsize=7)
-
-    # ═══ ROW 1: NPCr ════════════════════════════════════════════════════
-    # ─── (1,0) Decoded mean — conditions track their mapping ───────────
+    # ═══ C — NPCr decoded value: each condition tracks its own mapping ═
     ax = axes[1, 0]
+    # Theoretical mappings as gray dashed reference (NOT condition-colored
+    # — the empirical lines should carry the condition color; the
+    # references just show what each mapping looks like).
     for cond in ("cdf", "inverse_cdf"):
         lut = lookup.get(cond)
         if lut is None or lut.empty: continue
         ax.plot(lut["orientation_deg"], lut["value_chf"],
-                color=COND_COLOUR[cond], ls="--", lw=1.0, alpha=0.7,
-                label=f"{cond} mapping", zorder=0)
-    for cond, sub in df_npcr.groupby("condition"):
+                color="0.55", ls="--", lw=0.9, zorder=0)
+    # Empirical decoded value from real held-out trials (pars.tsv).
+    cond_lines_npcr = []
+    npcr_iter = (df_npcr_real.groupby("condition")
+                  if (not df_npcr_real.empty
+                      and "condition" in df_npcr_real.columns)
+                  else iter([]))
+    for cond, sub in npcr_iter:
         mean, sem, n = _aggregate(sub, "orientation_deg", "decoded_chf",
                                     ori_grid)
         if mean is None: continue
         _draw_line_with_band(ax, ori_grid, mean, sem,
-                              COND_COLOUR[cond], f"{cond} decoded  (n={n})")
-    _styled(ax, "True orientation (deg)", "NPCr decoded V (CHF)",
-            "NPCr: decoded VALUE follows the active mapping")
-    ax.legend(loc="upper right", fontsize=7)
+                              COND_COLOUR[cond], "_nolegend_")
+        cond_lines_npcr.append((cond, ori_grid, mean, n))
+    # Direct labels at right endpoint
+    for cond, x, y, n in cond_lines_npcr:
+        _label_endpoint(ax, x, y, COND_COLOUR[cond],
+                          "CDF" if cond == "cdf" else "InvCDF")
+    # Inline label on one of the gray dashed mapping curves — no arrow.
+    # The grey dashed style + the matching color of the data line is
+    # enough; the label just names what the gray reference IS.
+    if lookup.get("cdf") is not None and not lookup["cdf"].empty:
+        lut = lookup["cdf"]
+        # Pick a mid-point of the CDF mapping near the LEFT edge so it
+        # doesn't collide with the right-endpoint condition labels.
+        idx = max(1, len(lut) // 6)
+        ax.text(lut["orientation_deg"].iloc[idx],
+                 lut["value_chf"].iloc[idx] - 2.0,
+                 "Theoretical mapping", color="0.4", fontsize=7,
+                 ha="left", va="top", style="italic")
+    _common_x(ax)
+    ax.set_ylabel("NPCr decoded value (CHF)")
+    _panel_letter(ax, "C")
 
-    # ─── (1,1) Expected uncertainty (NPCr) ─────────────────────────────
+    # ═══ D — NPCr expected SD: precision is mapping-adapted ════════════
     ax = axes[1, 1]
-    sd_max = 0
+    cond_lines_npcr_sd = []
     for cond, sub in df_npcr.groupby("condition"):
         mean, sem, n = _aggregate(sub, "orientation_deg", "decoded_sd_chf",
                                     ori_grid)
         if mean is None: continue
         _draw_line_with_band(ax, ori_grid, mean, sem,
-                              COND_COLOUR[cond], f"{cond}  (n={n})", lw=1.8)
-        sd_max = max(sd_max, float(np.nanmax(mean + sem)))
-    _styled(ax, "True orientation (deg)", "NPCr expected SD (CHF)",
-            "NPCr expected uncertainty — mapping-specific (adapted)",
-            ylim=(0, sd_max * 1.15) if sd_max > 0 else None)
-    ax.legend(loc="upper right", fontsize=7)
+                              COND_COLOUR[cond], "_nolegend_", lw=1.6)
+        cond_lines_npcr_sd.append((cond, ori_grid, mean, n))
+    sd_npcr_max = max((float(np.nanmax(m)) for _, _, m, _ in cond_lines_npcr_sd),
+                      default=1.0)
+    for cond, x, y, n in cond_lines_npcr_sd:
+        dy = sd_npcr_max * 0.05 if cond == "cdf" else -sd_npcr_max * 0.05
+        _label_endpoint(ax, x, y, COND_COLOUR[cond],
+                          "CDF" if cond == "cdf" else "InvCDF", dy=dy)
+    _common_x(ax)
+    ax.set_ylim(0, sd_npcr_max * 1.20)
+    ax.set_ylabel("NPCr expected SD (CHF)")
+    _panel_letter(ax, "D")
 
-    # ─── (1,2) Decoded uncertainty (NPCr, real-trial posterior SD) ─────
-    ax = axes[1, 2]
-    if df_npcr_real.empty:
-        ax.text(0.5, 0.5, f"No NPCr pars.tsv (noise={real_noise_label})\nfor "
-                "this selection — real-trial spherical batch may still be in flight.",
-                transform=ax.transAxes, ha="center", va="center",
-                fontsize=9, color="0.5"); ax.set_xticks([]); ax.set_yticks([])
-    else:
-        n_max = 0
-        for cond, sub in df_npcr_real.groupby("condition"):
-            mean, sem, n = _aggregate(sub, "orientation_deg",
-                                        "posterior_sd", ori_grid)
-            if mean is None: continue
-            _draw_line_with_band(ax, ori_grid, mean, sem,
-                                  COND_COLOUR[cond], f"{cond}  (n={n})", lw=1.8)
-            n_max = max(n_max, float(np.nanmax(mean + sem)))
-        _styled(ax, "True orientation (deg)",
-                "NPCr posterior SD per trial (CHF)",
-                f"NPCr decoded uncertainty (real, noise={real_noise_label})",
-                ylim=(0, n_max * 1.15) if n_max > 0 else None)
-        ax.legend(loc="upper right", fontsize=7)
-
-    # ─── (1,3) Empirical bias (NPCr: decoded - true, per condition) ────
-    # The central-tendency component is shared across conditions
-    # (regression to the prior median); the *divergence* between curves
-    # is the mapping-specific bias — the part of the story you cannot
-    # explain with regression-to-mean alone.
-    ax = axes[1, 3]
-    ax.axhline(0, color="0.6", lw=0.8, zorder=0)
-    for cond, sub in df_npcr.groupby("condition"):
-        mean, sem, n = _aggregate(sub, "orientation_deg", "bias_chf",
-                                    ori_grid)
-        if mean is None: continue
-        _draw_line_with_band(ax, ori_grid, mean, sem,
-                              COND_COLOUR[cond], f"{cond}  (n={n})", lw=1.8)
-    _styled(ax, "True orientation (deg)",
-            "NPCr bias (decoded − true)  (CHF)",
-            "NPCr bias: diverges between conditions (mapping-specific)")
-    ax.legend(loc="upper right", fontsize=7)
-
-    sns.despine(fig=fig, offset=5, trim=True)
+    # Trim spines — keep custom x-limit (with label-room) by not asking
+    # for trim, which would chop the extra 25° we added.
+    sns.despine(fig=fig, offset=4)
     pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
