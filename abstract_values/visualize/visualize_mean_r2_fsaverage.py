@@ -154,6 +154,47 @@ def _fdr_threshold_from_mixture(fit: dict, alpha: float,
     return float(1.0 / (1.0 + np.exp(-z_thr)))      # inverse logit → R²
 
 
+def _mixture_is_degenerate(fit: dict,
+                             max_signal_weight: float = 0.85,
+                             min_noise_weight: float = 0.05,
+                             min_logit_separation: float = 0.5,
+                             ) -> tuple[bool, str]:
+    """Detect a 2-component R² mixture that didn't actually find a
+    noise/signal split. Three failure modes seen empirically on
+    abstract_values fsaverage R² maps:
+
+      - **One component dominates** (`signal_weight > 0.85` or
+        equivalently `noise_weight < 0.05`): the GMM collapsed onto a
+        single mode and called it "signal". The "noise" component is
+        fitting either a thin tail of the same distribution or a
+        handful of extreme vertices — the resulting FDR threshold then
+        either falls to ≈0 (everything passes) or jumps to ∞ (nothing
+        passes), depending on which side of the dominant mode the
+        spurious component landed.
+      - **Modes too close to separate** (logit-space separation <0.5,
+        ≈ R² difference of <0.01 around R²=0.03): the components
+        overlap so heavily that the noise tail outweighs the signal
+        tail at every threshold, also collapsing FDR to ≈0.
+
+    Returning `(True, reason)` lets the caller fall back to a
+    percentile or a fixed threshold and surface a clear warning.
+    Thresholds picked from the observed-good fits on this project's
+    maps (noise_weight ~0.8, separation ~1.5 logit units between
+    noise mode R²~0.01 and signal mode R²~0.04)."""
+    if fit['signal_weight'] > max_signal_weight:
+        return True, (f"signal weight {fit['signal_weight']:.2f} "
+                      f"> {max_signal_weight} — mixture lumped almost all "
+                      f"vertices into the signal component")
+    if fit['noise_weight'] < min_noise_weight:
+        return True, (f"noise weight {fit['noise_weight']:.2f} "
+                      f"< {min_noise_weight} — noise component collapsed")
+    sep = fit['signal_mu'] - fit['noise_mu']
+    if sep < min_logit_separation:
+        return True, (f"mode separation {sep:.2f} (logit) "
+                      f"< {min_logit_separation} — components overlap")
+    return False, ""
+
+
 def _fit_r2_mixture_inline(r2: np.ndarray, n_init: int = 8,
                             max_iter: int = 500, seed: int = 0) -> dict | None:
     """Fit a 2-component Gaussian mixture on logit(R²). Returns the same
@@ -292,25 +333,51 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
                 thr_note = f"  FDR α={fdr_alpha:.2f} per-subj ∈ [{spread}]"
             else:                                # group-mean mixture
                 fit = _fit_r2_mixture_inline(mean_r2)
+                # Percentile fallback: top fdr_alpha fraction of vertices.
+                # Tracks the alpha intent (α=0.05 → top 5%) and prevents
+                # the alpha mask from collapsing to "everything" or
+                # "nothing" when the mixture is unreliable. Bounded below
+                # by --r2-thr so it never goes below the explicit floor.
+                pct_thr = float(np.nanpercentile(
+                    mean_r2, 100.0 * (1.0 - fdr_alpha)))
+                pct_thr = max(pct_thr, r2_thr)
                 if fit is None:
                     print(f"  warning: group mixture fit failed "
                           f"(n_vertices={int(np.isfinite(mean_r2).sum())}); "
-                          f"falling back to fixed --r2-thr")
-                    cohort_thr = r2_thr
-                    thr_note = "  (mixture fit failed → r2_thr fallback)"
+                          f"falling back to top-{fdr_alpha*100:.1f}% "
+                          f"percentile (thr={pct_thr:.3f})")
+                    cohort_thr = pct_thr
+                    thr_note = (f"  mixture fit failed → top "
+                                f"{fdr_alpha*100:.1f}% percentile fallback "
+                                f"(thr={cohort_thr:.3f})")
                 else:
-                    cohort_thr = _fdr_threshold_from_mixture(fit, fdr_alpha)
-                    if not np.isfinite(cohort_thr):
-                        print(f"  warning: no R² achieves FDR α={fdr_alpha}; "
-                              f"falling back to fixed --r2-thr")
-                        cohort_thr = r2_thr
-                        thr_note = "  (FDR α unreachable → r2_thr fallback)"
+                    degen, reason = _mixture_is_degenerate(fit)
+                    if degen:
+                        print(f"  warning: group mixture degenerate "
+                              f"({reason}); falling back to top-"
+                              f"{fdr_alpha*100:.1f}% percentile "
+                              f"(thr={pct_thr:.3f})")
+                        cohort_thr = pct_thr
+                        thr_note = (f"  mixture degenerate ({reason}) → "
+                                    f"top {fdr_alpha*100:.1f}% percentile "
+                                    f"(thr={cohort_thr:.3f})")
                     else:
-                        thr_note = (f"  FDR α={fdr_alpha:.2f} on group R² → "
-                                    f"thr={cohort_thr:.3f}  "
-                                    f"(noise μ={1/(1+np.exp(-fit['noise_mu'])):.3f}, "
-                                    f"signal μ={1/(1+np.exp(-fit['signal_mu'])):.3f}, "
-                                    f"w_signal={fit['signal_weight']:.2f})")
+                        cohort_thr = _fdr_threshold_from_mixture(fit, fdr_alpha)
+                        if not np.isfinite(cohort_thr) or cohort_thr <= 0:
+                            print(f"  warning: FDR α={fdr_alpha} unreachable "
+                                  f"(thr={cohort_thr}); falling back to top-"
+                                  f"{fdr_alpha*100:.1f}% percentile "
+                                  f"(thr={pct_thr:.3f})")
+                            cohort_thr = pct_thr
+                            thr_note = (f"  FDR α unreachable → top "
+                                        f"{fdr_alpha*100:.1f}% percentile "
+                                        f"(thr={cohort_thr:.3f})")
+                        else:
+                            thr_note = (f"  FDR α={fdr_alpha:.3f} on group R² → "
+                                        f"thr={cohort_thr:.3f}  "
+                                        f"(noise μ={1/(1+np.exp(-fit['noise_mu'])):.3f}, "
+                                        f"signal μ={1/(1+np.exp(-fit['signal_mu'])):.3f}, "
+                                        f"w_signal={fit['signal_weight']:.2f})")
                 alpha = soft_alpha(mean_r2, cohort_thr, r2_sigma)
 
             # vmax: 99.5th percentile of positive R², but never below the
