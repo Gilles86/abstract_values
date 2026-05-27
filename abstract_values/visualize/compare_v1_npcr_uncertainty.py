@@ -65,12 +65,13 @@ SELECTIONS = ("nvoxels-fdr05", "nvoxels-100")
 SMOOTHINGS = (False, True)
 
 
-def _v1_tsv_path(subject, session, sel_tag, smoothed, nsims=1000):
+def _v1_tsv_path(subject, session, sel_tag, smoothed, nsims=1000, noise=""):
     smooth = "_smoothed" if smoothed else ""
+    noise_tag = f"_noise-{noise}" if noise else ""
     return (DERIV / "vonmises" / f"sub-{subject}" / f"ses-{session}" / "func"
             / f"sub-{subject}_ses-{session}_task-abstractvalue"
               f"_mask-BensonV1_hemi-LR_{sel_tag}_nsims-{nsims}"
-              f"{smooth}_desc-expected_decoded_orientation_pe.tsv")
+              f"{noise_tag}{smooth}_desc-expected_decoded_orientation_pe.tsv")
 
 
 def _npcr_tsv_path(subject, session, sel_tag, smoothed, nsims=1000, noise=""):
@@ -96,12 +97,12 @@ def discover_subjects():
     return sorted(seen, key=lambda s: (0 if s[0].isdigit() else 1, s))
 
 
-def load_v1(subjects, sel_tag, smoothed, nsims=1000):
+def load_v1(subjects, sel_tag, smoothed, nsims=1000, noise=""):
     rows = []
     for s in subjects:
         sub = Subject(s, bids_folder=Path(BIDS_FOLDER))
         for ses in (1, 2):
-            p = _v1_tsv_path(s, ses, sel_tag, smoothed, nsims=nsims)
+            p = _v1_tsv_path(s, ses, sel_tag, smoothed, nsims=nsims, noise=noise)
             if not p.exists():
                 continue
             df = pd.read_csv(p, sep="\t")
@@ -198,25 +199,34 @@ def _interp_group(df, ori_grid):
 
 
 def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
-    df_v1 = load_v1(subjects, sel_tag, smoothed)
-    # NPCr: load both noise variants. Default ("") = residual covariance
-    # from the Student-t fit on training residuals; spherical = iid
-    # Gaussian noise (ignoring off-diagonal voxel correlations). Plotting
-    # them overlaid shows how much of the decoded SD comes from the
-    # correlation structure.
-    df_n_def = load_npcr(subjects, sel_tag, smoothed, lookup, noise="")
-    df_n_sph = load_npcr(subjects, sel_tag, smoothed, lookup, noise="spherical")
+    # Load both noise variants for V1 and NPCr. Default ("") = residual
+    # covariance from the Student-t fit on training residuals; spherical =
+    # iid Gaussian (ignoring off-diagonal voxel correlations). Overlaying
+    # the two shows how much of the decoded SD comes from the correlation
+    # structure.
+    df_v1_def = load_v1(subjects, sel_tag, smoothed, noise="")
+    df_v1_sph = load_v1(subjects, sel_tag, smoothed, noise="spherical")
+    df_n_def  = load_npcr(subjects, sel_tag, smoothed, lookup, noise="")
+    df_n_sph  = load_npcr(subjects, sel_tag, smoothed, lookup, noise="spherical")
 
-    if df_v1.empty and df_n_def.empty and df_n_sph.empty:
+    if all(df.empty for df in (df_v1_def, df_v1_sph, df_n_def, df_n_sph)):
         return
 
-    # Plot only over the orientations the subjects actually saw
-    # (7.5°–172.5°, the per-condition CHF↔orientation mapping is monotone
-    # in this range). Extending the plot to 0°/180° would suggest
-    # decoder data we don't have — none of the simulations / NPCr
-    # projections are valid there.
+    # Plotting range depends on what's in the V1 TSVs. The default
+    # trained-grid script restricts to 7.5°–172.5° (the orientations
+    # subjects actually saw); the new full-grid jobs sample 0°–180° so
+    # we can see what spherical noise does at the unsampled endpoints.
+    # NPCr projections live entirely in the trained range (CHF↔orientation
+    # lookup is monotone there), so the NPCr panel keeps the trained
+    # xlim either way.
+    has_full_v1 = (
+        (not df_v1_def.empty and df_v1_def["value_deg"].min() < 5.0) or
+        (not df_v1_sph.empty and df_v1_sph["value_deg"].min() < 5.0)
+    )
     TRAINED_MIN, TRAINED_MAX = 7.5, 172.5
-    ori_grid = np.linspace(TRAINED_MIN, TRAINED_MAX, 60, dtype=np.float32)
+    V1_MIN, V1_MAX = (0.0, 180.0) if has_full_v1 else (TRAINED_MIN, TRAINED_MAX)
+    ori_grid_v1   = np.linspace(V1_MIN, V1_MAX, 60, dtype=np.float32)
+    ori_grid_npcr = np.linspace(TRAINED_MIN, TRAINED_MAX, 60, dtype=np.float32)
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.2),
                              constrained_layout=True, sharey=False)
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
@@ -224,18 +234,35 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
                  f"{sel_tag}  ·  {smooth_lbl}",
                  fontsize=10, y=1.03, color="0.15")
 
-    # V1 panel
+    # V1 panel — default-noise (solid) + spherical-noise (dashed) overlay
     ax = axes[0]
-    for cond, sub_df in df_v1.groupby("condition"):
-        mean_sd, sem_sd, n = _interp_group(sub_df, ori_grid)
-        ax.plot(ori_grid, mean_sd, color=COND_COLOUR[cond], lw=1.8,
-                label=f"{cond}  (n={n})")
-        ax.fill_between(ori_grid, mean_sd - sem_sd, mean_sd + sem_sd,
-                        color=COND_COLOUR[cond], alpha=0.22, linewidth=0)
+    v1_has_spherical = not df_v1_sph.empty
+    for noise_label, df_noise, ls, alpha_band in (
+            ("default",   df_v1_def, "-",  0.22),
+            ("spherical", df_v1_sph, "--", 0.12)):
+        if df_noise.empty:
+            continue
+        for cond, sub_df in df_noise.groupby("condition"):
+            mean_sd, sem_sd, n = _interp_group(sub_df, ori_grid_v1)
+            ax.plot(ori_grid_v1, mean_sd, color=COND_COLOUR[cond], lw=1.6,
+                    linestyle=ls,
+                    label=f"{cond}  {noise_label}  (n={n})")
+            ax.fill_between(ori_grid_v1, mean_sd - sem_sd, mean_sd + sem_sd,
+                            color=COND_COLOUR[cond], alpha=alpha_band,
+                            linewidth=0)
+    if has_full_v1:
+        # Shade the never-sampled endpoint regions to flag them as
+        # extrapolation; the decoder can return values there but no
+        # training data covers them.
+        for lo, hi in ((0.0, 7.5), (172.5, 180.0)):
+            ax.axvspan(lo, hi, color="0.85", alpha=0.5, zorder=0)
     ax.set_xlabel("Orientation (deg)")
     ax.set_ylabel(r"V1 decoder SD  $\sqrt{\mathrm{Var}[\hat{\theta}]}$  (deg)")
-    ax.set_title("V1 (vonmises)  —  decoded ORIENTATION", fontsize=9, color="0.2")
-    ax.legend(loc="upper right", fontsize=7.5)
+    v1_subt = ("V1 (vonmises)  —  default (solid) vs spherical (dashed) noise"
+               if v1_has_spherical
+               else "V1 (vonmises)  —  decoded ORIENTATION")
+    ax.set_title(v1_subt, fontsize=9, color="0.2")
+    ax.legend(loc="upper right", fontsize=7)
 
     # NPCr panel — default-noise (solid) + spherical-noise (dashed) overlay
     ax = axes[1]
@@ -246,11 +273,12 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
         if df_noise.empty:
             continue
         for cond, sub_df in df_noise.groupby("condition"):
-            mean_sd, sem_sd, n = _interp_group(sub_df, ori_grid)
-            ax.plot(ori_grid, mean_sd, color=COND_COLOUR[cond], lw=1.6,
+            mean_sd, sem_sd, n = _interp_group(sub_df, ori_grid_npcr)
+            ax.plot(ori_grid_npcr, mean_sd, color=COND_COLOUR[cond], lw=1.6,
                     linestyle=ls,
                     label=f"{cond}  {noise_label}  (n={n})")
-            ax.fill_between(ori_grid, mean_sd - sem_sd, mean_sd + sem_sd,
+            ax.fill_between(ori_grid_npcr,
+                            mean_sd - sem_sd, mean_sd + sem_sd,
                             color=COND_COLOUR[cond], alpha=alpha_band,
                             linewidth=0)
     ax.set_xlabel("Corresponding orientation (deg)")
@@ -261,13 +289,18 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     ax.set_title(subt, fontsize=9, color="0.2")
     ax.legend(loc="upper right", fontsize=7)
 
-    for ax in axes:
-        ax.set_xlim(TRAINED_MIN, TRAINED_MAX)
-        ax.set_xticks([15, 45, 90, 135, 165])
+    # V1 axis: full or trained range depending on data
+    axes[0].set_xlim(V1_MIN, V1_MAX)
+    axes[0].set_xticks([0, 45, 90, 135, 180] if has_full_v1
+                        else [15, 45, 90, 135, 165])
+    # NPCr axis: always trained range (CHF→orientation lookup is defined
+    # only there)
+    axes[1].set_xlim(TRAINED_MIN, TRAINED_MAX)
+    axes[1].set_xticks([15, 45, 90, 135, 165])
     sns.despine(fig=fig, offset=5, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
-    return df_v1, df_n_def, df_n_sph
+    return df_v1_def, df_v1_sph, df_n_def, df_n_sph
 
 
 def page_behavior_overlay(pdf):
