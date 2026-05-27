@@ -56,11 +56,17 @@ DEFAULT_OUT = Path(BIDS_FOLDER) / "derivatives" / "qa" / "expected_uncertainty_p
 COND_COLOUR = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
 
 
+# Noise model whose expected-decoded TSVs to read ("full" = original untagged
+# filename; "spherical" = _noise-spherical). Set from --noise in main().
+NOISE_VARIANT = "full"
+
+
 def _tsv_path(subject, session, mask, nvoxels, nsims, smoothed):
     smooth = "_smoothed" if smoothed else ""
+    noise_tag = "_noise-spherical" if NOISE_VARIANT == "spherical" else ""
     return (DERIV / f"sub-{subject}" / f"ses-{session}" / "func"
             / f"sub-{subject}_ses-{session}_task-abstractvalue_mask-{mask}"
-              f"_nvoxels-{nvoxels}_nsims-{nsims}{smooth}_desc-expected_decoded_pe.tsv")
+              f"_nvoxels-{nvoxels}_nsims-{nsims}{noise_tag}{smooth}_desc-expected_decoded_pe.tsv")
 
 
 def discover_subjects(mask, nvoxels, nsims, smoothed):
@@ -367,8 +373,12 @@ def main():
     p.add_argument("--variants", nargs="+",
                    default=["unsmoothed", "smoothed"],
                    choices=["unsmoothed", "smoothed"])
+    p.add_argument("--noise", default="full", choices=["full", "spherical"],
+                   help="Which noise-model expected-decoded TSVs to read")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
+    global NOISE_VARIANT
+    NOISE_VARIANT = args.noise
     run(args.subjects, args.mask, args.nvoxels, args.nsims, Path(args.out),
         variants=tuple(args.variants))
 

@@ -132,7 +132,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
          match_trained=True,
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False):
+         smoothed=False, spherical_noise=False):
     """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
     aprf-weighted whole-brain R² mixture instead of the per-subject top-N.
     ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture is
@@ -280,7 +280,8 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         rfit = ResidualFitter(model, ses_data_sel, ses_paradigm)
         omega, dof = rfit.fit(init_sigma2=1e-2, init_dof=10.0,
                               learning_rate=0.05,
-                              max_n_iterations=n_noise_iterations)
+                              max_n_iterations=n_noise_iterations,
+                              spherical=spherical_noise)
         dof_str = f"{float(dof):.1f}" if dof is not None else "None (Gaussian)"
         print(f"  noise model: dof={dof_str}")
 
@@ -300,10 +301,13 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
                    / "aprf-session-shift" / f"sub-{subject}"
                    / f"ses-{ses_i}" / "func")
         out_dir.mkdir(parents=True, exist_ok=True)
+        # Backward-compatible naming: full noise keeps the original (untagged)
+        # filename; spherical adds a _noise-spherical tag so both can coexist.
+        noise_tag = "_noise-spherical" if spherical_noise else ""
         out_fn = (out_dir /
                   f"sub-{subject}_ses-{ses_i}_task-abstractvalue"
                   f"_mask-{mask_desc}_{sel_tag}_nsims-{n_simulations}"
-                  f"{smooth_label}_desc-expected_decoded_pe.tsv")
+                  f"{noise_tag}{smooth_label}_desc-expected_decoded_pe.tsv")
         agg.to_csv(out_fn, sep="\t", index=False)
         print(f"  saved {out_fn}")
 
@@ -341,6 +345,9 @@ if __name__ == "__main__":
     parser.add_argument("--fmriprep-deriv", default="fmriprep",
                         choices=["fmriprep", "fmriprep-t2w", "fmriprep-flair"])
     parser.add_argument("--smoothed", action="store_true")
+    parser.add_argument("--spherical-noise", action="store_true",
+                        help="Fit isotropic (spherical) residual covariance "
+                             "instead of full Omega. Output: _noise-spherical.")
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions,
@@ -354,4 +361,4 @@ if __name__ == "__main__":
          n_noise_iterations=args.n_noise_iterations,
          batch_stimuli=args.batch_stimuli,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed)
+         smoothed=args.smoothed, spherical_noise=args.spherical_noise)
