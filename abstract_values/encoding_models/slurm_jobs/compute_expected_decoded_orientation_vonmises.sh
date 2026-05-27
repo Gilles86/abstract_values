@@ -19,6 +19,8 @@
 #   N_ORIENTATIONS stimulus grid points (default: 180)
 #   BATCH_STIMULI  stimuli per simulation batch (memory knob, default 25)
 #   SMOOTHED       set to "1" for smoothed betas (default: off)
+#   SPHERICAL      set to "1" for iid Gaussian noise (default: full Omega)
+#   FULL_GRID      set to "1" for full [0°, 180°) grid (default: 23 trained)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
@@ -33,6 +35,8 @@ N_SIMULATIONS="${N_SIMULATIONS:-1000}"
 N_ORIENTATIONS="${N_ORIENTATIONS:-180}"
 BATCH_STIMULI="${BATCH_STIMULI:-25}"
 SMOOTHED="${SMOOTHED:-0}"
+SPHERICAL="${SPHERICAL:-0}"
+FULL_GRID="${FULL_GRID:-0}"
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
@@ -55,8 +59,10 @@ ARGS=(
 [ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
 [ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise)
+[ "$FULL_GRID" = "1" ] && ARGS+=(--full-grid)
 
-echo "compute_eu_vonmises: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  smoothed=${SMOOTHED}"
+echo "compute_eu_vonmises: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  full_grid=${FULL_GRID}"
 echo "Args: ${ARGS[*]}"
 
 . $HOME/init_conda.sh

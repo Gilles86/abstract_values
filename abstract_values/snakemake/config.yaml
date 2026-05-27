@@ -39,6 +39,14 @@ decode_rois:
 decode_n_voxels: [0, 50, 100, 250, 500]
 decode_lambdas: [0.0, 0.1]
 
+# Expected-decoded-value sweep on aprf-session-shift. nv: top-N or fdrNN
+# (whole-brain R²-mixture voxel selection). noise: "default" = residual
+# covariance from Student-t fit; "spherical" = iid Gaussian, ignoring
+# off-diagonal voxel correlations. Both noise variants share the same fit.
+expected_decoded_rois: ["NPCr"]
+expected_decoded_nv:    ["100", "fdr05"]
+expected_decoded_noise: ["default", "spherical"]
+
 # Fisher-information ROIs (Von Mises + aPRF flavors)
 fi_rois_vonmises:
   - {desc: "BensonV1", hemi: "LR"}

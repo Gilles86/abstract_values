@@ -69,6 +69,13 @@ DECODE_NV        = config["decode_n_voxels"]
 DECODE_LAM       = config["decode_lambdas"]
 FI_ROIS_VONMISES = config["fi_rois_vonmises"]
 FI_ROIS_APRF     = config["fi_rois_aprf"]
+# EU_ROIS: expected-decoded ROIs as {desc, hemi} dicts so mask_input() can
+# dispatch on wc.roi. All current entries use hemi=None (the desc carries
+# the L/R; e.g., NPCr is already lateralized).
+EU_ROIS  = [{"desc": r, "hemi": "None"}
+            for r in config.get("expected_decoded_rois", ["NPCr"])]
+EU_NV    = config.get("expected_decoded_nv",    ["100", "fdr05"])
+EU_NOISE = config.get("expected_decoded_noise", ["default", "spherical"])
 BIDS             = config["bids_folder"]
 REPO             = config["repo_root"]
 ENV              = config["conda_env"]
@@ -85,6 +92,7 @@ wildcard_constraints:
     # whole-brain R²-mixture voxel-selection criteria.
     nv      = r"(\d+|fdr\d+|psig\d+)",
     lam     = r"[0-9.]+",
+    noise   = r"(default|spherical)",
     session = r"(all|\d+)",
     # model_dir: on-disk encoder dir name. Allows `.` and `-` because the
     # CV dirs use the historical `aprf.cv` / `aprf-shift.cv` / `aprf-weighted.cv`
@@ -217,6 +225,15 @@ def subject_targets(subject):
                 targets.append(
                     f"{DERIV}/fisher_information_aprf{sfx}/sub-{subject}/"
                     f"sub-{subject}_roi-{roi['desc']}_ses-{ses}.done"
+                )
+
+        # Expected-decoded-value (aprf-session-shift) — only for subjects
+        # with ≥2 MRI sessions, since the model itself requires it.
+        if len(sessions) >= 2:
+            for roi, nv, noise in product(EU_ROIS, EU_NV, EU_NOISE):
+                targets.append(
+                    f"{DERIV}/expected_decoded_value_aprf{sfx}/sub-{subject}/"
+                    f"sub-{subject}_roi-{roi}_nv-{nv}_noise-{noise}.done"
                 )
     return targets
 
@@ -640,4 +657,38 @@ rule compute_fisher_information_aprf:
         "ROI={wildcards.roi} {params.ses_export}"
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Expected decoded value (aprf-session-shift): simulate-decode-aggregate per
+# stimulus to get bias / SD per CHF, on the trained-grid prior. Fanout over
+# selection (top-N vs FDR05) × noise model (full residual covariance vs
+# iid spherical). All variants share the same encoding fit; cost is the
+# decode/simulate loop, which the SLURM wrapper handles.
+# ─────────────────────────────────────────────────────────────────────────────
+rule compute_expected_decoded_value_aprf:
+    input:
+        aprf_ss = lambda wc: aprf_r2(wc.subject, "aprf_session_shift", wc.smooth),
+        mask    = mask_input([{"desc": "{roi}", "hemi": "None"}]),
+    output:
+        # Sentinel — actual TSVs live at
+        # derivatives/encoding_models/aprf-session-shift/sub-XX/ses-X/func/...
+        # with filename mask-<roi>_nvoxels-<nv>_nsims-1000[_noise-spherical]
+        # [_smoothed]_desc-expected_decoded_pe.tsv.
+        f"{DERIV}/expected_decoded_value_aprf{{smooth}}/sub-{{subject}}/"
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_noise-{{noise}}.done",
+    log: "logs/eu_aprf{smooth}_{subject}_{roi}_nv{nv}_noise{noise}.log"
+    resources: cpus_per_task=8, mem_mb=32_000, runtime=240,
+    params:
+        nv_export=lambda wc: (
+            f"FDR_ALPHA=0.05 N_VOXELS=0 " if wc.nv == "fdr05"
+            else f"N_VOXELS={wc.nv} "),
+        sph_flag=lambda wc: "1" if wc.noise == "spherical" else "0",
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "ROI={wildcards.roi} HEMI=None {params.nv_export}"
+        "SPHERICAL={params.sph_flag} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_expected_decoded_value_aprf.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
