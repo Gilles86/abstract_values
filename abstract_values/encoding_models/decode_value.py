@@ -114,6 +114,53 @@ def _out_subdir(model_type):
     }[model_type]
 
 
+def geodesic_snap_for_masker(masker, hemi, subject, bids_folder, fmriprep_deriv):
+    """Snap the masker's voxels to the nearest white-matter surface vertex
+    (T1w space) and return ``(vertices, faces, nearest_vertex)``.
+
+    ``nearest_vertex`` is in the SAME column order ``masker.transform``
+    produces, so ``nearest_vertex[sel]`` gives the source vertices for any
+    selected-voxel subset. The (cheap) snap is done once; the (expensive)
+    geodesic Dijkstra is then run per fold over just the selected voxels via
+    :func:`geodesic_D_for_selection` — building the full ROI matrix is
+    pointless when only ~100 voxels are decoded. Single-hemisphere ROIs only
+    (e.g. NPCr → hemi R); a bilateral mask would need a block-structured D.
+    """
+    import nibabel as nib
+    from scipy.spatial import cKDTree
+
+    mask_img = masker.mask_img_                       # resampled mask actually used
+    ijk = np.argwhere(np.asarray(mask_img.get_fdata()) > 0)   # C-order == columns
+    xyz = nib.affines.apply_affine(mask_img.affine, ijk).astype(np.float32)
+
+    surfs = sorted((Path(bids_folder) / 'derivatives' / fmriprep_deriv
+                    / f'sub-{subject}').glob(
+                       f'ses-*/anat/sub-{subject}_ses-*_hemi-{hemi}_white.surf.gii'))
+    if not surfs:
+        raise FileNotFoundError(
+            f'No hemi-{hemi} white surface for sub-{subject} under '
+            f'{fmriprep_deriv} (needed for geodesic noise model)')
+    gii = nib.load(str(surfs[0]))
+    vertices = gii.darrays[0].data.astype(np.float32)
+    faces = gii.darrays[1].data.astype(np.int32)
+    snap, nearest = cKDTree(vertices).query(xyz)
+    print(f'    geodesic snap: {len(xyz)} voxels → hemi-{hemi} surface '
+          f'({surfs[0].name}); snap median {np.median(snap):.2f} mm, '
+          f'p95 {np.percentile(snap, 95):.2f} mm')
+    return vertices, faces, np.asarray(nearest)
+
+
+def geodesic_D_for_selection(geo_snap, sel_positions):
+    """Geodesic distance matrix (mm) among the selected voxels only.
+    ``sel_positions`` index into the masker column order. Cheap because
+    Dijkstra runs from just the ~N selected source vertices."""
+    from braincoder.utils.cortex import geodesic_distance_matrix
+    vertices, faces, nearest = geo_snap
+    return geodesic_distance_matrix(
+        vertices, faces, source_indices=nearest[np.asarray(sel_positions)],
+        progressbar=False).astype(np.float32)
+
+
 def get_value_paradigm(sub, sessions):
     """Return DataFrame indexed by (session, run, trial_nr) with column 'x'.
 
@@ -297,6 +344,7 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
          n_grid_mus=20, n_grid_sds=15, n_stimulus_grid=50,
          n_basis=8, basis_fwhm=None, weight_alpha=0.0,
          lambd=0.0, mask=None, mask_desc=None, spherical_noise=False,
+         geodesic_noise=False, geodesic_hemi='R',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, debug=False, model_type='loggauss'):
     """If fdr_alpha is set, voxels are selected by FDR-thresholding the
@@ -348,6 +396,15 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         index=paradigm.index)
     print(f'  {data.shape[1]} voxels in mask ({mask_desc})')
 
+    # Geodesic noise model: build the voxel×voxel distance matrix once (in
+    # masker column order); folds subset it via the selected-voxel positions.
+    assert not (geodesic_noise and spherical_noise), \
+        'geodesic_noise and spherical_noise are mutually exclusive'
+    geo_snap = None
+    if geodesic_noise:
+        geo_snap = geodesic_snap_for_masker(
+            masker, geodesic_hemi, subject, bids_folder, fmriprep_deriv)
+
     # ── stimulus grid ─────────────────────────────────────────────────────────
     stimulus_range = np.linspace(value_min, value_max, n_stimulus_grid,
                                  dtype=np.float32)
@@ -360,7 +417,8 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         out_dir = out_dir / ses_dir
     out_dir = out_dir / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
-    noise_label  = 'spherical' if spherical_noise else 'full'
+    noise_label  = ('geodesic' if geodesic_noise
+                    else 'spherical' if spherical_noise else 'full')
     smooth_label = '_smoothed' if smoothed else ''
     lambd_label  = f'_lambda-{lambd}' if lambd != 0.0 else ''
     if fdr_alpha is not None:
@@ -520,11 +578,17 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         n_iter_noise = 100 if debug else 5000
         residfit = ResidualFitter(model_sel, train_data_sel, train_paradigm,
                                   parameters=pars_sel, lambd=lambd)
+        geo_kw = {}
+        if geo_snap is not None:
+            # sel are masker column positions (data.columns is a RangeIndex)
+            geo_kw = dict(D=geodesic_D_for_selection(geo_snap, np.asarray(sel)),
+                          init_alpha=0.5, init_beta=0.05)
         omega, dof = residfit.fit(
             init_sigma2=0.1, init_dof=10.0, method='t',
             learning_rate=0.05, spherical=spherical_noise,
-            max_n_iterations=n_iter_noise)
-        print(f'    noise model: dof={float(dof):.1f}')
+            max_n_iterations=n_iter_noise, **geo_kw)
+        print(f'    noise model: dof={float(dof):.1f}'
+              + ('  (geodesic Ω)' if geo_snap is not None else ''))
 
         # ── decode ────────────────────────────────────────────────────────────
         pdf = model_sel.get_stimulus_pdf(test_data_sel, stimulus_range,
@@ -585,6 +649,13 @@ if __name__ == '__main__':
                         help='Short label for mask used in output filename')
     parser.add_argument('--spherical-noise', action='store_true',
                         help='Fit isotropic noise model instead of full covariance')
+    parser.add_argument('--geodesic-noise', action='store_true',
+                        help='Fit a structured Omega with a geodesic-distance '
+                             'spatial component (single-hemisphere ROI). '
+                             'Output: noise-geodesic.')
+    parser.add_argument('--geodesic-hemi', default='R', choices=['L', 'R'],
+                        help='Hemisphere whose white surface defines geodesic '
+                             'distance (default: R, for NPCr)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
@@ -614,5 +685,6 @@ if __name__ == '__main__':
          weight_alpha=args.weight_alpha,
          lambd=args.lambd, mask=args.mask, mask_desc=args.mask_desc,
          spherical_noise=args.spherical_noise,
+         geodesic_noise=args.geodesic_noise, geodesic_hemi=args.geodesic_hemi,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, debug=args.debug, model_type=args.model)

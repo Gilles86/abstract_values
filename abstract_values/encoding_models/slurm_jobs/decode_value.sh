@@ -46,6 +46,8 @@ fi
 SESSION="${SESSION:-}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-0}"
+GEODESIC="${GEODESIC:-0}"
+GEODESIC_HEMI="${GEODESIC_HEMI:-R}"
 N_VOXELS="${N_VOXELS:-100}"
 FDR_ALPHA="${FDR_ALPHA:-}"
 P_SIGNAL_THR="${P_SIGNAL_THR:-}"
@@ -74,6 +76,7 @@ ARGS=(
 [ -n "$SESSION" ] && ARGS+=(--sessions "$SESSION")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise)
+[ "$GEODESIC" = "1" ] && ARGS+=(--geodesic-noise --geodesic-hemi "$GEODESIC_HEMI")
 [ "$MODEL" != "loggauss" ] && ARGS+=(--model "$MODEL")
 [ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
 [ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
