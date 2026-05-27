@@ -154,6 +154,42 @@ def _fdr_threshold_from_mixture(fit: dict, alpha: float,
     return float(1.0 / (1.0 + np.exp(-z_thr)))      # inverse logit → R²
 
 
+def _empirical_null_threshold(r2: np.ndarray, alpha: float
+                                ) -> tuple[float, float, float]:
+    """Efron-style empirical-null threshold. Fits ONE Gaussian to the
+    bulk of logit(R²) via the median and IQR (robust to the signal
+    upper tail), then takes the (1−α) quantile of that null as the
+    threshold. Returns ``(thr_r2, mu_logit, sigma_logit)``.
+
+    Why this and not a 2-component mixture: averaging R² across
+    subjects compresses the per-subject noise/signal bimodality into
+    a near-unimodal distribution, so the 2-component GMM either lumps
+    everything into one mode (`signal_weight≈1`) or splits the body
+    arbitrarily — see :func:`_mixture_is_degenerate`. A single robust
+    Gaussian on the bulk is the cleaner model: it doesn't pretend
+    there are two modes, and the IQR-based scale is insensitive to
+    the upper signal tail.
+
+    Why this and not just a percentile of R²: a percentile always
+    marks exactly α fraction of vertices regardless of whether the
+    map contains signal. The EN threshold is pegged to the *noise
+    scale*, so the fraction that actually survives carries
+    information — `frac_surviving / α` is an enrichment ratio. A
+    well-tuned map has frac>>α (real signal in the tail); a
+    noise-only map has frac≈α."""
+    r2 = np.asarray(r2, dtype=np.float64).ravel()
+    r2 = r2[np.isfinite(r2)]
+    r2 = r2[(r2 > 1e-6) & (r2 < 1 - 1e-6)]
+    if len(r2) < 1000:
+        return float("nan"), float("nan"), float("nan")
+    z = np.log(r2 / (1.0 - r2))
+    q25, q50, q75 = np.percentile(z, [25, 50, 75])
+    mu0 = q50
+    sigma0 = (q75 - q25) / 1.349                  # IQR → σ of a Gaussian
+    z_thr = norm.ppf(1.0 - alpha, loc=mu0, scale=sigma0)
+    return float(1.0 / (1.0 + np.exp(-z_thr))), float(mu0), float(sigma0)
+
+
 def _mixture_is_degenerate(fit: dict,
                              max_signal_weight: float = 0.85,
                              min_noise_weight: float = 0.05,
@@ -276,7 +312,7 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
          r2_thr: float, r2_sigma: float, desc: str = "r2",
          smoothing: tuple[str, ...] = ("", "_smoothed"),
          fdr_alpha: float | None = None,
-         fdr_mode: str = "group") -> None:
+         fdr_mode: str = "empirical_null") -> None:
     """Build one pycortex dataset per (model, smoothing) combination present
     on disk. By default both unsmoothed and smoothed variants are shown side
     by side; the smoothed variant is loaded from `desc-<desc>_smoothed`.
@@ -322,6 +358,15 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
             if fdr_alpha is None:
                 alpha = soft_alpha(mean_r2, r2_thr, r2_sigma)
                 cohort_thr = r2_thr
+            elif fdr_mode == "empirical_null":
+                thr, mu0, sigma0 = _empirical_null_threshold(mean_r2, fdr_alpha)
+                cohort_thr = max(thr, r2_thr)
+                alpha = soft_alpha(mean_r2, cohort_thr, r2_sigma)
+                frac_surv = float((mean_r2 > cohort_thr).mean()) * 100
+                thr_note = (f"  EN-null α={fdr_alpha:.3f} → thr={cohort_thr:.3f}  "
+                            f"(null μ={1/(1+np.exp(-mu0)):.3f}, "
+                            f"σ_logit={sigma0:.2f}; surviving {frac_surv:.2f}% "
+                            f"≈ {frac_surv/(fdr_alpha*100):.1f}× chance)")
             elif fdr_mode == "per_subject":
                 # Each subject's threshold applied to its own map first.
                 alpha_per_sub = [soft_alpha(arr, thr, r2_sigma)
@@ -432,13 +477,18 @@ if __name__ == "__main__":
                         "below the noise mode (all vertices survive). Pass "
                         "--fdr-alpha 0 to disable (use the fixed --r2-thr "
                         "cohort-wide).")
-    p.add_argument("--fdr-mode", default="group",
-                   choices=["group", "per_subject"],
-                   help="'group' (default): fit the 2-component R² mixture "
-                        "on the group-mean fsaverage R² (the actual map "
-                        "being displayed). 'per_subject': legacy path that "
-                        "looks up each subject's cached whole-brain "
-                        "p_signal.json and averages per-subject alpha masks.")
+    p.add_argument("--fdr-mode", default="empirical_null",
+                   choices=["empirical_null", "group", "per_subject"],
+                   help="'empirical_null' (default): fit ONE robust "
+                        "Gaussian to the bulk of logit(group-mean R²) via "
+                        "median/IQR, threshold at the (1−α) tail of that "
+                        "null. Efron-style local FDR; never degenerate. "
+                        "'group': legacy 2-component mixture on group-mean "
+                        "R² with percentile fallback when degenerate (it "
+                        "usually is — the cross-subject mean compresses "
+                        "the per-subject bimodality). 'per_subject': look "
+                        "up each subject's cached whole-brain p_signal.json "
+                        "and average per-subject alpha masks.")
     p.add_argument("--smoothing", nargs="+", default=["", "_smoothed"],
                    choices=["", "_smoothed"],
                    help="Which BOLD-smoothing variants to include "
