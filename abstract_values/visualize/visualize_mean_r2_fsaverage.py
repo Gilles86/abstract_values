@@ -286,9 +286,12 @@ if __name__ == "__main__":
     p.add_argument("--r2-thr", type=float, default=0.05,
                    help="R² alpha-masking threshold (FRACTION 0–1; "
                         "default 0.05 = 5%% variance explained)")
-    p.add_argument("--r2-sigma", type=float, default=0.02,
+    p.add_argument("--r2-sigma", type=float, default=0.005,
                    help="Gaussian-CDF transition width on the fraction scale "
-                        "(default 0.02)")
+                        "(default 0.005 — quarter of the old 0.02, gives a "
+                        "much steeper transition into the colored region; "
+                        "vertices with R² ~thr ± 0.01 sweep from ≈0 to ≈1 "
+                        "alpha. Pass a larger value for a softer fade.)")
     p.add_argument("--fdr-alpha", type=float, default=0.05,
                    help="Per-subject FDR-α R² thresholds from the whole-brain "
                         "mixture (compute_r2_mixture) for alpha masking. "
