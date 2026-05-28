@@ -135,7 +135,8 @@ def main(subject, mask=None, n_iterations=1000, model_type='standard',
     # session input would silently overwrite the joint fit.
     sessions = sorted(sub.get_sessions())
 
-    if model_type in ('session-shift', 'fully-shifted', 'gauss-session-shift') and len(sessions) < 2:
+    if model_type in ('session-shift', 'fwhm-shift', 'fully-shifted',
+                       'gauss-session-shift') and len(sessions) < 2:
         raise ValueError(f'--model {model_type} requires at least 2 sessions')
 
     print(f'sub-{subject}  all-sessions ({sessions})  '
@@ -145,7 +146,8 @@ def main(subject, mask=None, n_iterations=1000, model_type='standard',
         n_iterations = 50
 
     # ── paradigm ─────────────────────────────────────────────────────────────
-    if model_type in ('session-shift', 'fully-shifted', 'gauss-session-shift'):
+    if model_type in ('session-shift', 'fwhm-shift', 'fully-shifted',
+                       'gauss-session-shift'):
         paradigm = get_value_session_paradigm(sub, sessions)
     else:
         paradigm = get_value_paradigm(sub, sessions)
@@ -215,6 +217,62 @@ def main(subject, mask=None, n_iterations=1000, model_type='standard',
                          out_dir / fn.format(desc=param))
             save_f32(masker.inverse_transform(r2), out_dir / fn.format(desc='r2'))
 
+            print(f'  saved to {out_dir}')
+
+    elif model_type == 'fwhm-shift':
+        # 6 params per voxel: mode + fwhm shift per session; amp + baseline
+        # shared. Warm-start from the session-shift fit (mode_1, mode_2
+        # are already optimal there), then duplicate fwhm to per-session
+        # and let Adam separate fwhm_1 / fwhm_2.
+        from abstract_values.encoding_models.models import (
+            SessionShiftedLogGaussianPRF, FwhmShiftedLogGaussianPRF)
+
+        ss_model  = SessionShiftedLogGaussianPRF(allow_neg_amplitudes=False)
+        ss_fitter = ParameterFitter(ss_model, data, paradigm)
+
+        n_mode = 8 if debug else 15
+        n_fwhm = 6 if debug else 10
+        modes      = np.linspace(value_min, value_max, n_mode).astype(np.float32)
+        fwhms      = np.linspace(1.0, value_max - value_min, n_fwhm).astype(np.float32)
+        amplitudes = np.array([1.0], dtype=np.float32)
+        baselines  = np.array([0.0], dtype=np.float32)
+
+        print(f'  [warm-start] session-shift grid '
+              f'({n_mode}×{n_mode}×{n_fwhm} points)...')
+        ss_grid = ss_fitter.fit_grid(modes, modes, fwhms, amplitudes, baselines,
+                                      use_correlation_cost=True)
+        ss_grid = ss_fitter.refine_baseline_and_amplitude(ss_grid)
+        print(f'  [warm-start] descent ({n_iterations // 2} iter)...')
+        ss_pars = ss_fitter.fit(max_n_iterations=n_iterations // 2,
+                                  init_pars=ss_grid)
+
+        fs_model  = FwhmShiftedLogGaussianPRF(allow_neg_amplitudes=False)
+        fs_init = pd.DataFrame({
+            'mode_1':    ss_pars['mode_1'].values,
+            'mode_2':    ss_pars['mode_2'].values,
+            'fwhm_1':    ss_pars['fwhm'].values,
+            'fwhm_2':    ss_pars['fwhm'].values,
+            'amplitude': ss_pars['amplitude'].values,
+            'baseline':  ss_pars['baseline'].values,
+        }, index=ss_pars.index)
+        fs_fitter = ParameterFitter(fs_model, data, paradigm)
+        print(f'  [fwhm-shift] descent ({n_iterations} iter)...')
+        pars = fs_fitter.fit(max_n_iterations=n_iterations, init_pars=fs_init)
+
+        pred = fs_model.predict(parameters=pars, paradigm=paradigm)
+        r2   = get_rsq(data, pred)
+        print(f'  mean R²={float(r2.mean()):.4f}')
+
+        if not _skip_save:
+            out_dir = (bids_folder / 'derivatives' / 'encoding_models'
+                       / 'aprf-fwhm-shift' / f'sub-{subject}' / 'func')
+            out_dir.mkdir(parents=True, exist_ok=True)
+            fn = (f'sub-{subject}_task-abstractvalue'
+                  f'_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz')
+            for param in fs_model.parameter_labels:
+                save_f32(masker.inverse_transform(pars[param]),
+                         out_dir / fn.format(desc=param))
+            save_f32(masker.inverse_transform(r2), out_dir / fn.format(desc='r2'))
             print(f'  saved to {out_dir}')
 
     elif model_type == 'fully-shifted':
