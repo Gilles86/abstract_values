@@ -4,7 +4,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=00:30:00
+#SBATCH --time=02:00:00   # bumped from 30 min — matches decode_value.sh; fdr05
+                          # selections can be large and 30 min runs out
 
 # Bayesian leave-one-run-out gabor orientation decoding.
 # Requires MASK and MASK_DESC to be set (no whole-brain default).
