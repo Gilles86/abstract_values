@@ -59,10 +59,18 @@ def get_value_paradigm(sub, sessions):
     return pd.DataFrame({"x": np.array(rows, dtype=np.float32)})
 
 
-def _load_session_shift_params(subject, smoothed, masker, bids_folder):
-    """Return (fwhm, amp, baseline, r2, {mode_i: arr}) — all (n_vox,) arrays."""
+def _load_session_shift_params(subject, smoothed, masker, bids_folder,
+                                  model_dir="aprf-session-shift"):
+    """Return (fwhm, amp, baseline, r2, {mode_i: arr}) — all (n_vox,) arrays.
+
+    ``model_dir`` selects which session-shift fit to load:
+      - ``aprf-session-shift``       — log-Gaussian PRFs (lognormal model)
+      - ``aprf-gauss-session-shift`` — symmetric Gaussian PRFs
+    Both have the same 5-parameter (mode_1, mode_2, fwhm, amp, baseline)
+    interface, so the loader is identical.
+    """
     ss_dir = (Path(bids_folder) / "derivatives" / "encoding_models"
-              / "aprf-session-shift" / f"sub-{subject}" / "func")
+              / model_dir / f"sub-{subject}" / "func")
     smooth = "_smoothed" if smoothed else ""
 
     def load(desc):
@@ -132,7 +140,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
          match_trained=True,
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False, spherical_noise=True):
+         smoothed=False, spherical_noise=True, model_type="lognormal"):
     """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
     aprf-weighted whole-brain R² mixture instead of the per-subject top-N.
     ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture is
@@ -161,8 +169,16 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
                          target_affine=ref_betas.affine,
                          target_shape=ref_betas.shape[:3]).fit()
 
+    # Choose which session-shift fit directory to read (and the matching
+    # PRF class to instantiate below). lognormal → aprf-session-shift +
+    # SessionShiftedLogGaussianPRF; gaussian → aprf-gauss-session-shift +
+    # SessionShiftedGaussianValuePRF. Both share the 5-param interface.
+    ss_subdir = {"lognormal":  "aprf-session-shift",
+                  "gaussian":   "aprf-gauss-session-shift"}[model_type]
+    out_subdir = {"lognormal":  "aprf-session-shift",
+                   "gaussian":   "aprf-gauss-session-shift"}[model_type]
     fwhm_arr, amp_arr, base_arr, r2, modes = _load_session_shift_params(
-        subject, smoothed, masker, bids_folder)
+        subject, smoothed, masker, bids_folder, model_dir=ss_subdir)
 
     valid = (fwhm_arr > 0) & (amp_arr != 0)
     for m in modes.values():
@@ -264,8 +280,12 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
               f"value range {float(ses_paradigm['x'].min()):.1f}–"
               f"{float(ses_paradigm['x'].max()):.1f} CHF")
 
-        model = LogGaussianPRF(allow_neg_amplitudes=True,
-                               parameterisation="mode_fwhm_natural")
+        if model_type == "lognormal":
+            model = LogGaussianPRF(allow_neg_amplitudes=True,
+                                    parameterisation="mode_fwhm_natural")
+        else:
+            from abstract_values.encoding_models.models import GaussianValuePRF
+            model = GaussianValuePRF(allow_neg_amplitudes=True)
         model.parameters = pars_full
         model.apply_mask(sel)
         # pseudoWWT must reflect the data being fit (the paradigm), not the
@@ -298,7 +318,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         ).reset_index().rename(columns={"value": "value"})
 
         out_dir = (bids_folder / "derivatives" / "encoding_models"
-                   / "aprf-session-shift" / f"sub-{subject}"
+                   / out_subdir / f"sub-{subject}"
                    / f"ses-{ses_i}" / "func")
         out_dir.mkdir(parents=True, exist_ok=True)
         # Backward-compatible naming: full noise keeps the original (untagged)
@@ -345,6 +365,14 @@ if __name__ == "__main__":
     parser.add_argument("--fmriprep-deriv", default="fmriprep",
                         choices=["fmriprep", "fmriprep-t2w", "fmriprep-flair"])
     parser.add_argument("--smoothed", action="store_true")
+    parser.add_argument("--model", default="lognormal",
+                         choices=["lognormal", "gaussian"],
+                         help="Encoding-model PRF shape. lognormal "
+                              "(default) loads aprf-session-shift fits; "
+                              "gaussian loads aprf-gauss-session-shift "
+                              "fits (symmetric Gaussian on CHF). Both have "
+                              "5 params per voxel; output dir mirrors the "
+                              "input model dir.")
     # Default noise model is spherical (iid Gaussian residuals on the
     # selected voxels). Empirically gives cleaner per-stimulus SD curves
     # and avoids ill-conditioned covariance estimates on small voxel
@@ -371,4 +399,5 @@ if __name__ == "__main__":
          n_noise_iterations=args.n_noise_iterations,
          batch_stimuli=args.batch_stimuli,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed, spherical_noise=args.spherical_noise)
+         smoothed=args.smoothed, spherical_noise=args.spherical_noise,
+         model_type=args.model)

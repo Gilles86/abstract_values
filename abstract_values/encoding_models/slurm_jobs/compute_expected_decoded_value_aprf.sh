@@ -36,6 +36,7 @@ N_VALUES="${N_VALUES:-200}"
 BATCH_STIMULI="${BATCH_STIMULI:-25}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-1}"  # default: iid Gaussian (see Python script)
+MODEL="${MODEL:-lognormal}"  # lognormal | gaussian (PRF shape)
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
@@ -59,6 +60,7 @@ ARGS=(
 [ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
+[ "$MODEL" != "lognormal" ] && ARGS+=(--model "$MODEL")
 
 echo "compute_eu_aprf: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  n_simulations=${N_SIMULATIONS}  spherical=${SPHERICAL}"
 echo "Args: ${ARGS[*]}"
