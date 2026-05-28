@@ -49,6 +49,49 @@ from braincoder.optimize import ResidualFitter
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
+def _select_voxels(r2, n_voxels, fdr_alpha, fdr_fallback_n_voxels,
+                    subject, smoothed, bids_folder, mixture_model='aprf'):
+    """Return (selected_voxel_index, sel_tag) for the FI computation.
+    Mirrors the EU + decode selection logic: --fdr-alpha overrides
+    --n-voxels and uses the whole-brain R² mixture for the given model
+    (``aprf`` for NPCr, ``vonmises`` for V1)."""
+    if fdr_alpha is not None:
+        from abstract_values.encoding_models.compute_r2_mixture \
+            import get_brain_fdr_threshold
+        res = get_brain_fdr_threshold(
+            subject, model=mixture_model, bids_folder=bids_folder,
+            alpha=fdr_alpha, smoothed=smoothed)
+        if res is None:
+            raise RuntimeError(
+                f'Whole-brain {mixture_model} R² mixture missing and '
+                f'auto-fit failed for sub-{subject}.')
+        thr = res['threshold']
+        if res['degenerate'] or not np.isfinite(thr):
+            sel = r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+            label = (f'fdr{int(round(fdr_alpha * 100)):02d} → fallback '
+                      f'top-{fdr_fallback_n_voxels} (mixture degenerate)')
+        else:
+            sel = r2[r2 > thr].index
+            if len(sel) < 10:
+                sel = r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                label = (f'fdr{int(round(fdr_alpha * 100)):02d} → fallback '
+                          f'top-{fdr_fallback_n_voxels} (only '
+                          f'{(r2 > thr).sum()} passed)')
+            else:
+                label = f'fdr{int(round(fdr_alpha * 100)):02d} → R² > {thr:.3f}'
+        tag = f'fdr{int(round(fdr_alpha * 100)):02d}'
+    elif n_voxels == 0:
+        sel = r2[r2 > 0].index
+        label = 'all R²>0'
+        tag = '0'
+    else:
+        sel = r2.sort_values(ascending=False).index[:n_voxels]
+        label = f'top {n_voxels} by R²'
+        tag = str(n_voxels)
+    print(f'  {len(sel)} voxels selected  ({label})')
+    return sel, tag
+
+
 def get_value_paradigm(sub, sessions):
     """Return DataFrame with column 'x' = objective CHF value (float32)."""
     rows = []
@@ -101,7 +144,8 @@ def main(subject, sessions=None, roi='NPCr', hemi='None', n_voxels=250,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, model='standard',
          value_min=0.5, value_max=50.0,
-         spherical_noise=True):
+         spherical_noise=True,
+         fdr_alpha=None, fdr_fallback_n_voxels=100):
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -132,7 +176,10 @@ def main(subject, sessions=None, roi='NPCr', hemi='None', n_voxels=250,
             n_noise_iterations=n_noise_iterations,
             n_mc_samples=n_mc_samples,
             bids_folder=bids_folder, smoothed=smoothed,
-            smooth_label=smooth_label)
+            smooth_label=smooth_label,
+            spherical_noise=spherical_noise,
+            fdr_alpha=fdr_alpha,
+            fdr_fallback_n_voxels=fdr_fallback_n_voxels)
     else:
         _main_standard(
             subject=subject, sub=sub, sessions=sessions,
@@ -143,13 +190,18 @@ def main(subject, sessions=None, roi='NPCr', hemi='None', n_voxels=250,
             n_mc_samples=n_mc_samples,
             bids_folder=bids_folder, smoothed=smoothed,
             smooth_label=smooth_label,
-            value_min=value_min, value_max=value_max)
+            value_min=value_min, value_max=value_max,
+            spherical_noise=spherical_noise,
+            fdr_alpha=fdr_alpha,
+            fdr_fallback_n_voxels=fdr_fallback_n_voxels)
 
 
 def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
                    n_voxels, n_values, n_noise_iterations, n_mc_samples,
                    bids_folder, smoothed, smooth_label,
-                   value_min=0.5, value_max=50.0):
+                   value_min=0.5, value_max=50.0,
+                   spherical_noise=True,
+                   fdr_alpha=None, fdr_fallback_n_voxels=100):
     """Standard aPRF Fisher information.
 
     Selects voxels and computes FI using the BOLD data from ``sessions``;
@@ -185,11 +237,10 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
     })
     r2 = pd.Series(masker.transform(pars_imgs['r2']).squeeze().astype(np.float32))
 
-    if n_voxels == 0:
-        sel = r2[r2 > 0].index
-    else:
-        sel = r2.sort_values(ascending=False).index[:n_voxels]
-    print(f'  {len(sel)} voxels selected  (R² ≥ {float(r2.loc[sel].min()):.3f})')
+    sel, sel_tag = _select_voxels(r2, n_voxels, fdr_alpha,
+                                     fdr_fallback_n_voxels,
+                                     subject, smoothed,
+                                     bids_folder, mixture_model='aprf')
 
     model_obj = LogGaussianPRF(allow_neg_amplitudes=True,
                                parameterisation='mode_fwhm_natural')
@@ -208,7 +259,7 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
     noise_tag = '_noise-spherical' if spherical_noise else ''
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_task-abstractvalue'
-              f'_mask-{mask_desc}_nvoxels-{n_voxels}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
+              f'_mask-{mask_desc}_nvoxels-{sel_tag}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
     pd.DataFrame({'fisher_information': fisher_info.values}, index=stimuli).to_csv(
         out_fn, sep='\t', header=True)
     print(f'  saved to {out_fn}')
@@ -216,7 +267,9 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
 
 def _main_session_shift(subject, sub, sessions, masker, mask_desc,
                         n_voxels, n_values, n_noise_iterations, n_mc_samples,
-                        bids_folder, smoothed, smooth_label):
+                        bids_folder, smoothed, smooth_label,
+                        spherical_noise=True,
+                        fdr_alpha=None, fdr_fallback_n_voxels=100):
     """Session-shift aPRF Fisher information (one FI curve per session).
 
     Parameters are loaded from aprf-session-shift/.  For each session i the
@@ -255,11 +308,10 @@ def _main_session_shift(subject, sub, sessions, masker, mask_desc,
 
     print(f'  {len(r2)} voxels in mask ({mask_desc}), {valid.sum()} with valid modes')
 
-    if n_voxels == 0:
-        sel = r2_valid[r2_valid > 0].index
-    else:
-        sel = r2_valid.sort_values(ascending=False).index[:n_voxels]
-    print(f'  {len(sel)} voxels selected  (R² ≥ {float(r2.loc[sel].min()):.3f})')
+    sel, sel_tag = _select_voxels(r2_valid, n_voxels, fdr_alpha,
+                                     fdr_fallback_n_voxels,
+                                     subject, smoothed,
+                                     bids_folder, mixture_model='aprf')
 
     for ses_i, mode_desc in zip(sessions, mode_descs):
         print(f'\n  --- session {ses_i} ({mode_desc}) ---')
@@ -296,7 +348,7 @@ def _main_session_shift(subject, sub, sessions, masker, mask_desc,
         noise_tag = '_noise-spherical' if spherical_noise else ''
         out_fn = (out_dir /
                   f'sub-{subject}_ses-{ses_i}_task-abstractvalue'
-                  f'_mask-{mask_desc}_nvoxels-{n_voxels}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
+                  f'_mask-{mask_desc}_nvoxels-{sel_tag}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
         pd.DataFrame({'fisher_information': fisher_info.values}, index=stimuli).to_csv(
             out_fn, sep='\t', header=True)
         print(f'  saved to {out_fn}')
@@ -327,6 +379,10 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w', 'fmriprep-flair'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--fdr-alpha', type=float, default=None,
+                        help='FDR α on the whole-brain aprf R² mixture '
+                             '(overrides --n-voxels).')
+    parser.add_argument('--fdr-fallback-n-voxels', type=int, default=100)
     sph_grp = parser.add_mutually_exclusive_group()
     sph_grp.add_argument('--spherical-noise',    dest='spherical_noise',
                           action='store_true', default=True,
@@ -349,4 +405,6 @@ if __name__ == '__main__':
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, model=args.model,
          value_min=args.value_min, value_max=args.value_max,
-         spherical_noise=args.spherical_noise)
+         spherical_noise=args.spherical_noise,
+         fdr_alpha=args.fdr_alpha,
+         fdr_fallback_n_voxels=args.fdr_fallback_n_voxels)

@@ -62,7 +62,8 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
          n_basis=8, kappa=2.0, n_orientations=200, n_noise_iterations=1000,
          n_mc_samples=1000,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, spherical_noise=True):
+         smoothed=False, spherical_noise=True,
+         fdr_alpha=None, fdr_fallback_n_voxels=100):
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -108,13 +109,45 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
                         index=data.index, columns=data.columns)
     r2 = get_rsq(data, pred)
 
-    if n_voxels == 0:
+    if fdr_alpha is not None:
+        # FDR voxel selection from the whole-brain vonmises R² mixture
+        # (same selection as the EU + decode pipelines).
+        from abstract_values.encoding_models.compute_r2_mixture \
+            import get_brain_fdr_threshold
+        res = get_brain_fdr_threshold(
+            subject, model='vonmises', bids_folder=bids_folder,
+            alpha=fdr_alpha, smoothed=smoothed)
+        if res is None:
+            raise RuntimeError(
+                'Whole-brain vonmises mixture missing and auto-fit '
+                f'failed for sub-{subject}.')
+        thr = res['threshold']
+        if res['degenerate'] or not np.isfinite(thr):
+            sel = r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+            sel_label = (f'fdr{int(round(fdr_alpha * 100)):02d} → '
+                          f'fallback top-{fdr_fallback_n_voxels} '
+                          f'(mixture degenerate)')
+        else:
+            sel = r2[r2 > thr].index
+            if len(sel) < 10:
+                sel = r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
+                sel_label = (f'fdr{int(round(fdr_alpha * 100)):02d} → '
+                              f'fallback top-{fdr_fallback_n_voxels} '
+                              f'(only {(r2 > thr).sum()} passed)')
+            else:
+                sel_label = (f'fdr{int(round(fdr_alpha * 100)):02d} → '
+                              f'R² > {thr:.3f}')
+        sel_tag = f'fdr{int(round(fdr_alpha * 100)):02d}'
+    elif n_voxels == 0:
         sel = r2[r2 > 0].index
+        sel_label = 'all R²>0'
+        sel_tag = '0'
     else:
         sel = r2.sort_values(ascending=False).index[:n_voxels]
+        sel_label = f'top {n_voxels} by R²'
+        sel_tag = str(n_voxels)
 
-    print(f'  {len(sel)} voxels selected  '
-          f'(R² ≥ {float(r2.loc[sel].min()):.3f})')
+    print(f'  {len(sel)} voxels selected  ({sel_label})')
 
     weights_sel = weights[sel]
     data_sel    = data[sel]
@@ -181,7 +214,7 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
     noise_tag = '_noise-spherical' if spherical_noise else ''
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_task-abstractvalue'
-              f'_mask-{mask_desc}_nvoxels-{n_voxels}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
+              f'_mask-{mask_desc}_nvoxels-{sel_tag}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
 
     fisher_info.to_csv(out_fn, sep='\t', header=True)
     print(f'  saved to {out_fn}')
@@ -210,6 +243,11 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w', 'fmriprep-flair'])
     parser.add_argument('--smoothed', action='store_true')
+    parser.add_argument('--fdr-alpha', type=float, default=None,
+                        help='FDR α on the whole-brain vonmises R² mixture '
+                             'for voxel selection (overrides --n-voxels)')
+    parser.add_argument('--fdr-fallback-n-voxels', type=int, default=100,
+                        help='Fallback top-N when FDR mixture is degenerate.')
     sph_grp = parser.add_mutually_exclusive_group()
     sph_grp.add_argument('--spherical-noise',    dest='spherical_noise',
                           action='store_true',  default=True,
@@ -228,4 +266,6 @@ if __name__ == '__main__':
          n_noise_iterations=args.n_noise_iterations,
          n_mc_samples=args.n_mc_samples,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed, spherical_noise=args.spherical_noise)
+         smoothed=args.smoothed, spherical_noise=args.spherical_noise,
+         fdr_alpha=args.fdr_alpha,
+         fdr_fallback_n_voxels=args.fdr_fallback_n_voxels)

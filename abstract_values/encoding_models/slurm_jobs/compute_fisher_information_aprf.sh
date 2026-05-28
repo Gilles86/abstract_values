@@ -36,6 +36,7 @@ N_MC_SAMPLES="${N_MC_SAMPLES:-200}"   # reduced from braincoder default 1000 —
 N_VALUES="${N_VALUES:-200}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-1}"  # iid Gaussian by default (matches EU pipeline)
+FDR_ALPHA="${FDR_ALPHA:-}"   # if set, overrides N_VOXELS
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -55,6 +56,7 @@ ARGS=(
 [ "$MODEL" != "standard" ] && ARGS+=(--model "$MODEL")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
+[ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
 
 echo "compute_fi_aprf: sub-${PARTICIPANT_LABEL}  model=${MODEL}  roi=${ROI}  hemi=${HEMI}  deriv=${FMRIPREP_DERIV}"
 echo "Args: ${ARGS[*]}"
