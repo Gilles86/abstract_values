@@ -120,6 +120,11 @@ def load_stimulus_density(subjects):
 
 
 def _aggregate(df, x_col, y_col, grid):
+    """Per-subject interpolation onto `grid`, then cohort summary as
+    median + IQR (robust to outliers — one subject with a near-zero
+    sd_E at a single CHF can produce 1/sd_E values ~20× the cohort
+    median and would dominate a mean ± SEM curve).
+    """
     per_sub = []
     for _, g in df.groupby("subject"):
         g = g.sort_values(x_col)
@@ -128,12 +133,12 @@ def _aggregate(df, x_col, y_col, grid):
         per_sub.append(np.interp(grid, g[x_col].values, g[y_col].values,
                                   left=np.nan, right=np.nan))
     if not per_sub:
-        return None, None, 0
+        return None, None, None, np.empty((0, len(grid))), 0
     arr = np.asarray(per_sub)
-    n_eff = np.maximum(np.sum(~np.isnan(arr), axis=0), 1)
-    return (np.nanmean(arr, axis=0),
-            np.nanstd(arr, axis=0, ddof=1) / np.sqrt(n_eff),
-            arr.shape[0])
+    median = np.nanmedian(arr, axis=0)
+    q25 = np.nanpercentile(arr, 25, axis=0)
+    q75 = np.nanpercentile(arr, 75, axis=0)
+    return median, q25, q75, arr, arr.shape[0]
 
 
 def page(subjects, sel_tag, smoothed, noise, stim_dist, pdf):
@@ -154,23 +159,38 @@ def page(subjects, sel_tag, smoothed, noise, stim_dist, pdf):
         f"({sel_tag}  ·  {smooth_lbl}  ·  noise: {noise.upper()})",
         fontsize=10, y=1.04, color="0.15")
 
-    # ── Top: 1/SD vs CHF, per condition ───────────────────────────────────
+    # ── Top: 1/SD vs CHF, per condition (median + IQR band, robust) ──────
     ax = axes[0]
     last_xy = {}
+    y_max_for_view = 0.0
     for cond, sub_df in df.groupby("condition"):
-        mean, sem, n = _aggregate(sub_df, "value", "inv_sd", chf_grid)
-        if mean is None: continue
-        ax.plot(chf_grid, mean, color=COND_COLOUR[cond], lw=1.8,
-                label="_nolegend_")
-        ax.fill_between(chf_grid, mean - sem, mean + sem,
-                         color=COND_COLOUR[cond], alpha=0.22, linewidth=0)
-        last_xy[cond] = (chf_grid[-1], float(mean[-1]), n)
+        median, q25, q75, per_sub_arr, n = _aggregate(
+            sub_df, "value", "inv_sd", chf_grid)
+        if median is None: continue
+        # Per-subject thin traces — keeps outliers visible without
+        # dominating the summary line.
+        for row in per_sub_arr:
+            ax.plot(chf_grid, row, color=COND_COLOUR[cond], lw=0.5,
+                    alpha=0.18, zorder=1)
+        ax.fill_between(chf_grid, q25, q75,
+                         color=COND_COLOUR[cond], alpha=0.22,
+                         linewidth=0, zorder=2)
+        ax.plot(chf_grid, median, color=COND_COLOUR[cond], lw=2.0,
+                zorder=3, label="_nolegend_")
+        last_xy[cond] = (chf_grid[-1], float(median[-1]), n)
+        y_max_for_view = max(y_max_for_view,
+                              float(np.nanpercentile(q75, 99)))
     for cond, (x, y, n) in last_xy.items():
         ax.text(x + 0.6, y, "CDF" if cond == "cdf" else "InvCDF",
                 color=COND_COLOUR[cond], fontsize=8.5, fontweight="bold",
                 va="center")
+    # Y-limit to the 99th pct of the IQR-band top so a single
+    # near-zero-sd subject doesn't blow the scale.
+    if y_max_for_view > 0:
+        ax.set_ylim(0, y_max_for_view * 1.4)
     ax.set_ylabel(r"NPCr 1/SD  (CHF$^{-1}$)")
-    ax.set_title("Decoded discriminability per CHF",
+    ax.set_title("Decoded discriminability per CHF  "
+                  "(thin = per subject; thick = median; band = IQR)",
                   fontsize=9, color="0.2")
 
     # ── Bottom: stimulus density KDE, per condition ───────────────────────
