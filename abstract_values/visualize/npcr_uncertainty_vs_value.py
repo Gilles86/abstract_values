@@ -1,22 +1,25 @@
-"""NPCr decoder uncertainty (expected SD) as a function of CHF value,
-overlaid with the per-condition stimulus density.
+"""NPCr decoder **inverse-SD** (1 / sqrt(var_E)) as a function of CHF
+value, shown next to the per-condition stimulus density on the same
+x-axis.
 
-Tests the density-discriminability tradeoff prediction:
-  SD should peak where stimulus density peaks, because voxels clump
-  their preferred CHF in the dense region (efficient code) and lose
-  fine discrimination there.
+Why 1/SD and not SD: under an efficient population code, Fisher
+information scales with the squared stimulus density (FI ∝ p(s)²),
+and discriminability per unit CHF scales with the square root of FI:
+
+    1 / SD  ∝  √FI  ∝  p(s)
+
+So the efficient-coding prediction is that the **1/SD curve should
+look like the stimulus-density curve**. Same x-axis, comparable
+shape — no exponent to read.
+
+That's the inverse of the puzzle the user pointed out: the SD plot
+shows uncertainty peaks at dense CHF values, which looks weird
+because SD is dominated by the regression-to-mode bias variance.
+Flipping to 1/SD swaps the curves and makes the test direct: where
+stimuli are dense, can the decoder discriminate finely?
 
 Same EU TSVs as mapping_invariance / compare_v1_npcr_uncertainty —
 ``aprf-session-shift/sub-XX/ses-Y/func/`` with the spherical-noise tag.
-
-Layout per page:
-  - Top:    NPCr expected SD vs CHF, per condition, mean ± SEM band.
-  - Bottom: Per-condition stimulus density (KDE) on the same CHF
-            axis, scaled so peaks are visually comparable to the SD
-            curves above.
-
-One page per (selection, smoothing) combo, with spherical-only
-(matching the user's preference established in compare_v1_npcr_uncertainty).
 
 Usage:
     python -m abstract_values.visualize.npcr_uncertainty_vs_value
@@ -89,6 +92,10 @@ def load_npcr(subjects, sel_tag, smoothed, noise):
                 continue
             df = pd.read_csv(p, sep="\t")
             df["sd_E"]     = np.sqrt(df["var_E"])
+            # Inverse SD = discriminability per unit CHF. Guards against
+            # div-by-zero on the rare voxel-set where var_E collapses.
+            df["inv_sd"]   = 1.0 / np.where(df["sd_E"] > 1e-6,
+                                              df["sd_E"], np.nan)
             df["subject"]  = s
             df["session"]  = ses
             df["condition"] = sub.get_mapping(ses)
@@ -142,28 +149,28 @@ def page(subjects, sel_tag, smoothed, noise, stim_dist, pdf):
                               gridspec_kw={"height_ratios": [3, 1]})
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
     fig.suptitle(
-        f"NPCr uncertainty vs value (CHF axis)  ·  "
-        f"{sel_tag}  ·  {smooth_lbl}  ·  noise: {noise.upper()}",
-        fontsize=10, y=1.03, color="0.15")
+        f"NPCr discriminability (1/SD) vs CHF — efficient coding predicts "
+        f"this tracks stimulus density\n"
+        f"({sel_tag}  ·  {smooth_lbl}  ·  noise: {noise.upper()})",
+        fontsize=10, y=1.04, color="0.15")
 
-    # ── Top: SD vs CHF, per condition ──────────────────────────────────────
+    # ── Top: 1/SD vs CHF, per condition ───────────────────────────────────
     ax = axes[0]
     last_xy = {}
     for cond, sub_df in df.groupby("condition"):
-        mean, sem, n = _aggregate(sub_df, "value", "sd_E", chf_grid)
+        mean, sem, n = _aggregate(sub_df, "value", "inv_sd", chf_grid)
         if mean is None: continue
         ax.plot(chf_grid, mean, color=COND_COLOUR[cond], lw=1.8,
                 label="_nolegend_")
         ax.fill_between(chf_grid, mean - sem, mean + sem,
                          color=COND_COLOUR[cond], alpha=0.22, linewidth=0)
         last_xy[cond] = (chf_grid[-1], float(mean[-1]), n)
-    # Direct end-of-line labels
     for cond, (x, y, n) in last_xy.items():
         ax.text(x + 0.6, y, "CDF" if cond == "cdf" else "InvCDF",
                 color=COND_COLOUR[cond], fontsize=8.5, fontweight="bold",
                 va="center")
-    ax.set_ylabel("NPCr expected SD (CHF)")
-    ax.set_title("Decoded SD per CHF — peaks where stimuli are dense?",
+    ax.set_ylabel(r"NPCr 1/SD  (CHF$^{-1}$)")
+    ax.set_title("Decoded discriminability per CHF",
                   fontsize=9, color="0.2")
 
     # ── Bottom: stimulus density KDE, per condition ───────────────────────
