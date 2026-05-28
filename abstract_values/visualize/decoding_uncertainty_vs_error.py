@@ -23,6 +23,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.stats import spearmanr
 
@@ -31,12 +32,20 @@ from abstract_values.utils.data import BIDS_FOLDER
 mpl.rcParams.update({
     "font.family": "Helvetica",
     "font.sans-serif": ["Helvetica", "Helvetica Neue", "TeX Gyre Heros", "Arial"],
-    "font.size": 9, "axes.labelsize": 9, "axes.titlesize": 9,
+    "font.size": 9, "axes.labelsize": 10, "axes.titlesize": 10,
     "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
     "axes.linewidth": 0.8, "axes.spines.top": False, "axes.spines.right": False,
+    "axes.labelpad": 4,
     "xtick.direction": "out", "ytick.direction": "out",
-    "pdf.fonttype": 42, "ps.fonttype": 42, "figure.dpi": 150, "savefig.dpi": 300,
+    "xtick.major.size": 3, "ytick.major.size": 3,
+    "xtick.major.width": 0.8, "ytick.major.width": 0.8,
+    "lines.linewidth": 1.2, "lines.markersize": 4,
+    "legend.frameon": False, "legend.handlelength": 1.5,
+    "pdf.fonttype": 42, "ps.fonttype": 42, "svg.fonttype": "none",
+    "figure.dpi": 150, "savefig.dpi": 300,
+    "savefig.bbox": "tight", "savefig.pad_inches": 0.02,
 })
+sns.set_context("paper")
 
 BIDS = Path(BIDS_FOLDER)
 DECODE = BIDS / "derivatives" / "decoding"
@@ -83,21 +92,31 @@ def _per_trial(p, circular):
     return true, dec, post_sd, abs_err
 
 
-def collect(subjects, nvoxels, smoothed, noise, n_bins=5):
+def collect(subjects, nvoxels, smoothed, noise, n_bins=5, control_stim=False):
     """For each panel and each subject: per-bin (rank-binned post_SD) mean |err|
     and Spearman ρ(post_SD, |err|). Returns a dict {(q,roi): list of (subject,
-    bin_means_df, rho, n_trials)}."""
+    bin_means_df, rho, n_trials)}.
+
+    ``control_stim``: subtract the per-(subject, true-stim) mean from both SD
+    and |err| before binning/correlating. Tests whether the SD↔|err| coupling
+    holds *within* each stimulus level — i.e., over and above the obvious
+    effect that some stimuli are intrinsically harder."""
     out = {(q, roi): [] for q, roi, *_ in PANELS}
     for q, roi, _, unit, circular in PANELS:
         for s in subjects:
             p = _pars_path(q, s, roi, nvoxels, smoothed, noise)
             if p is None:
                 continue
-            _, _, sd, abs_err = _per_trial(p, circular)
+            true, _, sd, abs_err = _per_trial(p, circular)
             keep = np.isfinite(sd) & np.isfinite(abs_err)
-            sd, abs_err = sd[keep], abs_err[keep]
+            true, sd, abs_err = true[keep], sd[keep], abs_err[keep]
             if circular:
                 sd, abs_err = np.rad2deg(sd), np.rad2deg(abs_err)
+            if control_stim:
+                # Residualise within each true-stim bin (the 23-level grid).
+                tdf = pd.DataFrame({"t": np.round(true, 4), "sd": sd, "err": abs_err})
+                sd      = (tdf["sd"]  - tdf.groupby("t")["sd"].transform("mean")).values
+                abs_err = (tdf["err"] - tdf.groupby("t")["err"].transform("mean")).values
             if len(sd) < n_bins * 4:
                 continue
             ranks = pd.Series(sd).rank(method="first") - 1
@@ -109,65 +128,106 @@ def collect(subjects, nvoxels, smoothed, noise, n_bins=5):
     return out
 
 
-def _panel(ax, q, roi, label, unit, rows, n_bins):
+def _panel(ax, q, roi, label, unit, rows, n_bins, control_stim):
     """Per-subject quintile lines + group mean ± SEM."""
     if not rows:
+        ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                transform=ax.transAxes, color="0.55", fontsize=9)
         ax.set_axis_off()
-        ax.text(0.5, 0.5, "no data", ha="center", va="center",
-                transform=ax.transAxes, color="0.6")
-        return
-    # per-subject thin lines
+        return None
+    col = ROI_COLOUR[roi]
+    # per-subject lines: pale, narrow, low alpha — the data swarm
     for _, g, _, _ in rows:
-        ax.plot(g["bin"] + 1, g["err"], color="0.78", lw=0.7, zorder=1)
+        ax.plot(g["bin"] + 1, g["err"], color="0.72", lw=0.5, alpha=0.7, zorder=1)
     # group mean ± SEM across subjects, per bin
     long = pd.concat([g.assign(subject=s) for s, g, _, _ in rows], ignore_index=True)
     grp = long.groupby("bin")["err"].agg(["mean", "sem"]).reset_index()
-    col = ROI_COLOUR[roi]
-    ax.plot(grp["bin"] + 1, grp["mean"], color=col, lw=2.0, zorder=3, label="Group mean")
+    ax.plot(grp["bin"] + 1, grp["mean"], color=col, lw=2.0, zorder=3)
     ax.fill_between(grp["bin"] + 1, grp["mean"] - grp["sem"], grp["mean"] + grp["sem"],
-                    color=col, alpha=0.22, lw=0, zorder=2)
-    rhos = [r for _, _, r, _ in rows]
+                    color=col, alpha=0.25, lw=0, zorder=2)
+    # reference line at 0 under residualisation (negative residuals are the
+    # informative half — low-SD trials err less than the per-stim mean)
+    if control_stim or (long["err"] < 0).any():
+        ax.axhline(0, color="0.65", lw=0.5, ls="--", zorder=0)
+    rhos = np.array([r for _, _, r, _ in rows])
     rho_mean = float(np.nanmean(rhos))
-    n_pos = int(np.sum(np.array(rhos) > 0))
-    ax.set_xlabel("Posterior-SD quintile  (1=lowest)")
-    ax.set_ylabel(f"Mean |error|  ({unit})")
+    n_pos = int(np.sum(rhos > 0))
     ax.set_xticks(range(1, n_bins + 1))
-    ax.set_title(f"{label} · {roi}", fontsize=10, color="0.2")
-    ax.set_ylim(bottom=0)
+    ax.set_xlabel("Posterior-SD quintile")
+    ylab = ("Δ|Error|" if control_stim else "Mean |error|") + f" ({unit})"
+    ax.set_ylabel(ylab)
+    # ρ annotation: matched colour, no box, upper-left
     ax.text(0.04, 0.96,
-            fr"$\overline{{\rho}}_{{Sp}}$ = {rho_mean:+.2f}" + "\n"
-            f"+ρ in {n_pos}/{len(rhos)} subs",
-            transform=ax.transAxes, ha="left", va="top", fontsize=8,
-            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.8", lw=0.5))
+            f"ρ̄ = {rho_mean:+.2f}\n{n_pos}/{len(rhos)} +",
+            transform=ax.transAxes, ha="left", va="top",
+            fontsize=8, color=col, linespacing=1.2)
+    return rho_mean
 
 
-def run(subjects, nvoxels, smoothed, noise, n_bins, out):
-    data = collect(subjects, nvoxels, smoothed, noise, n_bins=n_bins)
+def _add_panel_letter(ax, letter):
+    ax.text(-0.22, 1.04, letter, transform=ax.transAxes,
+            fontsize=11, fontweight="bold", va="bottom", ha="right")
+
+
+def run(subjects, variants, smoothed, n_bins, control_stim, out):
+    """variants: list of (nvoxels, noise) tuples → one PDF page each."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    smooth_lbl = "smoothed" if smoothed else "unsmoothed"
+    ctrl_note = ("Mean ± SEM across subjects; subject lines in light gray. "
+                 "Within-stimulus residualisation: per (subject, true-stim) means "
+                 "subtracted from both SD and |error| before quintile-binning, so "
+                 "the relationship is tested *over and above* stimulus difficulty.") \
+        if control_stim else \
+        ("Mean ± SEM across subjects; subject lines in light gray.")
+    all_rows = []
     with PdfPages(out) as pdf:
-        fig, axes = plt.subplots(2, 2, figsize=(10, 7.2), constrained_layout=True)
-        for ax, (q, roi, label, unit, _) in zip(axes.ravel(), PANELS):
-            _panel(ax, q, roi, label, unit, data[(q, roi)], n_bins)
-        fig.suptitle("Trial-level calibration: posterior SD vs empirical |error|  "
-                     f"·  {smooth_lbl}  ·  nvoxels={nvoxels}  ·  noise={noise}",
-                     fontsize=11, y=1.04)
-        pdf.savefig(fig, bbox_inches="tight")
-        plt.close(fig)
-    # sidecar: per-subject Spearman correlations
-    rows = []
-    for (q, roi), entries in data.items():
-        for s, _, rho, n in entries:
-            rows.append(dict(quantity=q, roi=roi, subject=s, rho=rho, n=n))
-    pd.DataFrame(rows).to_csv(out.with_suffix(".tsv"), sep="\t", index=False)
-    print(f"Wrote {out}\nSidecar: {out.with_suffix('.tsv')}")
-    # print group summary
-    for (q, roi), entries in data.items():
-        rhos = [r for _, _, r, _ in entries]
-        if rhos:
-            n_pos = int(np.sum(np.array(rhos) > 0))
-            print(f"  {q:>6s} · {roi:<9s}  mean ρ = {np.nanmean(rhos):+.3f}  "
-                  f"(+ρ in {n_pos}/{len(rhos)} subs)")
+        for nvoxels, noise in variants:
+            data = collect(subjects, nvoxels, smoothed, noise,
+                            n_bins=n_bins, control_stim=control_stim)
+            # sharey='row' so V1 and NPCr of the same quantity sit on the same scale
+            fig, axes = plt.subplots(2, 2, figsize=(7.5, 6.0),
+                                     sharex=True, sharey="row",
+                                     constrained_layout=True)
+            for ax, letter, (q, roi, label, unit, _) in zip(
+                    axes.ravel(), "ABCD", PANELS):
+                rho = _panel(ax, q, roi, label, unit, data[(q, roi)],
+                             n_bins, control_stim)
+                _add_panel_letter(ax, letter)
+            # direct-label the ROI as small text inside each panel (top-right),
+            # so panel titles aren't required and the eye lands on the data
+            for ax, (q, roi, label, _, _) in zip(axes.ravel(), PANELS):
+                ax.text(0.97, 0.96, f"{label} · {roi}",
+                        transform=ax.transAxes, ha="right", va="top",
+                        fontsize=8.5, color="0.25")
+            # (No "higher SD -> larger error" arrow — the upward slope + the
+            # axhline-at-0 + the ρ̄ annotation already tell the reader the
+            # story; an extra arrow would collide with the in-panel ROI
+            # label and add ink without adding information.)
+            # compact suptitle: only the variant identity
+            fig.suptitle(f"nvoxels = {nvoxels}  ·  noise = {noise}",
+                         fontsize=11, y=1.02)
+            sns.despine(fig=fig, offset=5, trim=True)
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
+            print(f"\n=== nvoxels={nvoxels}  noise={noise} ===")
+            for (q, roi), entries in data.items():
+                rhos = [r for _, _, r, _ in entries]
+                if rhos:
+                    n_pos = int(np.sum(np.array(rhos) > 0))
+                    print(f"  {q:>6s} · {roi:<9s}  n_subs={len(rhos):2d}  "
+                          f"mean ρ = {np.nanmean(rhos):+.3f}  "
+                          f"(+ρ in {n_pos}/{len(rhos)})")
+                for s, _, rho, n in entries:
+                    all_rows.append(dict(nvoxels=nvoxels, noise=noise,
+                                          quantity=q, roi=roi,
+                                          subject=s, rho=rho, n=n,
+                                          control_stim=control_stim))
+        # footer note on residualisation (caption-level info as a small
+        # in-PDF page; readers skimming panels still get the message via
+        # the in-panel annotation + axis labels)
+        # (Skip a separate caption page — keep the PDF terse; the suptitle
+        # +  Δ|Error| ylab already say what's residualised.)
+    pd.DataFrame(all_rows).to_csv(out.with_suffix(".tsv"), sep="\t", index=False)
+    print(f"\nWrote {out}\nSidecar: {out.with_suffix('.tsv')}")
 
 
 def discover(nvoxels, smoothed, noise):
@@ -184,18 +244,31 @@ def discover(nvoxels, smoothed, noise):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--subjects", nargs="+", default=None)
-    p.add_argument("--nvoxels", default="100")
-    p.add_argument("--noise", default="full", choices=["full", "spherical", "geodesic"])
+    p.add_argument("--variants", nargs="+",
+                   default=["100:full", "100:spherical", "fdr05:full", "fdr05:spherical"],
+                   help="list of nvoxels:noise tokens — one PDF page each")
     p.add_argument("--smoothed", action="store_true")
     p.add_argument("--n-bins", type=int, default=5)
+    p.add_argument("--no-control-stim", action="store_true",
+                   help="don't residualise within each true-stim level (raw analysis)")
     p.add_argument("--out", default=str(BIDS / "derivatives" / "qa"
                                         / "decoding_uncertainty_vs_error.pdf"))
     args = p.parse_args()
-    subjects = args.subjects or discover(args.nvoxels, args.smoothed, args.noise)
+    variants = [tuple(v.split(":", 1)) for v in args.variants]
+    # union of subjects across variants
+    if args.subjects:
+        subjects = args.subjects
+    else:
+        sset = set()
+        for nv, noise in variants:
+            sset.update(discover(nv, args.smoothed, noise))
+        subjects = sorted(sset, key=lambda s: (0 if s[0].isdigit() else 1, s))
     if not subjects:
-        raise SystemExit(f"No subjects found for nvoxels={args.nvoxels} noise={args.noise}")
+        raise SystemExit("No subjects with any of the requested variants.")
     print(f"Subjects ({len(subjects)}): {subjects}")
-    run(subjects, args.nvoxels, args.smoothed, args.noise, args.n_bins, Path(args.out))
+    print(f"Variants: {variants}")
+    run(subjects, variants, args.smoothed, args.n_bins,
+        not args.no_control_stim, Path(args.out))
 
 
 if __name__ == "__main__":
