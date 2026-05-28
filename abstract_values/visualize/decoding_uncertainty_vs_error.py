@@ -154,7 +154,8 @@ def _panel(ax, q, roi, label, unit, rows, n_bins, control_stim):
     n_pos = int(np.sum(rhos > 0))
     ax.set_xticks(range(1, n_bins + 1))
     ax.set_xlabel("Posterior-SD quintile")
-    ylab = ("Δ|Error|" if control_stim else "Mean |error|") + f" ({unit})"
+    ylab = ("|Error| − per-stim mean" if control_stim
+            else "Mean |error|") + f" ({unit})"
     ax.set_ylabel(ylab)
     # ρ annotation: matched colour, no box, upper-left
     ax.text(0.04, 0.96,
