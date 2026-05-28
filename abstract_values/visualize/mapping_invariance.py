@@ -71,10 +71,16 @@ DEFAULT_SEL = "nvoxels-fdr05"
 DEFAULT_NOISE = "spherical"
 
 
-def _v1_tsv(subject, session, sel_tag, smoothed, noise):
+def _v1_tsv(subject, session, sel_tag, smoothed, noise,
+             session_shift=False):
+    """Path to the per-session V1 EU TSV. When ``session_shift=True``,
+    look in ``vonmises-session-shift/`` (the per-session-weights output
+    that lets V1 voxels remap between conditions); otherwise the
+    legacy joint-fit ``vonmises/`` output."""
     smooth = "_smoothed" if smoothed else ""
     noise_tag = f"_noise-{noise}" if noise else ""
-    return (DERIV / "vonmises" / f"sub-{subject}" / f"ses-{session}" / "func"
+    subdir = "vonmises-session-shift" if session_shift else "vonmises"
+    return (DERIV / subdir / f"sub-{subject}" / f"ses-{session}" / "func"
             / f"sub-{subject}_ses-{session}_task-abstractvalue"
               f"_mask-BensonV1_hemi-LR_{sel_tag}_nsims-1000"
               f"{noise_tag}{smooth}_desc-expected_decoded_orientation_pe.tsv")
@@ -125,7 +131,7 @@ def _orientation_lookup(subjects):
     return out
 
 
-def load_v1(subjects, sel_tag, smoothed, noise):
+def load_v1(subjects, sel_tag, smoothed, noise, session_shift=False):
     rows = []
     for s in subjects:
         try:
@@ -133,7 +139,8 @@ def load_v1(subjects, sel_tag, smoothed, noise):
         except Exception:
             continue
         for ses in sub.get_sessions():
-            p = _v1_tsv(s, ses, sel_tag, smoothed, noise)
+            p = _v1_tsv(s, ses, sel_tag, smoothed, noise,
+                         session_shift=session_shift)
             if not p.exists():
                 continue
             df = pd.read_csv(p, sep="\t")
@@ -308,7 +315,17 @@ def page(subjects, sel_tag, smoothed, noise, lookup, pdf):
     # simulator's mean_E. The simulated mean would just retrace the
     # encoding model and isn't an interesting test of the mapping
     # invariance / remapping claim.
-    df_v1_sim   = load_v1(subjects, sel_tag, smoothed, noise)
+    # Prefer V1 session-shift EU TSVs when they exist (the new fair-
+    # comparison weights — V1 voxels allowed to remap between conditions).
+    # Fall back to the joint vonmises fit if the session-shift batch
+    # hasn't landed yet for this (sel, smooth, noise) cell.
+    df_v1_sim = load_v1(subjects, sel_tag, smoothed, noise,
+                          session_shift=True)
+    v1_sim_source = "session-shift"
+    if df_v1_sim.empty:
+        df_v1_sim = load_v1(subjects, sel_tag, smoothed, noise,
+                              session_shift=False)
+        v1_sim_source = "joint"
     df_npcr_sim = load_npcr(subjects, sel_tag, smoothed, noise, lookup)
 
     # Empirical (real-trial) data. Per ROI, prefer spherical real-trial
