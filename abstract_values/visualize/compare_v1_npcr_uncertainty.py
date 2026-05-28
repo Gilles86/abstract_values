@@ -198,16 +198,27 @@ def _interp_group(df, ori_grid):
     return mean_sd, sem_sd, per_sub.shape[0]
 
 
-def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
-    # Load both noise variants for V1 and NPCr. Default ("") = residual
-    # covariance from the Student-t fit on training residuals; spherical =
-    # iid Gaussian (ignoring off-diagonal voxel correlations). Overlaying
-    # the two shows how much of the decoded SD comes from the correlation
-    # structure.
-    df_v1_def = load_v1(subjects, sel_tag, smoothed, noise="")
-    df_v1_sph = load_v1(subjects, sel_tag, smoothed, noise="spherical")
-    df_n_def  = load_npcr(subjects, sel_tag, smoothed, lookup, noise="")
-    df_n_sph  = load_npcr(subjects, sel_tag, smoothed, lookup, noise="spherical")
+def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf,
+                     which_noise="both"):
+    """Render one page comparing V1 vs NPCr expected SD.
+
+    ``which_noise``:
+      - ``"spherical"`` — single-variant page, spherical only. Used in
+        the first section of the PDF (the preferred noise model story).
+      - ``"residual"`` — single-variant page, residual only. Used in
+        the second section as a sanity check / legacy reference.
+      - ``"both"`` — both noise variants overlaid on the same page
+        (solid residual + dashed spherical). Backward-compat for
+        downstream callers.
+    """
+    df_v1_def = load_v1(subjects, sel_tag, smoothed, noise="") \
+                  if which_noise in ("residual", "both") else pd.DataFrame()
+    df_v1_sph = load_v1(subjects, sel_tag, smoothed, noise="spherical") \
+                  if which_noise in ("spherical", "both") else pd.DataFrame()
+    df_n_def  = load_npcr(subjects, sel_tag, smoothed, lookup, noise="") \
+                  if which_noise in ("residual", "both") else pd.DataFrame()
+    df_n_sph  = load_npcr(subjects, sel_tag, smoothed, lookup, noise="spherical") \
+                  if which_noise in ("spherical", "both") else pd.DataFrame()
 
     if all(df.empty for df in (df_v1_def, df_v1_sph, df_n_def, df_n_sph)):
         return
@@ -230,16 +241,28 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.2),
                              constrained_layout=True, sharey=False)
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
+    noise_lbl = (which_noise.upper() if which_noise != "both"
+                  else "residual vs spherical")
     fig.suptitle(f"Expected decoder SD vs orientation  ·  "
-                 f"{sel_tag}  ·  {smooth_lbl}",
+                 f"{sel_tag}  ·  {smooth_lbl}  ·  noise: {noise_lbl}",
                  fontsize=10, y=1.03, color="0.15")
 
     # V1 panel — default-noise (solid) + spherical-noise (dashed) overlay
     ax = axes[0]
     v1_has_spherical = not df_v1_sph.empty
-    for noise_label, df_noise, ls, alpha_band in (
-            ("residual",  df_v1_def, "-",  0.22),
-            ("spherical", df_v1_sph, "--", 0.12)):
+    # When only one noise variant is requested, draw it solid (it IS the
+    # data, not a contrast). When both are shown, keep solid=residual
+    # and dashed=spherical for the comparison overlay.
+    if which_noise == "both":
+        v1_iter = (("residual",  df_v1_def, "-",  0.22),
+                    ("spherical", df_v1_sph, "--", 0.12))
+    else:
+        v1_iter = (
+            (which_noise,
+             df_v1_sph if which_noise == "spherical" else df_v1_def,
+             "-", 0.22),
+        )
+    for noise_label, df_noise, ls, alpha_band in v1_iter:
         if df_noise.empty:
             continue
         for cond, sub_df in df_noise.groupby("condition"):
@@ -258,18 +281,29 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
             ax.axvspan(lo, hi, color="0.85", alpha=0.5, zorder=0)
     ax.set_xlabel("Orientation (deg)")
     ax.set_ylabel(r"V1 decoder SD  $\sqrt{\mathrm{Var}[\hat{\theta}]}$  (deg)")
-    v1_subt = ("V1 (vonmises)  —  residual (solid) vs spherical (dashed) noise"
-               if v1_has_spherical
-               else "V1 (vonmises)  —  decoded ORIENTATION")
+    v1_subt = {
+        "spherical": "V1 (vonmises)  —  spherical noise",
+        "residual":  "V1 (vonmises)  —  residual noise",
+        "both": ("V1 (vonmises)  —  residual (solid) vs spherical (dashed)"
+                  if v1_has_spherical
+                  else "V1 (vonmises)  —  decoded ORIENTATION"),
+    }[which_noise]
     ax.set_title(v1_subt, fontsize=9, color="0.2")
     ax.legend(loc="upper right", fontsize=7)
 
     # NPCr panel — default-noise (solid) + spherical-noise (dashed) overlay
     ax = axes[1]
     has_spherical = not df_n_sph.empty
-    for noise_label, df_noise, ls, alpha_band in (
-            ("residual",  df_n_def, "-",  0.22),
-            ("spherical", df_n_sph, "--", 0.12)):
+    if which_noise == "both":
+        n_iter = (("residual",  df_n_def, "-",  0.22),
+                  ("spherical", df_n_sph, "--", 0.12))
+    else:
+        n_iter = (
+            (which_noise,
+             df_n_sph if which_noise == "spherical" else df_n_def,
+             "-", 0.22),
+        )
+    for noise_label, df_noise, ls, alpha_band in n_iter:
         if df_noise.empty:
             continue
         for cond, sub_df in df_noise.groupby("condition"):
@@ -283,9 +317,13 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf):
                             linewidth=0)
     ax.set_xlabel("Corresponding orientation (deg)")
     ax.set_ylabel(r"NPCr decoder SD  $\sqrt{\mathrm{Var}[\hat{V}]}$  (CHF)")
-    subt = ("NPCr (aprf, value)  —  residual (solid) vs spherical (dashed) noise"
-            if has_spherical
-            else "NPCr (aprf, value)  —  projected via CHF→orientation")
+    subt = {
+        "spherical": "NPCr (aprf, value)  —  spherical noise",
+        "residual":  "NPCr (aprf, value)  —  residual noise",
+        "both": ("NPCr (aprf, value)  —  residual (solid) vs spherical (dashed)"
+                  if has_spherical
+                  else "NPCr (aprf, value)  —  projected via CHF→orientation"),
+    }[which_noise]
     ax.set_title(subt, fontsize=9, color="0.2")
     ax.legend(loc="upper right", fontsize=7)
 
@@ -390,12 +428,17 @@ def run(subjects, out, nsims=1000):
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out) as pdf:
-        # 4 pages: each (selection × smoothing) combo
-        for sel_tag in SELECTIONS:
-            for smoothed in SMOOTHINGS:
-                print(f"\n=== {sel_tag}  smoothed={smoothed} ===")
-                page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf)
-        # Behavior reference
+        # Outer noise loop: spherical first (preferred / cleaner story),
+        # then residual (sanity check / legacy). Each noise section
+        # iterates the 4 (sel × smoothing) cells.
+        for which_noise in ("spherical", "residual"):
+            print(f"\n────── {which_noise.upper()} NOISE SECTION ──────")
+            for sel_tag in SELECTIONS:
+                for smoothed in SMOOTHINGS:
+                    print(f"  {sel_tag}  smoothed={smoothed}")
+                    page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup,
+                                     pdf, which_noise=which_noise)
+        # Behavior reference (last)
         page_behavior_overlay(pdf)
 
     print(f"\nWrote {out}")
