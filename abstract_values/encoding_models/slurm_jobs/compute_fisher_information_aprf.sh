@@ -35,6 +35,7 @@ N_VOXELS="${N_VOXELS:-250}"
 N_MC_SAMPLES="${N_MC_SAMPLES:-200}"   # reduced from braincoder default 1000 — 1000 hits int32 overflow in TF Jacobian (UnsortedSegmentSum) at 250 voxels × 200 values
 N_VALUES="${N_VALUES:-200}"
 SMOOTHED="${SMOOTHED:-0}"
+SPHERICAL="${SPHERICAL:-1}"  # iid Gaussian by default (matches EU pipeline)
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -53,6 +54,7 @@ ARGS=(
 [ -n "$SESSION" ] && ARGS+=(--sessions $SESSION)
 [ "$MODEL" != "standard" ] && ARGS+=(--model "$MODEL")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
 
 echo "compute_fi_aprf: sub-${PARTICIPANT_LABEL}  model=${MODEL}  roi=${ROI}  hemi=${HEMI}  deriv=${FMRIPREP_DERIV}"
 echo "Args: ${ARGS[*]}"

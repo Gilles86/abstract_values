@@ -64,16 +64,18 @@ def get_value_paradigm(sub, sessions):
 
 def _fit_and_compute_fi(model_obj, pars_df, sel, data_sel, paradigm,
                          n_noise_iterations, n_mc_samples, n_values,
-                         value_min=0.5, value_max=50.0):
+                         value_min=0.5, value_max=50.0,
+                         spherical_noise=True):
     """Fit noise model and compute Fisher information. Returns (stimuli, fisher_info)."""
     model_obj.parameters = pars_df
     model_obj.apply_mask(sel)
     model_obj.init_pseudoWWT(paradigm['x'].values, model_obj.parameters)
-    print(f'  fitting noise model ({n_noise_iterations} iterations)...')
+    print(f'  fitting noise model ({n_noise_iterations} iterations, '
+          f'spherical={spherical_noise})...')
     residfit = ResidualFitter(model_obj, data_sel, paradigm)
     omega, dof = residfit.fit(
         init_sigma2=1e-2, init_dof=10.0,
-        learning_rate=0.05,
+        learning_rate=0.05, spherical=spherical_noise,
         max_n_iterations=n_noise_iterations)
     dof_str = f'{float(dof):.1f}' if dof is not None else 'None (Gaussian)'
     print(f'  noise model: dof={dof_str}')
@@ -98,7 +100,8 @@ def main(subject, sessions=None, roi='NPCr', hemi='None', n_voxels=250,
          n_values=200, n_noise_iterations=1000, n_mc_samples=1000,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, model='standard',
-         value_min=0.5, value_max=50.0):
+         value_min=0.5, value_max=50.0,
+         spherical_noise=True):
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -193,7 +196,8 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
     stimuli, fisher_info = _fit_and_compute_fi(
         model_obj, pars_df, sel, data[sel], paradigm,
         n_noise_iterations, n_mc_samples, n_values,
-        value_min=value_min, value_max=value_max)
+        value_min=value_min, value_max=value_max,
+        spherical_noise=spherical_noise)
 
     out_dir = bids_folder / 'derivatives' / 'encoding_models' / 'aprf' / f'sub-{subject}'
     if ses_dir:
@@ -201,9 +205,10 @@ def _main_standard(subject, sub, sessions, masker, mask_desc, ref_betas,
     out_dir = out_dir / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    noise_tag = '_noise-spherical' if spherical_noise else ''
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_task-abstractvalue'
-              f'_mask-{mask_desc}_nvoxels-{n_voxels}{smooth_label}_desc-fisherinfo_pe.tsv')
+              f'_mask-{mask_desc}_nvoxels-{n_voxels}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
     pd.DataFrame({'fisher_information': fisher_info.values}, index=stimuli).to_csv(
         out_fn, sep='\t', header=True)
     print(f'  saved to {out_fn}')
@@ -280,16 +285,18 @@ def _main_session_shift(subject, sub, sessions, masker, mask_desc,
                                    parameterisation='mode_fwhm_natural')
         stimuli, fisher_info = _fit_and_compute_fi(
             model_obj, pars_df, sel, ses_data[sel], ses_paradigm,
-            n_noise_iterations, n_mc_samples, n_values)
+            n_noise_iterations, n_mc_samples, n_values,
+            spherical_noise=spherical_noise)
 
         out_dir = (bids_folder / 'derivatives' / 'encoding_models'
                    / 'aprf-session-shift' / f'sub-{subject}'
                    / f'ses-{ses_i}' / 'func')
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        noise_tag = '_noise-spherical' if spherical_noise else ''
         out_fn = (out_dir /
                   f'sub-{subject}_ses-{ses_i}_task-abstractvalue'
-                  f'_mask-{mask_desc}_nvoxels-{n_voxels}{smooth_label}_desc-fisherinfo_pe.tsv')
+                  f'_mask-{mask_desc}_nvoxels-{n_voxels}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
         pd.DataFrame({'fisher_information': fisher_info.values}, index=stimuli).to_csv(
             out_fn, sep='\t', header=True)
         print(f'  saved to {out_fn}')
@@ -320,6 +327,15 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w', 'fmriprep-flair'])
     parser.add_argument('--smoothed', action='store_true')
+    sph_grp = parser.add_mutually_exclusive_group()
+    sph_grp.add_argument('--spherical-noise',    dest='spherical_noise',
+                          action='store_true', default=True,
+                          help='(default) iid Gaussian residual noise. '
+                               'Output filename gets _noise-spherical tag.')
+    sph_grp.add_argument('--no-spherical-noise', dest='spherical_noise',
+                          action='store_false',
+                          help='Fit full residual covariance instead. '
+                               'Output: no _noise-* tag (legacy filename).')
     parser.add_argument('--model', default='standard',
                         choices=['standard', 'session-shift'],
                         help='aPRF model type (default: standard)')
@@ -332,4 +348,5 @@ if __name__ == '__main__':
          n_mc_samples=args.n_mc_samples,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, model=args.model,
-         value_min=args.value_min, value_max=args.value_max)
+         value_min=args.value_min, value_max=args.value_max,
+         spherical_noise=args.spherical_noise)

@@ -62,7 +62,7 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
          n_basis=8, kappa=2.0, n_orientations=200, n_noise_iterations=1000,
          n_mc_samples=1000,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False):
+         smoothed=False, spherical_noise=True):
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -125,7 +125,7 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
                               parameters=basis_pars, weights=weights_sel)
     omega, dof = residfit.fit(
         init_sigma2=1e-2, init_dof=10.0,
-        learning_rate=0.05,
+        learning_rate=0.05, spherical=spherical_noise,
         max_n_iterations=n_noise_iterations)
     dof_str = f'{float(dof):.1f}' if dof is not None else 'None (Gaussian)'
     print(f'  noise model: dof={dof_str}')
@@ -178,9 +178,10 @@ def main(subject, sessions=None, roi='BensonV1', hemi='LR', n_voxels=250,
     out_dir = out_dir / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    noise_tag = '_noise-spherical' if spherical_noise else ''
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_task-abstractvalue'
-              f'_mask-{mask_desc}_nvoxels-{n_voxels}{smooth_label}_desc-fisherinfo_pe.tsv')
+              f'_mask-{mask_desc}_nvoxels-{n_voxels}{noise_tag}{smooth_label}_desc-fisherinfo_pe.tsv')
 
     fisher_info.to_csv(out_fn, sep='\t', header=True)
     print(f'  saved to {out_fn}')
@@ -209,6 +210,15 @@ if __name__ == '__main__':
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w', 'fmriprep-flair'])
     parser.add_argument('--smoothed', action='store_true')
+    sph_grp = parser.add_mutually_exclusive_group()
+    sph_grp.add_argument('--spherical-noise',    dest='spherical_noise',
+                          action='store_true',  default=True,
+                          help='(default) iid Gaussian residual noise. '
+                               'Output filename gets _noise-spherical tag.')
+    sph_grp.add_argument('--no-spherical-noise', dest='spherical_noise',
+                          action='store_false',
+                          help='Fit full residual covariance instead. '
+                               'Output: no _noise-* tag (legacy filename).')
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions,
@@ -218,4 +228,4 @@ if __name__ == '__main__':
          n_noise_iterations=args.n_noise_iterations,
          n_mc_samples=args.n_mc_samples,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed)
+         smoothed=args.smoothed, spherical_noise=args.spherical_noise)

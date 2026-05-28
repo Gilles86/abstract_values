@@ -32,6 +32,7 @@ ROI="${ROI:-BensonV1}"
 HEMI="${HEMI:-LR}"
 N_VOXELS="${N_VOXELS:-250}"
 SMOOTHED="${SMOOTHED:-0}"
+SPHERICAL="${SPHERICAL:-1}"  # iid Gaussian by default (matches EU pipeline)
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -47,6 +48,7 @@ ARGS=(
 
 [ -n "$SESSION" ] && ARGS+=(--sessions $SESSION)
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
 
 echo "compute_fi_vonmises: sub-${PARTICIPANT_LABEL}  roi=${ROI}  hemi=${HEMI}  deriv=${FMRIPREP_DERIV}"
 echo "Args: ${ARGS[*]}"
