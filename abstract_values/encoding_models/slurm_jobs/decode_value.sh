@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=02:00:00   # bumped from 30 min: fdr05 + value (and geodesic) commonly
+#SBATCH --time=06:00:00   # bumped from 30 min: fdr05 + value (and geodesic) commonly
                           # select many voxels, blowing past 30 min on residual+decode
 
 # Bayesian leave-one-run-out abstract value (CHF) decoding.
