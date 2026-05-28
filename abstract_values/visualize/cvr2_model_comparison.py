@@ -70,6 +70,10 @@ NPCR_LADDER = [
     ("fully-shifted", "aprf-fully-shifted.cv",  "all 4 shift"),
 ]
 V1_LADDER = [
+    # The null model is paradigm-independent (just per-voxel training
+    # mean over the same gabor-trial betas), so the aprf-null.cv map
+    # is the correct null baseline for V1 too.
+    ("null",           "aprf-null.cv",       "null"),
     ("vonmises",       "vonmises.cv",        "fixed tuning"),
     ("vonmises-shift", "vonmises-shift.cv",  "flexible tuning"),
 ]
@@ -88,12 +92,24 @@ def _load_roi_mask(subject, roi, hemi):
     return sub.get_roi_mask(roi, hemi=hemi)
 
 
-def _collect(ladder, subjects, roi, hemi, smoothed):
-    """For each (model, subject), load cvR² masked to ROI. Returns long
-    DataFrame: subject × model × median_cvr2, plus per-voxel arrays
-    indexed by (subject, model)."""
-    rows = []
-    per_voxel = {}                                # (subject, model) → array
+def _collect(ladder, subjects, roi, hemi, smoothed, *,
+              filter_null_loses=True):
+    """For each (subject, model), load cvR² masked to ROI. Returns long
+    DataFrame: subject × model × median_cvr2 + n_voxels, plus
+    per-voxel arrays indexed by (subject, model).
+
+    With ``filter_null_loses=True`` AND the ladder including ``"null"``,
+    voxels where the null model is the per-voxel argmax across the
+    ladder are excluded — keeps only 'real-signal voxels' for which
+    at least one encoding model beats predicting the training mean.
+    The filter is applied per-subject (each subject's voxel selection
+    depends on that subject's own argmax across loaded models). If a
+    subject is missing the null map, that subject's voxels are kept
+    unfiltered with a warning.
+    """
+    # ── First pass: load all per-voxel maps, aligned to a per-subject ROI mask
+    raw = {}                                       # (subject, model) → array
+    n_voxels_per_subj = {}                         # subject → n_voxels in ROI
     for model_name, subdir, _ in ladder:
         for s in subjects:
             p = _cvr2_path(subdir, s, smoothed)
@@ -106,15 +122,44 @@ def _collect(ladder, subjects, roi, hemi, smoothed):
             mask_arr = np.squeeze(mask_img.get_fdata()) > 0.5
             cv_img = nli.resample_to_img(nib.load(str(p)), mask_img,
                                            interpolation="nearest")
-            vals = cv_img.get_fdata()[mask_arr]
-            vals = vals[np.isfinite(vals)]
-            if vals.size == 0:
+            vals = cv_img.get_fdata()[mask_arr].astype(np.float32)
+            raw[(s, model_name)] = vals
+            n_voxels_per_subj.setdefault(s, vals.size)
+
+    # ── Per-subject voxel filter: drop voxels where null cvR² is the max
+    ladder_models = [m for m, _, _ in ladder]
+    keep_masks = {}                                # subject → bool array
+    if filter_null_loses and "null" in ladder_models:
+        for s in subjects:
+            arrs = {m: raw.get((s, m)) for m in ladder_models}
+            if any(a is None for a in arrs.values()):
+                # Missing null or other model → can't apply argmax filter.
+                # Keep all voxels but flag in the figure caption (n_voxels
+                # will reflect this).
                 continue
-            rows.append({"subject": s, "model": model_name,
-                          "median_cvr2": float(np.median(vals)),
-                          "mean_cvr2":   float(np.mean(vals)),
-                          "n_voxels":    int(vals.size)})
-            per_voxel[(s, model_name)] = vals
+            stack = np.column_stack([arrs[m] for m in ladder_models])
+            stack = np.where(np.isfinite(stack), stack, -np.inf)
+            argmax = np.argmax(stack, axis=1)
+            null_idx = ladder_models.index("null")
+            keep = argmax != null_idx
+            keep_masks[s] = keep
+
+    # ── Second pass: build the long DataFrame using the filter where avail
+    rows = []
+    per_voxel = {}
+    for (s, model_name), vals in raw.items():
+        mask = keep_masks.get(s)
+        v = vals[mask] if mask is not None else vals
+        v = v[np.isfinite(v)]
+        if v.size == 0:
+            continue
+        rows.append({"subject": s, "model": model_name,
+                      "median_cvr2": float(np.median(v)),
+                      "mean_cvr2":   float(np.mean(v)),
+                      "n_voxels":    int(v.size),
+                      "n_voxels_total": int(vals.size),
+                      "filtered":   mask is not None})
+        per_voxel[(s, model_name)] = v
     return pd.DataFrame(rows), per_voxel
 
 
@@ -134,13 +179,16 @@ def _paired_test(df, model_a, model_b):
 
 
 def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
-          title_prefix=""):
-    df, _ = _collect(ladder, subjects, roi, hemi, smoothed)
+          title_prefix="", filter_null_loses=True):
+    df, _ = _collect(ladder, subjects, roi, hemi, smoothed,
+                       filter_null_loses=filter_null_loses)
     if df.empty:
         return
     model_order = [m for m, _, _ in ladder]
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.5), constrained_layout=True)
+    fig, (ax, ax_frac) = plt.subplots(
+        1, 2, figsize=(9.0, 4.5), constrained_layout=True,
+        gridspec_kw={"width_ratios": [3, 1]})
 
     # Per-subject points + connecting lines so paired structure is visible
     for s in df.subject.unique():
@@ -183,11 +231,54 @@ def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
     ax.set_xticks(list(range(len(model_order))))
     ax.set_xticklabels([f"{m}\n({lbl})" for m, _, lbl in ladder],
                         fontsize=8)
-    ax.set_ylabel("Per-subject median voxel cv-R²  (in ROI)")
+    ax.set_ylabel("Per-subject median voxel cv-R²  (signal voxels only)")
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
+    # Voxel-filter status: report the cohort median fraction of ROI
+    # voxels kept after the null-loses filter (per subject the kept
+    # fraction can vary).
+    if filter_null_loses and "filtered" in df.columns and df["filtered"].any():
+        keep_frac = (df.groupby("subject")
+                       .apply(lambda g: g["n_voxels"].iloc[0]
+                                          / max(g["n_voxels_total"].iloc[0], 1)))
+        filt_note = (f"  ·  signal voxels (median {100*keep_frac.median():.0f}% "
+                      f"of ROI; null-loses filter)")
+    else:
+        filt_note = "  ·  all ROI voxels (no null filter)"
     ax.set_title(f"{title_prefix}{roi_label}  ·  cvR² across nested models  "
-                  f"·  {smooth_lbl}  ·  n_subjects={df.subject.nunique()}",
+                  f"·  {smooth_lbl}  ·  n_subjects={df.subject.nunique()}"
+                  f"{filt_note}",
                   fontsize=10, color="0.15")
+
+    # ── Right panel: per-subject proportion of ROI voxels where any
+    # non-null model beats null. This is the "signal voxel" prevalence
+    # — the population that's actually informative for the cvR² ladder
+    # comparison on the left.
+    if filter_null_loses and "filtered" in df.columns and df["filtered"].any():
+        # df has duplicate (subject, n_voxels, n_voxels_total) across
+        # models; collapse to one row per subject.
+        per_sub = (df.drop_duplicates("subject")
+                     .set_index("subject")[["n_voxels", "n_voxels_total"]])
+        frac = (100 * per_sub["n_voxels"] / per_sub["n_voxels_total"].clip(lower=1))
+        frac = frac.sort_values(ascending=False)
+        ax_frac.bar(range(len(frac)), frac.values, color="#3B5BA5",
+                     alpha=0.7, edgecolor="white", linewidth=0.5)
+        ax_frac.set_xticks(range(len(frac)))
+        ax_frac.set_xticklabels([f"sub-{s}" for s in frac.index],
+                                  rotation=90, fontsize=7)
+        ax_frac.axhline(float(frac.median()), color="0.2", lw=0.8, ls="--",
+                          zorder=4)
+        ax_frac.text(0.97, float(frac.median()) + 1, f"median {frac.median():.0f}%",
+                      transform=ax_frac.get_yaxis_transform(),
+                      ha="right", va="bottom", fontsize=7.5, color="0.2")
+        ax_frac.set_ylabel("% of ROI voxels where any model > null")
+        ax_frac.set_title("Signal-voxel prevalence",
+                            fontsize=9, color="0.2")
+        ax_frac.set_ylim(0, max(100, float(frac.max()) * 1.05))
+    else:
+        ax_frac.axis("off")
+        ax_frac.text(0.5, 0.5, "Null filter not applied",
+                       transform=ax_frac.transAxes,
+                       ha="center", va="center", color="0.5", fontsize=8)
     sns.despine(fig=fig, offset=4, trim=False)
     pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
