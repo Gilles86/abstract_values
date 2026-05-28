@@ -66,9 +66,16 @@ SMOOTHINGS = (False, True)
 
 
 def _v1_tsv_path(subject, session, sel_tag, smoothed, nsims=1000, noise=""):
+    """Path to the per-session V1 EU TSV — ONLY the session-shift fit
+    (vonmises-session-shift/), where per-session basis weights let V1
+    voxels remap between conditions. This makes V1 a fair comparison
+    against NPCr aprf-session-shift; the joint vonmises fit is no
+    longer used here.
+    """
     smooth = "_smoothed" if smoothed else ""
     noise_tag = f"_noise-{noise}" if noise else ""
-    return (DERIV / "vonmises" / f"sub-{subject}" / f"ses-{session}" / "func"
+    return (DERIV / "vonmises-session-shift" / f"sub-{subject}"
+            / f"ses-{session}" / "func"
             / f"sub-{subject}_ses-{session}_task-abstractvalue"
               f"_mask-BensonV1_hemi-LR_{sel_tag}_nsims-{nsims}"
               f"{noise_tag}{smooth}_desc-expected_decoded_orientation_pe.tsv")
@@ -90,7 +97,7 @@ def _npcr_tsv_path(subject, session, sel_tag, smoothed, nsims=1000, noise=""):
 
 def discover_subjects():
     seen = set()
-    for p in (DERIV / "vonmises").glob("sub-*"):
+    for p in (DERIV / "vonmises-session-shift").glob("sub-*"):
         seen.add(p.name.removeprefix("sub-"))
     for p in (DERIV / "aprf-session-shift").glob("sub-*"):
         seen.add(p.name.removeprefix("sub-"))
