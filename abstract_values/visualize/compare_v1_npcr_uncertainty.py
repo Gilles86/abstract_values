@@ -348,6 +348,111 @@ def page_v1_vs_npcr(subjects, sel_tag, smoothed, lookup, pdf,
     return df_v1_def, df_v1_sph, df_n_def, df_n_sph
 
 
+def page_stimulus_refresher(subjects, lookup, pdf):
+    """Refresher page: where the stimuli live in CHF and orientation
+    space. Two rows.
+
+      Row 1 — CHF axis: histogram of presented CHF values per condition,
+              with rug marking the 23 distinct grid points each condition
+              uses, plus median + IQR shading.
+      Row 2 — Orientation axis: the deterministic CHF(orientation) curve
+              for each condition (same 23 orientations both conditions;
+              CDF maps to a compressed range around the median, InvCDF
+              spreads them out toward the tails).
+
+    Reads from the same Subject.get_events() that builds lookup, but
+    pools across the whole cohort for a single canonical curve per
+    condition (the mapping is identical for every subject by design).
+    """
+    rows = []
+    for s in subjects:
+        try:
+            sub = Subject(s, bids_folder=Path(BIDS_FOLDER))
+            for ses in sub.get_sessions():
+                cond = sub.get_mapping(ses)
+                ev = sub.get_events(ses, sub.get_runs(ses))
+                for _, row in ev[ev.event_type == "gabor"].iterrows():
+                    rows.append({"condition": cond,
+                                  "orientation_deg": float(row["orientation"]),
+                                  "value_chf": float(row["value"])})
+        except Exception:
+            pass
+    if not rows:
+        return
+    df = pd.DataFrame(rows)
+    CHF_LO, CHF_HI = 0.0, 45.0
+
+    fig, axes = plt.subplots(2, 2, figsize=(10.5, 6.0),
+                              constrained_layout=True)
+    fig.suptitle("Stimulus refresher — where the values live in CHF "
+                 "and orientation space",
+                 fontsize=10, y=1.03, color="0.15")
+
+    # ── Row 1, left+right: CHF histograms per condition ────────────────────
+    chf_bins = np.arange(CHF_LO, CHF_HI + 0.5, 0.5)
+    for ax, cond in zip(axes[0, :], ("cdf", "inverse_cdf")):
+        vals = df[df.condition == cond]["value_chf"].values
+        ax.hist(vals, bins=chf_bins, color=COND_COLOUR[cond],
+                alpha=0.85, edgecolor="white", linewidth=0.3)
+        uniq = np.unique(vals)
+        ax.scatter(uniq, np.full(len(uniq), ax.get_ylim()[1] * 0.95),
+                    marker="|", s=40, color="0.2", linewidth=0.7)
+        med = float(np.median(vals))
+        q1, q3 = np.percentile(vals, [25, 75])
+        ax.axvline(med, color="0.15", lw=1.0, zorder=4)
+        ax.axvspan(q1, q3, color="0.85", alpha=0.4, zorder=0)
+        ax.text(0.02, 0.95,
+                 f"{'CDF' if cond=='cdf' else 'InvCDF'}\n"
+                 f"{len(uniq)} values  ·  median {med:.1f}\n"
+                 f"IQR [{q1:.1f}, {q3:.1f}]  ·  SD {vals.std():.1f}",
+                 transform=ax.transAxes, fontsize=8, va="top",
+                 color=COND_COLOUR[cond])
+        ax.set_xlim(CHF_LO, CHF_HI)
+        ax.set_xlabel("Presented CHF value")
+        ax.set_ylabel("Trial count")
+
+    # ── Row 2, left: CHF vs orientation (the two mapping curves) ───────────
+    ax = axes[1, 0]
+    for cond in ("cdf", "inverse_cdf"):
+        lut = lookup.get(cond)
+        if lut is None or lut.empty: continue
+        ax.plot(lut["orientation_deg"], lut["value"],
+                color=COND_COLOUR[cond], lw=2.0,
+                marker="o", ms=4, mec="white", mew=0.4,
+                label="CDF" if cond == "cdf" else "InvCDF")
+    ax.set_xlim(0, 180); ax.set_xticks([0, 45, 90, 135, 180])
+    ax.set_xlabel("Orientation (deg)")
+    ax.set_ylabel("CHF value")
+    ax.set_title("Mapping curves: CHF(orientation) per condition",
+                  fontsize=9, color="0.2")
+    ax.legend(loc="upper right", fontsize=8)
+
+    # ── Row 2, right: presented-orientation rug per condition (same set
+    #     for both conditions by design — both use the 23 orientations
+    #     7.5°-172.5°). Show that they overlap on the orientation axis,
+    #     just map to different CHF values.
+    ax = axes[1, 1]
+    for i, cond in enumerate(("cdf", "inverse_cdf")):
+        oris = df[df.condition == cond]["orientation_deg"].values
+        uniq = np.unique(oris)
+        # Rug at y = i (top = cdf, bottom = invcdf)
+        y = 1 - i * 0.5  # 1.0 then 0.5
+        ax.scatter(uniq, np.full(len(uniq), y), marker="|", s=80,
+                    color=COND_COLOUR[cond], linewidth=1.0)
+        ax.text(-2, y, "CDF" if cond == "cdf" else "InvCDF",
+                ha="right", va="center", fontsize=8,
+                color=COND_COLOUR[cond])
+    ax.set_xlim(-15, 180); ax.set_xticks([0, 45, 90, 135, 180])
+    ax.set_ylim(0, 1.5); ax.set_yticks([])
+    ax.set_xlabel("Orientation (deg)")
+    ax.set_title("Presented orientations  (identical 23-point grid)",
+                  fontsize=9, color="0.2")
+    sns.despine(ax=ax, left=True)
+
+    sns.despine(fig=fig, offset=4, trim=False)
+    pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
 def page_behavior_overlay(pdf):
     """Behavioural noisiness: per-condition summary + per-orientation curve."""
     p_agg = Path("/Users/gdehol/git/abstract_values/notes/figures/behavior_noisiness.tsv")
@@ -435,6 +540,10 @@ def run(subjects, out, nsims=1000):
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out) as pdf:
+        # Refresher page first — orientations + CHF mappings, so the
+        # reader has the reference for the orientation x-axis used in
+        # every later panel.
+        page_stimulus_refresher(subjects, lookup, pdf)
         # Outer noise loop: spherical first (preferred / cleaner story),
         # then residual (sanity check / legacy). Each noise section
         # iterates the 4 (sel × smoothing) cells.
