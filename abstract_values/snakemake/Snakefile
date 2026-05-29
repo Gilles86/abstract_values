@@ -296,7 +296,12 @@ rule subject_complete:
 # ─────────────────────────────────────────────────────────────────────────────
 rule fmriprep:
     output:
-        f"{DERIV}/fmriprep/sub-{{subject}}.html",
+        # End-of-run sentinel touched by fmriprep.sh AFTER the apptainer call
+        # returns. We deliberately do NOT use the .html report as the sentinel
+        # because fmriprep can write the html mid-run as a progress placeholder
+        # (observed 2026-05-29: sub-11 had a html report 1h into a 5h run).
+        # See the **fmriprep** skill, "HTML-report vs NIfTI ground truth".
+        f"{DERIV}/fmriprep/sub-{{subject}}/.fmriprep_done",
     log: "logs/fmriprep_{subject}.log"
     resources:
         # 3T 2-session subjects finish well under 24h; if a job hits the cap,

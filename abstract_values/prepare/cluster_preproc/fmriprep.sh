@@ -67,14 +67,26 @@ apptainer run \
   $EXTRA_ARGS
 APPTAINER_RC=$?
 
+REPORT="/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/fmriprep/sub-${PARTICIPANT_LABEL}.html"
+
 # apptainer ≥ 1.4 occasionally exits 1 on a clean fmriprep run.
 # Source of truth: the HTML report fmriprep writes on success. Independent
 # of how the job was submitted (SBATCH header vs snakemake stdout redirect).
 if [[ $APPTAINER_RC -ne 0 ]]; then
-    REPORT="/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/fmriprep/sub-${PARTICIPANT_LABEL}.html"
     if [[ -f "$REPORT" ]]; then
         echo "apptainer exited $APPTAINER_RC but fMRIPrep HTML report exists ($REPORT) — treating as clean exit."
-        exit 0
+    else
+        exit $APPTAINER_RC
     fi
-    exit $APPTAINER_RC
 fi
+
+# Snakemake-side completion sentinel — touched ONLY after the full apptainer
+# invocation has returned (either clean exit 0, or the html-tolerant fallback
+# above). NOT to be confused with the HTML, which fmriprep can write
+# mid-run as a progress placeholder — and so cannot be used by Snakemake as
+# a 'fmriprep is finished' marker. See the **fmriprep** skill, section
+# "HTML-report vs NIfTI ground truth".
+DONE="/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/fmriprep/sub-${PARTICIPANT_LABEL}/.fmriprep_done"
+mkdir -p "$(dirname "$DONE")"
+touch "$DONE"
+echo "fmriprep done sentinel: $DONE"
