@@ -708,7 +708,7 @@ rule compute_fisher_information_aprf:
 rule compute_expected_decoded_value_aprf:
     input:
         aprf_ss = lambda wc: aprf_r2(wc.subject, "aprf_session_shift", wc.smooth),
-        mask    = mask_input([{"desc": "{roi}", "hemi": "None"}]),
+        mask    = mask_input(EU_ROIS),
     output:
         # Sentinel — actual TSVs live at
         # derivatives/encoding_models/aprf-session-shift/sub-XX/ses-X/func/...
