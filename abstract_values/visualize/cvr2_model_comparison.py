@@ -126,23 +126,39 @@ def _collect(ladder, subjects, roi, hemi, smoothed, *,
             raw[(s, model_name)] = vals
             n_voxels_per_subj.setdefault(s, vals.size)
 
-    # ── Per-subject voxel filter: drop voxels where null cvR² is the max
+    # ── Per-subject argmax across the ladder.
+    # Two derived products:
+    #   keep_masks: bool array (drop voxels where null wins) — used as the
+    #               cvR² filter on the left panel.
+    #   wins_frac:  DataFrame (subject, model, frac) — used by the right
+    #               panel to show what fraction of ROI voxels each model
+    #               is the per-voxel cvR² winner for.
     ladder_models = [m for m, _, _ in ladder]
     keep_masks = {}                                # subject → bool array
-    if filter_null_loses and "null" in ladder_models:
-        for s in subjects:
-            arrs = {m: raw.get((s, m)) for m in ladder_models}
-            if any(a is None for a in arrs.values()):
-                # Missing null or other model → can't apply argmax filter.
-                # Keep all voxels but flag in the figure caption (n_voxels
-                # will reflect this).
-                continue
-            stack = np.column_stack([arrs[m] for m in ladder_models])
-            stack = np.where(np.isfinite(stack), stack, -np.inf)
-            argmax = np.argmax(stack, axis=1)
+    wins_rows  = []                                # subject × model rows
+    for s in subjects:
+        arrs = {m: raw.get((s, m)) for m in ladder_models}
+        if any(a is None for a in arrs.values()):
+            # Missing at least one ladder model → can't run the per-voxel
+            # argmax. Skip both the null filter and the winning-fraction
+            # computation for this subject.
+            continue
+        stack = np.column_stack([arrs[m] for m in ladder_models])
+        stack = np.where(np.isfinite(stack), stack, -np.inf)
+        argmax = np.argmax(stack, axis=1)
+        n_total = argmax.size
+        for i, m in enumerate(ladder_models):
+            wins_rows.append({"subject": s, "model": m,
+                                "wins_frac": float((argmax == i).mean()),
+                                "wins_count": int((argmax == i).sum()),
+                                "n_voxels_total": n_total})
+        if filter_null_loses and "null" in ladder_models:
             null_idx = ladder_models.index("null")
-            keep = argmax != null_idx
-            keep_masks[s] = keep
+            keep_masks[s] = argmax != null_idx
+
+    wins_df = pd.DataFrame(wins_rows) if wins_rows else pd.DataFrame(
+        columns=["subject", "model", "wins_frac", "wins_count",
+                  "n_voxels_total"])
 
     # ── Second pass: build the long DataFrame using the filter where avail
     rows = []
@@ -160,7 +176,7 @@ def _collect(ladder, subjects, roi, hemi, smoothed, *,
                       "n_voxels_total": int(vals.size),
                       "filtered":   mask is not None})
         per_voxel[(s, model_name)] = v
-    return pd.DataFrame(rows), per_voxel
+    return pd.DataFrame(rows), per_voxel, wins_df
 
 
 def _paired_test(df, model_a, model_b):
@@ -180,8 +196,8 @@ def _paired_test(df, model_a, model_b):
 
 def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
           title_prefix="", filter_null_loses=True):
-    df, _ = _collect(ladder, subjects, roi, hemi, smoothed,
-                       filter_null_loses=filter_null_loses)
+    df, _, wins_df = _collect(ladder, subjects, roi, hemi, smoothed,
+                                filter_null_loses=filter_null_loses)
     if df.empty:
         return
     model_order = [m for m, _, _ in ladder]
@@ -249,34 +265,44 @@ def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
                   f"{filt_note}",
                   fontsize=10, color="0.15")
 
-    # ── Right panel: per-subject proportion of ROI voxels where any
-    # non-null model beats null. This is the "signal voxel" prevalence
-    # — the population that's actually informative for the cvR² ladder
-    # comparison on the left.
-    if filter_null_loses and "filtered" in df.columns and df["filtered"].any():
-        # df has duplicate (subject, n_voxels, n_voxels_total) across
-        # models; collapse to one row per subject.
-        per_sub = (df.drop_duplicates("subject")
-                     .set_index("subject")[["n_voxels", "n_voxels_total"]])
-        frac = (100 * per_sub["n_voxels"] / per_sub["n_voxels_total"].clip(lower=1))
-        frac = frac.sort_values(ascending=False)
-        ax_frac.bar(range(len(frac)), frac.values, color="#3B5BA5",
-                     alpha=0.7, edgecolor="white", linewidth=0.5)
-        ax_frac.set_xticks(range(len(frac)))
-        ax_frac.set_xticklabels([f"sub-{s}" for s in frac.index],
+    # ── Right panel: per-subject stacked bar of % ROI voxels where each
+    # ladder model is the per-voxel cvR² argmax. Bars sum to 100% per
+    # subject; null gets the leftmost (gray) slice — its size IS the
+    # complement of the signal-voxel prevalence ("null wins" = no model).
+    if not wins_df.empty:
+        wide = (wins_df.pivot(index="subject", columns="model",
+                                values="wins_frac")
+                       .reindex(columns=model_order)
+                       .fillna(0.0)) * 100.0
+        # Sort subjects by signal-voxel prevalence (1 − null fraction).
+        if "null" in wide.columns:
+            wide = wide.assign(_signal=100 - wide["null"]).sort_values(
+                "_signal", ascending=False).drop(columns="_signal")
+        subs = list(wide.index)
+        bottoms = np.zeros(len(subs))
+        for i, m in enumerate(model_order):
+            if m not in wide.columns:
+                continue
+            vals = wide[m].values
+            color = "#9C9C9C" if m == "null" else PALETTE[i % len(PALETTE)]
+            ax_frac.bar(range(len(subs)), vals, bottom=bottoms,
+                          color=color, edgecolor="white", linewidth=0.4,
+                          label=m)
+            bottoms += vals
+        ax_frac.set_xticks(range(len(subs)))
+        ax_frac.set_xticklabels([f"sub-{s}" for s in subs],
                                   rotation=90, fontsize=7)
-        ax_frac.axhline(float(frac.median()), color="0.2", lw=0.8, ls="--",
-                          zorder=4)
-        ax_frac.text(0.97, float(frac.median()) + 1, f"median {frac.median():.0f}%",
-                      transform=ax_frac.get_yaxis_transform(),
-                      ha="right", va="bottom", fontsize=7.5, color="0.2")
-        ax_frac.set_ylabel("% of ROI voxels where any model > null")
-        ax_frac.set_title("Signal-voxel prevalence",
+        ax_frac.set_ylabel("% of ROI voxels (per-voxel cvR² argmax)")
+        ax_frac.set_ylim(0, 100)
+        ax_frac.set_title("Per-subject winning-model proportions",
                             fontsize=9, color="0.2")
-        ax_frac.set_ylim(0, max(100, float(frac.max()) * 1.05))
+        ax_frac.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0),
+                         fontsize=7, frameon=False, handlelength=1.2,
+                         title="model", title_fontsize=7.5)
     else:
         ax_frac.axis("off")
-        ax_frac.text(0.5, 0.5, "Null filter not applied",
+        ax_frac.text(0.5, 0.5,
+                       "Not all ladder models present\n— can't compute argmax",
                        transform=ax_frac.transAxes,
                        ha="center", va="center", color="0.5", fontsize=8)
     sns.despine(fig=fig, offset=4, trim=False)
