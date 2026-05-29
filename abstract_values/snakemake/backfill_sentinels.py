@@ -240,6 +240,7 @@ def backfill_decoding(deriv: Path, subject: str, dry_run: bool, stats: Stats):
                         smooth_in_fn = smooth_suffix_in_filename(smooth)
                         pattern = (f"*mask-{roi}*nvoxels-{nv}*lambda-{lam}*"
                                    f"{smooth_in_fn}*decoded*.tsv")
+                        pattern = pattern.replace("**", "*")
                         if func.is_dir() and any(func.glob(pattern)):
                             touch_sentinel(sentinel, dry_run, stats)
                         elif not sentinel.exists():
@@ -271,6 +272,7 @@ def backfill_fisher_information(deriv: Path, subject: str,
                                 / f"sub-{subject}" / f"ses-{ses}" / "func")
                     smooth_in_fn = smooth_suffix_in_filename(smooth)
                     pattern = (f"*mask-{roi}*fisher*{smooth_in_fn}*.tsv")
+                    pattern = pattern.replace("**", "*")
                     if base.is_dir() and any(base.glob(pattern)):
                         touch_sentinel(sentinel, dry_run, stats)
                     elif not sentinel.exists():
@@ -305,6 +307,7 @@ def backfill_expected_decoded(deriv: Path, subject: str,
                         # spherical and residual in the filename schema.
                         pattern = (f"*mask-{roi}*nvoxels-{nv}*noise-{noise}*"
                                    f"{smooth_in_fn}*expected_decoded*.tsv")
+                        pattern = pattern.replace("**", "*")
                         if base.is_dir() and any(base.glob(pattern)):
                             found = True
                             break
