@@ -24,13 +24,12 @@ produce a directory of files (fmriprep, GLMsingle), a representative file is
 used as the sentinel.
 """
 
+import re
 from itertools import product
 from pathlib import Path
 
 configfile: "abstract_values/snakemake/config.yaml"
 
-SUBJECTS         = [str(s) for s in config["subjects"]]
-SUBJECT_SESSIONS = {str(k): int(v) for k, v in config["subject_sessions"].items()}
 EXPECTED_MRI_SESSIONS = int(config.get("expected_mri_sessions", 2))
 SUBJECT_EXPECTED_OVERRIDES = {
     str(k): int(v) for k, v in config.get("subject_expected_overrides", {}).items()
@@ -42,6 +41,44 @@ REQUIRE_COMPLETE = bool(_rc)
 
 def expected_sessions(subject):
     return SUBJECT_EXPECTED_OVERRIDES.get(subject, EXPECTED_MRI_SESSIONS)
+
+# ── auto-discover subjects + session counts from the BIDS folder ─────────────
+# No more editing/pushing config.yaml when a new subject hits the cluster —
+# rsync to {bids_folder}/sub-XX/ and the next driver run picks it up.
+#
+# Optional config knobs (all empty by default):
+#   subjects_include : if non-empty, restrict to this list
+#   subjects_exclude : drop these subjects from auto-discovered list
+_bids_root = Path(config["bids_folder"])
+_sub_re    = re.compile(r"^sub-(.+)$")
+_ses_re    = re.compile(r"^ses-(\d+)$")
+
+def _discover():
+    """Walk {bids_folder} once and return ({subject: session_count}, sorted list).
+    A subject must contain at least one ``ses-<int>`` directory with a
+    ``func/`` subdir (i.e. real BIDS, not just sourcedata)."""
+    out = {}
+    if not _bids_root.exists():
+        return out, []
+    for p in sorted(_bids_root.iterdir()):
+        m = _sub_re.match(p.name)
+        if not (m and p.is_dir()):
+            continue
+        ses_count = sum(1 for q in p.iterdir()
+                        if _ses_re.match(q.name) and (q / "func").is_dir())
+        if ses_count > 0:
+            out[m.group(1)] = ses_count
+    return out, sorted(out)
+
+_discovered, _all_discovered = _discover()
+
+_include = [str(s) for s in (config.get("subjects_include") or [])]
+_exclude = set(str(s) for s in (config.get("subjects_exclude") or []))
+if _include:
+    SUBJECTS = [s for s in _include if s in _discovered]
+else:
+    SUBJECTS = [s for s in _all_discovered if s not in _exclude]
+SUBJECT_SESSIONS = {s: _discovered[s] for s in SUBJECTS}
 
 # ── completeness gate ────────────────────────────────────────────────────────
 # Refuse to plan MRI processing for subjects missing expected sessions.
@@ -59,8 +96,9 @@ if REQUIRE_COMPLETE:
         raise WorkflowError(
             "Refusing to schedule MRI processing for incomplete subjects:\n  "
             + details
-            + "\nFix subject_sessions in config.yaml after ingesting the missing"
-            " sessions, OR set require_complete: false to override."
+            + "\nIngest the missing sessions (rsync to "
+            f"{_bids_root}), set subject_expected_overrides for pilots, "
+            "add them to subjects_exclude, or set require_complete: false."
         )
 
 SMOOTHED_VARIANTS = config["smoothed_variants"]
@@ -233,7 +271,7 @@ def subject_targets(subject):
             for roi, nv, noise in product(EU_ROIS, EU_NV, EU_NOISE):
                 targets.append(
                     f"{DERIV}/expected_decoded_value_aprf{sfx}/sub-{subject}/"
-                    f"sub-{subject}_roi-{roi}_nv-{nv}_noise-{noise}.done"
+                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_noise-{noise}.done"
                 )
     return targets
 
