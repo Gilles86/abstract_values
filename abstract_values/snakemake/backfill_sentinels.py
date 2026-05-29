@@ -160,12 +160,18 @@ def backfill_glmsingle(deriv: Path, subject: str, dry_run: bool, stats: Stats):
 
 
 def backfill_aprf_fits(deriv: Path, subject: str, dry_run: bool, stats: Stats):
-    """All aPRF-family fit sentinels (including CV and vonmises variants)."""
+    """All aPRF-family fit sentinels (including CV and vonmises variants).
+
+    NOTE: the encoder dir is **the same** for smoothed + unsmoothed runs
+    (e.g. both write to ``encoding_models/aprf/sub-XX/func/``), with the
+    smoothing distinction encoded in the filename's desc field, NOT the dir.
+    Snakemake's sentinel dir, however, carries ``{smooth}``."""
     for snake_dir, (enc_dir, desc) in APRF_VARIANTS.items():
         for smooth in ("", "_smoothed"):
             sentinel = (deriv / "encoding_models" / f"{snake_dir}{smooth}"
                         / f"sub-{subject}" / ".done")
-            func = (deriv / "encoding_models" / f"{enc_dir}{smooth}"
+            # Encoder dir: no smooth suffix.
+            func = (deriv / "encoding_models" / enc_dir
                     / f"sub-{subject}" / "func")
             smooth_in_fn = smooth_suffix_in_filename(smooth)
             witness = func / (f"sub-{subject}_task-abstractvalue_space-T1w"
@@ -178,16 +184,18 @@ def backfill_aprf_fits(deriv: Path, subject: str, dry_run: bool, stats: Stats):
 
 def backfill_aggregate_cvr2(deriv: Path, subject: str, dry_run: bool,
                               stats: Stats):
-    """CV aggregation sentinel `.cvr2_aggregated` lives under the *encoder*
-    `.cv` dir (per the surface sampling rule's model_dir wildcard). Check the
-    aggregated mean cvR² NIfTI is present."""
+    """CV aggregation sentinel `.cvr2_aggregated` lives at
+    ``encoding_models/{enc_dir}{smooth}/sub-XX/`` (Snakemake convention with
+    smooth-suffix on the dir). The *witness* file lives at
+    ``encoding_models/{enc_dir}/sub-XX/func/`` (encoder convention, no
+    smooth suffix on dir; smooth marker is in the filename's desc instead)."""
     for snake_dir, (enc_dir, desc) in APRF_VARIANTS.items():
         if desc != "cvr2":
             continue
         for smooth in ("", "_smoothed"):
             sentinel = (deriv / "encoding_models" / f"{enc_dir}{smooth}"
                         / f"sub-{subject}" / ".cvr2_aggregated")
-            func = (deriv / "encoding_models" / f"{enc_dir}{smooth}"
+            func = (deriv / "encoding_models" / enc_dir
                     / f"sub-{subject}" / "func")
             smooth_in_fn = smooth_suffix_in_filename(smooth)
             witness = func / (f"sub-{subject}_task-abstractvalue_space-T1w"
@@ -200,13 +208,13 @@ def backfill_aggregate_cvr2(deriv: Path, subject: str, dry_run: bool,
 
 def backfill_surface_sampling(deriv: Path, subject: str, dry_run: bool,
                                 stats: Stats):
-    """Surface sampling sentinel `.surface_sampled` under each encoder dir.
-    Witness: a fsaverage GIfTI of the right desc."""
+    """Surface sampling sentinel `.surface_sampled` at
+    ``{enc_dir}{smooth}/sub-XX/`` (Snakemake), witness in ``{enc_dir}/`` only."""
     for snake_dir, (enc_dir, desc) in APRF_VARIANTS.items():
         for smooth in ("", "_smoothed"):
             sentinel = (deriv / "encoding_models" / f"{enc_dir}{smooth}"
                         / f"sub-{subject}" / ".surface_sampled")
-            func = (deriv / "encoding_models" / f"{enc_dir}{smooth}"
+            func = (deriv / "encoding_models" / enc_dir
                     / f"sub-{subject}" / "func")
             smooth_in_fn = smooth_suffix_in_filename(smooth)
             # The surface sample writes fsaverage L+R GIfTIs.
@@ -221,7 +229,15 @@ def backfill_surface_sampling(deriv: Path, subject: str, dry_run: bool,
 
 def backfill_decoding(deriv: Path, subject: str, dry_run: bool, stats: Stats):
     """decode_gabor / decode_value sentinels per (roi, nv, lam, smooth).
-    Witness: at least one decoded TSV at derivatives/decoding/{kind}/."""
+
+    Witness: a `_pars.tsv` at ``derivatives/decoding/{kind}/sub-XX/func/``
+    with filename schema
+    ``sub-XX_mask-{roi}_nvoxels-{nv}_noise-full[_smoothed][_lambda-{lam}]_pars.tsv``.
+
+    Quirk: default lambda (0.0) is OMITTED from the filename; only non-default
+    lambdas (e.g. 0.1) carry the ``_lambda-X`` token. So the witness pattern
+    differs by lam.
+    """
     for kind in ("gabor", "value"):
         for smooth in ("", "_smoothed"):
             for roi in DECODE_ROIS:
@@ -231,16 +247,15 @@ def backfill_decoding(deriv: Path, subject: str, dry_run: bool, stats: Stats):
                                     / f"sub-{subject}"
                                     / (f"sub-{subject}_roi-{roi}_nv-{nv}"
                                        f"_lam-{lam}.done"))
-                        # Real TSV layout per decode_{gabor,value}.py:
-                        # derivatives/decoding/{kind}/sub-XX/func/
-                        # sub-XX_task-...desc-{kind}{smooth}_pe.tsv with
-                        # filename markers mask-{roi}_nvoxels-{nv}_lambda-{lam}.
                         func = (deriv / "decoding" / kind / f"sub-{subject}"
                                 / "func")
                         smooth_in_fn = smooth_suffix_in_filename(smooth)
-                        pattern = (f"*mask-{roi}*nvoxels-{nv}*lambda-{lam}*"
-                                   f"{smooth_in_fn}*decoded*.tsv")
-                        pattern = pattern.replace("**", "*")
+                        # Default lambda token is absent from the filename.
+                        lam_token = "" if lam == "0.0" else f"_lambda-{lam}"
+                        # Order: mask, nvoxels, noise-full, [smoothed], [lambda]
+                        pattern = (f"sub-{subject}_mask-{roi}_nvoxels-{nv}"
+                                   f"_noise-full{smooth_in_fn}{lam_token}"
+                                   f"_pars.tsv")
                         if func.is_dir() and any(func.glob(pattern)):
                             touch_sentinel(sentinel, dry_run, stats)
                         elif not sentinel.exists():
