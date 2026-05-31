@@ -3,7 +3,7 @@
 #SBATCH --output=/home/gdehol/logs/abstractvalue_mriqc_%A-%a.txt
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --time=4:00:00
 
 # MRIQC participant-level QC pipeline — per-scan IQMs + HTML reports.
@@ -42,9 +42,16 @@ apptainer run \
     /data /data/derivatives/mriqc participant \
   --participant-label $PARTICIPANT_LABEL \
   -w /workflow/mriqc_24_wf \
-  --nprocs 8 \
-  --omp-nthreads 8 \
-  --mem 30
+  --nprocs 4 \
+  --omp-nthreads 2 \
+  --mem 56
+# Note on parallelism: previous config was --nprocs 8 --omp-nthreads 8
+# --mem 30 on 32G SLURM allocation. Result: 8 workers × 8 OMP threads =
+# 64-thread oversubscription on 8 CPUs PLUS ~3.75 GB/worker which is
+# below AFNI/FSL working-set spikes → BrokenProcessPool when the OOM
+# killer takes one out. Current config: 4 workers × 2 OMP threads = 8
+# threads matching 8 CPUs, ~14 GB/worker on 64 G SLURM allocation with
+# 56 G mriqc budget (8 G headroom).
 APPTAINER_RC=$?
 
 # Discriminator: mriqc writes ses-1 T1w report HTML at the very end of

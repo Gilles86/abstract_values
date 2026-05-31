@@ -333,9 +333,10 @@ rule mriqc:
         f"{DERIV}/mriqc/sub-{{subject}}/.mriqc_done",
     log: "logs/mriqc_{subject}.log"
     resources:
-        # Per-subject mriqc on 2-session abstractvalue subjects: ~30 min anat +
-        # ~5 min per BOLD run × 16 runs ≈ ~2 h. 4 h cap leaves headroom.
-        cpus_per_task=8, mem_mb=32_000, runtime=4*60,
+        # 64G (not 32G): mriqc with --nprocs 4 needs ~14 GB/worker for
+        # AFNI/FSL working-set spikes; 32G/8procs (the original) OOM-killed
+        # in 25min on the 2026-05-31 cohort run. See mriqc.sh comment.
+        cpus_per_task=8, mem_mb=64_000, runtime=4*60,
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} "
         "bash {REPO}/abstract_values/prepare/cluster_preproc/mriqc.sh"
