@@ -212,7 +212,10 @@ def surface_sample_sentinel(subject, model_dir, smooth):
 # Terminal targets per subject
 def subject_targets(subject):
     sessions = sessions_for(subject)
-    targets = []
+    targets = [
+        # MRIQC participant-level QC (one job per subject, smooth-invariant)
+        f"{DERIV}/mriqc/sub-{subject}/.mriqc_done",
+    ]
     for s in SMOOTHED_VARIANTS:
         sfx = "_smoothed" if int(s) else ""
 
@@ -314,6 +317,23 @@ rule fmriprep:
         "PARTICIPANT_LABEL={wildcards.subject} "
         "BOLD2ANAT_INIT={params.bold2anat_init} "
         "bash {REPO}/abstract_values/prepare/cluster_preproc/fmriprep.sh"
+
+
+rule mriqc:
+    output:
+        # End-of-run sentinel touched by mriqc.sh after apptainer + a late-stage
+        # output-existence discriminator (ses-1 T1w report HTML). Same pattern as
+        # the fmriprep rule. See **fmriprep** skill, "The html exists ≠ fmriprep
+        # succeeded" — same lesson applies to mriqc which also writes an html.
+        f"{DERIV}/mriqc/sub-{{subject}}/.mriqc_done",
+    log: "logs/mriqc_{subject}.log"
+    resources:
+        # Per-subject mriqc on 2-session abstractvalue subjects: ~30 min anat +
+        # ~5 min per BOLD run × 16 runs ≈ ~2 h. 4 h cap leaves headroom.
+        cpus_per_task=8, mem_mb=32_000, runtime=4*60,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} "
+        "bash {REPO}/abstract_values/prepare/cluster_preproc/mriqc.sh"
 
 
 rule create_roi_masks:

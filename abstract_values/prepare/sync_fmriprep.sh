@@ -27,7 +27,19 @@ LOCAL=/data/ds-abstractvalue/derivatives
 
 for DERIV in fmriprep; do
     echo "=== syncing $DERIV ==="
-    rsync -av --progress "${EXCLUDES[@]}" \
+    # --whole-file: skip the rolling-checksum delta algorithm. rsync's
+    #     default delta-mode stalls for many seconds per multi-GB file
+    #     while computing deltas server-side; for fmriprep where files
+    #     either don't exist locally yet or are bit-identical, the delta
+    #     pass is pure overhead. Symptom of NOT using this: rsync
+    #     "freezes" on one file for ~minute, then if you Ctrl+C + retry,
+    #     it resumes very fast (because size+mtime check skips the file).
+    # --partial: keep partial transfers on Ctrl+C so a retry resumes
+    #     rather than restarts the big file from byte 0.
+    # (macOS rsync is 2.6.9 — no --append-verify; --whole-file +
+    #  --partial is enough for our case.)
+    rsync -av --progress --whole-file --partial \
+      "${EXCLUDES[@]}" \
       "${CLUSTER}/${DERIV}/" \
       "${LOCAL}/${DERIV}/"
 done
