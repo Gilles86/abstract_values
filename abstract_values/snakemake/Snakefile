@@ -285,6 +285,11 @@ def subject_targets(subject):
 rule all:
     input:
         expand(f"{SNAKE}/sub-{{subject}}.done", subject=SUBJECTS),
+        # Group mriqc — re-runs whenever any subject's per-participant mriqc
+        # finishes (because the input set changes), so cohort-level QC stays
+        # in sync automatically.
+        f"{DERIV}/mriqc/group_bold.tsv",
+        f"{DERIV}/mriqc/group_T1w.tsv",
 
 rule subject_complete:
     input:
@@ -334,6 +339,24 @@ rule mriqc:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} "
         "bash {REPO}/abstract_values/prepare/cluster_preproc/mriqc.sh"
+
+
+rule mriqc_group:
+    """Group-level mriqc aggregation. Re-runs whenever a new subject's
+    per-participant `.mriqc_done` lands — Snakemake sees the input set
+    change and re-fires this rule. Outputs are real group TSVs/HTMLs,
+    not a sentinel, so deletion of a group output also forces re-run.
+    """
+    input:
+        expand(f"{DERIV}/mriqc/sub-{{subject}}/.mriqc_done",
+               subject=SUBJECTS),
+    output:
+        bold_tsv = f"{DERIV}/mriqc/group_bold.tsv",
+        anat_tsv = f"{DERIV}/mriqc/group_T1w.tsv",
+    log: "logs/mriqc_group.log"
+    resources: cpus_per_task=2, mem_mb=8_000, runtime=30,
+    shell:
+        "bash {REPO}/abstract_values/prepare/cluster_preproc/mriqc_group.sh"
 
 
 rule create_roi_masks:

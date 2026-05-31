@@ -1,31 +1,40 @@
 #!/bin/bash
-# Sync fmriprep derivatives from sciencecluster to local.
+# Sync fmriprep + mriqc derivatives from sciencecluster to local.
 #
-# Keeps:
+# fmriprep keeps:
 #   - HTML reports + figures/ SVGs
 #   - anat/ (preproc T1w, segs, surfaces, transforms, brain masks)
 #   - *_space-T1w_boldref.nii.gz    (T1w-space single-volume reference — coreg QA)
 #   - *_space-T1w_desc-brain_mask*  (T1w-space BOLD brain mask)
 #   - *_*xfm*                       (coreg / motion-correction transforms)
 #
-# Excludes (large or rarely-used):
+# fmriprep excludes (large or rarely-used):
 #   - 4D preproc BOLD timeseries (*_desc-preproc_bold.nii.gz) — too big
 #   - native-BOLD-space boldrefs (*_desc-hmc_boldref*, *_desc-coreg_boldref*) —
 #     not useful locally, we work in T1w space
 #   - fsnative-space outputs and surface .gii — only meaningful on cluster
 #     with the matching freesurfer dir
+#
+# mriqc is small — sync everything (HTMLs, JSONs, group TSVs).
 
-EXCLUDES=(
+FMRIPREP_EXCLUDES=(
     --exclude '*_space-fsnative_*'
     --exclude 'func/*_hemi-*'
     --exclude '*_desc-preproc_bold.nii.gz'
     --exclude '*_desc-hmc_boldref*'
     --exclude '*_desc-coreg_boldref*'
 )
+MRIQC_EXCLUDES=()      # mriqc outputs are all small (HTML / JSON / TSV)
+
 CLUSTER=sciencecluster:/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives
 LOCAL=/data/ds-abstractvalue/derivatives
 
-for DERIV in fmriprep; do
+for DERIV in fmriprep mriqc; do
+    if [[ $DERIV == "fmriprep" ]]; then
+        EXCLUDES=("${FMRIPREP_EXCLUDES[@]}")
+    else
+        EXCLUDES=("${MRIQC_EXCLUDES[@]}")
+    fi
     echo "=== syncing $DERIV ==="
     # Anti-stall flags. Symptom we're fighting: rsync hangs for many
     # seconds (sometimes minutes) on a single file, but if you Ctrl+C
