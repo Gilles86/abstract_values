@@ -27,18 +27,27 @@ LOCAL=/data/ds-abstractvalue/derivatives
 
 for DERIV in fmriprep; do
     echo "=== syncing $DERIV ==="
-    # --whole-file: skip the rolling-checksum delta algorithm. rsync's
-    #     default delta-mode stalls for many seconds per multi-GB file
-    #     while computing deltas server-side; for fmriprep where files
-    #     either don't exist locally yet or are bit-identical, the delta
-    #     pass is pure overhead. Symptom of NOT using this: rsync
-    #     "freezes" on one file for ~minute, then if you Ctrl+C + retry,
-    #     it resumes very fast (because size+mtime check skips the file).
+    # Anti-stall flags. Symptom we're fighting: rsync hangs for many
+    # seconds (sometimes minutes) on a single file, but if you Ctrl+C
+    # and rerun it resumes very fast. Multiple root causes; this set
+    # covers all the common ones.
+    #
+    # --whole-file: skip rsync's rolling-checksum delta algorithm. For
+    #     fmriprep files (gzip NIfTIs, either absent or bit-identical
+    #     locally), the delta computation is pure server-side overhead.
     # --partial: keep partial transfers on Ctrl+C so a retry resumes
     #     rather than restarts the big file from byte 0.
-    # (macOS rsync is 2.6.9 — no --append-verify; --whole-file +
-    #  --partial is enough for our case.)
+    # ssh -T:  disable PTY allocation, which avoids occasional remote-
+    #     side stalls in non-interactive sessions.
+    # ServerAliveInterval=30 / ServerAliveCountMax=3: ssh sends keepalive
+    #     every 30s and disconnects after 3 missed responses. Without
+    #     this, a transient NAT / network drop kills the connection
+    #     silently and rsync sits forever waiting for the next byte
+    #     (the most common cause of "stuck on a random file").
+    # ServerAliveInterval=30 / 3 → max-hang 90s before clean death.
+    # (macOS rsync is 2.6.9 — no --append-verify available.)
     rsync -av --progress --whole-file --partial \
+      -e "ssh -T -o ServerAliveInterval=30 -o ServerAliveCountMax=3" \
       "${EXCLUDES[@]}" \
       "${CLUSTER}/${DERIV}/" \
       "${LOCAL}/${DERIV}/"
