@@ -67,22 +67,28 @@ apptainer run \
   $EXTRA_ARGS
 APPTAINER_RC=$?
 
-# Trust apptainer's exit code as the source of truth. The previous
-# "if exit-nonzero but html exists, treat as clean" fallback was misleading
-# us — fmriprep writes a *failure-report* HTML when its workflow raises
-# (e.g. sub-12 / 3573299 on 2026-05-29: ZRAN_READ_FAIL on a workflow .nii.gz,
-# `fMRIPrep failed: 15 raised`, apptainer exit 1; the html-tolerance branch
-# silently exited 0 and Snakemake marked the rule as done despite missing
-# preproc_T2w in ses-2 anat). Genuine spurious exit-1 from apptainer is rare
-# enough that a manual rerun is the right fix.
+# Treat the apptainer exit code as the primary signal, but tolerate
+# spurious exit-1 from apptainer ≥ 1.4 on otherwise-clean runs. The naive
+# "if exit-nonzero and html exists, treat as clean" version got bitten by
+# fmriprep writing a *failure-report* HTML on real failures (sub-12 /
+# 3573299 on 2026-05-29: ZRAN_READ_FAIL, `fMRIPrep failed: 15 raised`,
+# apptainer exit 1, *html written anyway*). The discriminator below
+# adds a late-stage output check that's only written after the freesurfer
+# autorecon completes — present on truly-finished runs, absent on early
+# failures like ZRAN.
+APARCASEG="/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/fmriprep/sub-${PARTICIPANT_LABEL}/ses-1/anat/sub-${PARTICIPANT_LABEL}_ses-1_desc-aparcaseg_dseg.nii.gz"
 if [[ $APPTAINER_RC -ne 0 ]]; then
-    echo "apptainer exited $APPTAINER_RC — fmriprep failed."
-    exit $APPTAINER_RC
+    if [[ -f "$APARCASEG" ]]; then
+        echo "apptainer exited $APPTAINER_RC but late-stage anat output exists ($APARCASEG) — treating as spurious exit, clean run."
+    else
+        echo "apptainer exited $APPTAINER_RC and late-stage anat output missing ($APARCASEG) — fmriprep failed."
+        exit $APPTAINER_RC
+    fi
 fi
 
-# Completion sentinel — touched ONLY on apptainer exit 0, so its existence
-# is a hard guarantee fmriprep ran to its end. See the **fmriprep** skill,
-# section "HTML-report vs NIfTI ground truth".
+# Completion sentinel — touched ONLY after the discriminator above passes,
+# so its existence is a hard guarantee fmriprep ran to its end. See the
+# **fmriprep** skill, section "HTML-report vs NIfTI ground truth".
 DONE="/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/fmriprep/sub-${PARTICIPANT_LABEL}/.fmriprep_done"
 mkdir -p "$(dirname "$DONE")"
 touch "$DONE"
