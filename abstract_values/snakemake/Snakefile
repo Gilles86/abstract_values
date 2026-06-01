@@ -658,9 +658,15 @@ rule sample_r2_to_surface:
 # ─────────────────────────────────────────────────────────────────────────────
 def _decode_runtime(wc):
     # n_voxels=0 path (and the FDR-fallback path) does nested CV → needs
-    # more wall time. Driver 3315438 saw 14+ nv=0 decode jobs hit 4h cap
-    # at ~3h25m elapsed; bumping to 6h for headroom.
-    return 360 if int(wc.nv) == 0 else 60
+    # the most wall time. Driver 3315438 saw 14+ nv=0 decode jobs hit 4h
+    # cap at ~3h25m elapsed; bumping to 6h for headroom.
+    # nv≥250 path with lam>0 (non-trivial regularisation): driver 3609351
+    # saw decode_value timeout at 60 min for sub-{07,08,10,12,14} ×
+    # {NPCr,BensonV1} × {250,500} × lam=0.1. Bumped to 3 h.
+    nv = int(wc.nv)
+    if nv == 0:    return 360
+    if nv >= 250:  return 180
+    return 60
 
 rule decode_gabor:
     input:
