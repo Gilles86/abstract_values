@@ -228,11 +228,11 @@ def backfill_surface_sampling(deriv: Path, subject: str, dry_run: bool,
 
 
 def backfill_decoding(deriv: Path, subject: str, dry_run: bool, stats: Stats):
-    """decode_gabor / decode_value sentinels per (roi, nv, lam, smooth).
+    """decode_gabor / decode_value sentinels per (roi, nv, lam, smooth, noise).
 
     Witness: a `_pars.tsv` at ``derivatives/decoding/{kind}/sub-XX/func/``
     with filename schema
-    ``sub-XX_mask-{roi}_nvoxels-{nv}_noise-full[_smoothed][_lambda-{lam}]_pars.tsv``.
+    ``sub-XX_mask-{roi}_nvoxels-{nv}_noise-{noise}[_smoothed][_lambda-{lam}]_pars.tsv``.
 
     Quirk: default lambda (0.0) is OMITTED from the filename; only non-default
     lambdas (e.g. 0.1) carry the ``_lambda-X`` token. So the witness pattern
@@ -243,18 +243,19 @@ def backfill_decoding(deriv: Path, subject: str, dry_run: bool, stats: Stats):
             for roi in DECODE_ROIS:
                 for nv in DECODE_NV:
                     for lam in DECODE_LAM:
+                      for noise in ("full", "spherical"):
                         sentinel = (deriv / f"decoded_{kind}{smooth}"
                                     / f"sub-{subject}"
                                     / (f"sub-{subject}_roi-{roi}_nv-{nv}"
-                                       f"_lam-{lam}.done"))
+                                       f"_lam-{lam}_noise-{noise}.done"))
                         func = (deriv / "decoding" / kind / f"sub-{subject}"
                                 / "func")
                         smooth_in_fn = smooth_suffix_in_filename(smooth)
                         # Default lambda token is absent from the filename.
                         lam_token = "" if lam == "0.0" else f"_lambda-{lam}"
-                        # Order: mask, nvoxels, noise-full, [smoothed], [lambda]
+                        # Order: mask, nvoxels, noise, [smoothed], [lambda]
                         pattern = (f"sub-{subject}_mask-{roi}_nvoxels-{nv}"
-                                   f"_noise-full{smooth_in_fn}{lam_token}"
+                                   f"_noise-{noise}{smooth_in_fn}{lam_token}"
                                    f"_pars.tsv")
                         if func.is_dir() and any(func.glob(pattern)):
                             touch_sentinel(sentinel, dry_run, stats)
