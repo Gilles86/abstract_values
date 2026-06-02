@@ -105,6 +105,7 @@ SMOOTHED_VARIANTS = config["smoothed_variants"]
 DECODE_ROIS      = config["decode_rois"]
 DECODE_NV        = config["decode_n_voxels"]
 DECODE_LAM       = config["decode_lambdas"]
+DECODE_NOISE     = config.get("decode_noise", ["full", "spherical"])
 FI_ROIS_VONMISES = config["fi_rois_vonmises"]
 FI_ROIS_APRF     = config["fi_rois_aprf"]
 # EU_ROIS: expected-decoded ROIs as {desc, hemi} dicts so mask_input() can
@@ -246,12 +247,14 @@ def subject_targets(subject):
 
         # Decoding fan-out (sentinel files; actual TSVs at derivatives/decoding/...)
         for roi in DECODE_ROIS:
-            for nv, lam in product(DECODE_NV, DECODE_LAM):
+            for nv, lam, noise in product(DECODE_NV, DECODE_LAM, DECODE_NOISE):
                 targets += [
                     f"{DERIV}/decoded_gabor{sfx}/sub-{subject}/"
-                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}.done",
+                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}"
+                    f"_noise-{noise}.done",
                     f"{DERIV}/decoded_value{sfx}/sub-{subject}/"
-                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}.done",
+                    f"sub-{subject}_roi-{roi['desc']}_nv-{nv}_lam-{lam}"
+                    f"_noise-{noise}.done",
                 ]
 
         # Fisher information sentinels (actual TSVs at derivatives/encoding_models/...)
@@ -676,13 +679,14 @@ rule decode_gabor:
         # Sentinel — actual decoded TSVs live at
         # derivatives/decoding/gabor/sub-XX/func/... per decode_gabor.py.
         f"{DERIV}/decoded_gabor{{smooth}}/sub-{{subject}}/"
-        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}.done",
-    log: "logs/decode_gabor{smooth}_{subject}_{roi}_nv{nv}_lam{lam}.log"
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}_noise-{{noise}}.done",
+    log: "logs/decode_gabor{smooth}_{subject}_{roi}_nv{nv}_lam{lam}_noise{noise}.log"
     resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MASK={input.mask} MASK_DESC={wildcards.roi} "
         "N_VOXELS={wildcards.nv} LAMBD={wildcards.lam} "
+        "SPHERICAL=$([[ '{wildcards.noise}' == 'spherical' ]] && echo 1 || echo 0) "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_gabor.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
@@ -695,13 +699,14 @@ rule decode_value:
         # Sentinel — actual decoded TSVs live at
         # derivatives/decoding/value/sub-XX/func/... per decode_value.py.
         f"{DERIV}/decoded_value{{smooth}}/sub-{{subject}}/"
-        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}.done",
-    log: "logs/decode_value{smooth}_{subject}_{roi}_nv{nv}_lam{lam}.log"
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}_noise-{{noise}}.done",
+    log: "logs/decode_value{smooth}_{subject}_{roi}_nv{nv}_lam{lam}_noise{noise}.log"
     resources: cpus_per_task=4, mem_mb=16_000, runtime=_decode_runtime,
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MASK={input.mask} MASK_DESC={wildcards.roi} "
         "N_VOXELS={wildcards.nv} LAMBD={wildcards.lam} "
+        "SPHERICAL=$([[ '{wildcards.noise}' == 'spherical' ]] && echo 1 || echo 0) "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/decode_value.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
