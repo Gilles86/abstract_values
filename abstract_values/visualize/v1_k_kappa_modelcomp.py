@@ -92,6 +92,22 @@ def _signal_restricted_mean(vox, null):
     return out, float(signal_null)
 
 
+def _topn_mean(vox, null, top_n=100):
+    """Per (subject, n_basis, kappa) mean cvR2 over the top-N voxels by an
+    INDEPENDENT criterion (joint Von Mises R2) -- non-circular, the honest
+    'tuned voxels' view. Returns the df + mean null over those voxels."""
+    if vox.empty or null.empty or null["joint_r2"].isna().all():
+        return pd.DataFrame(), float("nan")
+    top = (null.dropna(subset=["joint_r2"])
+           .sort_values("joint_r2", ascending=False)
+           .groupby("subject").head(top_n)[["subject", "voxel", "null_cvr2"]])
+    v = vox.merge(top, on=["subject", "voxel"], how="inner")
+    out = (v.groupby(["subject", "n_basis", "kappa"])["cvr2"]
+           .mean().reset_index().rename(columns={"cvr2": "mean_cvr2_top"}))
+    top_null = (top.groupby("subject")["null_cvr2"].mean().mean())
+    return out, float(top_null)
+
+
 def _line_vs_k(ax, df, ycol, ylabel, null_val=None):
     kappas = sorted(df["kappa"].unique())
     pal = sns.color_palette("viridis", len(kappas))
@@ -118,29 +134,34 @@ def run(sweep_dir, out, smoothed):
           f"{sorted(cv['kappa'].unique())} kappa")
     has_decode = "decode_mean_abs_err_deg" in cv.columns
     sig, signal_null = _signal_restricted_mean(vox, null)
+    topn, top_null = _topn_mean(vox, null, top_n=100)
     null_all = float(null["null_cvr2"].mean()) if not null.empty else None
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out) as pdf:
-        # ── page 1: cvR2 vs k by kappa (signal voxels + reference panels) ─────
+        # ── page 1: cvR2 vs k by kappa (tuned-voxel views + all V1) ───────────
         fig, axes = plt.subplots(1, 3, figsize=(11, 3.2), constrained_layout=True)
-        if not sig.empty:
-            n_sig = int(sig.groupby("subject")["n_signal"].first().mean())
-            _line_vs_k(axes[0], sig, "mean_cvr2_signal",
-                       "Mean cvR2 (signal voxels)", null_val=signal_null)
-            axes[0].set_title(f"Signal voxels (beat null in >=1 config; "
-                              f"~{n_sig}/subj)", fontsize=8)
+        if not topn.empty:
+            _line_vs_k(axes[0], topn, "mean_cvr2_top",
+                       "Mean cvR2 (top-100 voxels)", null_val=top_null)
+            axes[0].set_title("Top-100 by independent VM R2 (non-circular)",
+                              fontsize=8)
         else:
-            axes[0].text(0.5, 0.5, "No per-voxel TSVs\n(rerun sweep)",
+            axes[0].text(0.5, 0.5, "No joint-R2 per-voxel info\n(rerun sweep)",
                          transform=axes[0].transAxes, ha="center", va="center",
                          color="0.5")
-        _line_vs_k(axes[1], cv, "mean_cvr2_sel",
-                   "Mean cvR2 (R2>0.05 voxels)", null_val=null_all)
+        if not sig.empty:
+            n_sig = int(sig.groupby("subject")["n_signal"].first().mean())
+            _line_vs_k(axes[1], sig, "mean_cvr2_signal",
+                       "Mean cvR2 (signal voxels)", null_val=signal_null)
+            axes[1].set_title(f"Signal voxels (beat null in >=1 config; "
+                              f"~{n_sig}/subj; mildly circular)", fontsize=8)
         _line_vs_k(axes[2], cv, "mean_cvr2_all",
                    "Mean cvR2 (all V1 voxels)", null_val=null_all)
+        axes[2].set_title("All V1 voxels (noise-dominated)", fontsize=8)
         fig.suptitle(f"V1 Von Mises encoding cvR2 vs k x kappa  "
-                     f"(n={n_sub}, {'smoothed' if smoothed else 'unsmoothed'}; "
-                     f"dotted = true null / predict train mean)", y=1.06)
+                     f"(n={n_sub}, {'smoothed' if smoothed else 'unsmoothed'}, "
+                     f"joint CV; dotted = true null / predict train mean)", y=1.06)
         pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
         # ── page 2: out-of-sample decoding error ──────────────────────────────

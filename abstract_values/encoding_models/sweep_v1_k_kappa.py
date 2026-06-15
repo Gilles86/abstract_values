@@ -274,15 +274,19 @@ def compare_cv(subject, n_basis, kappa, r2_thr=0.05, top_n=100,
 
 def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             decode=False, fdr_alpha=0.05, spherical=True, noise_iter=1000,
-            fallback_n=100, smoothed=False, bids_folder=BIDS_FOLDER):
+            fallback_n=100, cv_mode="joint", smoothed=False, bids_folder=BIDS_FOLDER):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
     smooth_label = "_smoothed" if smoothed else ""
+    # Orientation tuning is condition-invariant, so the joint fit (pool both
+    # sessions) is the correct, stronger model; session-shift halves the
+    # training data and depresses cvR2. Joint is the default.
+    cv_fn = _loo_cv_joint if cv_mode == "joint" else _loo_cv_session_shift
 
     print(f"sub-{subject}  sessions={sessions}  "
           f"n_basis={list(n_basis_list)}  kappa={list(kappa_list)}  "
-          f"r2_thr={r2_thr}  decode={decode}  smoothed={smoothed}")
+          f"r2_thr={r2_thr}  cv={cv_mode}  decode={decode}  smoothed={smoothed}")
 
     # ── shared inputs: V1 mask, betas, paradigm ───────────────────────────────
     mask_img = sub.get_roi_mask("BensonV1", hemi="LR")
@@ -313,6 +317,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             sel = joint_r2.sort_values(ascending=False).index[:100]
             sel_label = "fallback top-100 by joint R2"
     else:
+        joint_r2 = pd.Series(np.nan, index=data.columns)
         sel = data.columns                      # no joint fit -> use all V1
         sel_label = "all V1 (joint R2 missing)"
     print(f"  selected {len(sel)} voxels  ({sel_label})")
@@ -348,8 +353,9 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
     # once (k/kappa-independent). 'Signal' = model cvR2 > this, not > 0.
     null_cvr2 = _null_cvr2(data, paradigm)
     pd.DataFrame({"subject": subject, "voxel": null_cvr2.index,
-                  "null_cvr2": null_cvr2.values}).to_csv(p_null, sep="\t",
-                                                         index=False)
+                  "null_cvr2": null_cvr2.values,
+                  "joint_r2": joint_r2.reindex(null_cvr2.index).values}
+                 ).to_csv(p_null, sep="\t", index=False)
     print(f"  null model: mean cvR2(all V1)={float(null_cvr2.mean()):+.4f} "
           f"(predict train mean; the true 0-signal baseline)")
 
@@ -387,7 +393,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                 basis_pars = make_basis_parameters(n_basis, kappa)
 
                 # cvR2 (per-voxel mean over folds)
-                cvr2 = _loo_cv_session_shift(model, basis_pars, data, paradigm)
+                cvr2 = cv_fn(model, basis_pars, data, paradigm)
                 cvr2_sel = cvr2.loc[sel]
                 row = {
                     "subject": subject, "n_basis": n_basis, "kappa": kappa,
@@ -464,6 +470,9 @@ def main():
                         "(default: spherical, which is preferred here)")
     p.add_argument("--noise-iter", type=int, default=1000,
                    help="Noise-model fit iterations for decoding (default 1000)")
+    p.add_argument("--cv-mode", choices=["joint", "sessionshift"], default="joint",
+                   help="LOO-CV weight fit: joint (pool sessions; correct for "
+                        "orientation, default) or sessionshift (per-session).")
     p.add_argument("--compare-cv", action="store_true",
                    help="Print-only diagnostic: joint vs session-shift cvR2 for "
                         "the first (n_basis, kappa); writes nothing.")
@@ -478,7 +487,8 @@ def main():
     run_one(args.subject, args.n_basis, args.kappa, r2_thr=args.r2_thr,
             decode=args.decode, fdr_alpha=args.fdr_alpha,
             spherical=not args.full_noise, noise_iter=args.noise_iter,
-            smoothed=args.smoothed, bids_folder=args.bids_folder)
+            cv_mode=args.cv_mode, smoothed=args.smoothed,
+            bids_folder=args.bids_folder)
 
 
 if __name__ == "__main__":
