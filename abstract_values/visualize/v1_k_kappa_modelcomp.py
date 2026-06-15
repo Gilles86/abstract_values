@@ -108,6 +108,44 @@ def _topn_mean(vox, null, top_n=100):
     return out, float(top_null)
 
 
+def _basis_page(pdf, ks, kappas):
+    """Reference page: the actual axial Von Mises basis sets, so 'k' and
+    'kappa' are visually concrete. Rows = a few representative k (number of
+    bumps), columns = kappa (concentration). Higher kappa = narrower/sharper
+    tuning; more k = finer tiling of the 0-180 deg orientation axis."""
+    ks_show = [k for k in (4, 8, 16, 24) if k in ks] or sorted(ks)[:4]
+    x = np.linspace(0, np.pi, 360)
+    xd = np.degrees(x)
+    fig, axes = plt.subplots(len(ks_show), len(kappas),
+                             figsize=(1.7 * len(kappas) + 0.6,
+                                      1.3 * len(ks_show) + 0.8),
+                             sharex=True, sharey=True, squeeze=False)
+    for i, k in enumerate(ks_show):
+        mus = np.linspace(0, np.pi, k, endpoint=False)
+        colors = sns.color_palette("husl", k)
+        for j, kap in enumerate(kappas):
+            ax = axes[i][j]
+            for mu, c in zip(mus, colors):
+                b = np.exp(kap * np.cos(2 * (x - mu)))   # axial Von Mises
+                ax.plot(xd, b / b.max(), lw=0.8, color=c)
+            ax.set_xlim(0, 180); ax.set_xticks([0, 90, 180]); ax.set_yticks([])
+            if i == 0:
+                ax.set_title(f"κ = {kap:g}"
+                             + ("  (broad)" if j == 0 else
+                                "  (sharp)" if j == len(kappas) - 1 else ""),
+                             fontsize=8)
+            if j == 0:
+                ax.set_ylabel(f"k = {k}", fontsize=9)
+    fig.suptitle("Von Mises basis sets  -  rows: k (number of bumps tiling "
+                 "orientation) · cols: κ (concentration).\n"
+                 "Higher κ = narrower/sharper tuning curves; more k = "
+                 "finer tiling. The model fits a weighted sum of these per voxel.",
+                 fontsize=9, y=1.0)
+    fig.supxlabel("Orientation (deg)", fontsize=9)
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
 def _line_vs_k(ax, df, ycol, ylabel, null_val=None):
     kappas = sorted(df["kappa"].unique())
     pal = sns.color_palette("viridis", len(kappas))
@@ -121,7 +159,7 @@ def _line_vs_k(ax, df, ycol, ylabel, null_val=None):
                    label="Null (train mean)")
     ax.set_xlabel("Number of basis functions  k")
     ax.set_ylabel(ylabel)
-    ax.legend(title="kappa", fontsize=7.5, title_fontsize=7.5,
+    ax.legend(title="κ (↑ = sharper)", fontsize=7.5, title_fontsize=7.5,
               loc="best", ncol=1)
 
 
@@ -139,6 +177,10 @@ def run(sweep_dir, out, smoothed):
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out) as pdf:
+        # ── page 0: reference — what k and kappa look like ────────────────────
+        _basis_page(pdf, sorted(cv["n_basis"].unique()),
+                    sorted(cv["kappa"].unique()))
+
         # ── page 1: cvR2 vs k by kappa (tuned-voxel views + all V1) ───────────
         fig, axes = plt.subplots(1, 3, figsize=(11, 3.2), constrained_layout=True)
         if not topn.empty:
