@@ -24,7 +24,7 @@
 #   SMOOTHED   set to "1" to use smoothed betas (default: off)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
-    PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
+    PARTICIPANT_LABEL=$(printf "%02d" $SLURM_ARRAY_TASK_ID)
 fi
 
 N_BASIS="${N_BASIS:-4 6 8 12 16 20 24}"
