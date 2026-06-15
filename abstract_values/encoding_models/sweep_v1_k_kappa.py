@@ -305,7 +305,8 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             print(msg)
 
     # ── write ─────────────────────────────────────────────────────────────────
-    out_dir = OUT_ROOT / f"sub-{subject}" / "func"
+    out_dir = (bids_folder / "derivatives" / "experiments"
+               / "v1_k_kappa_sweep" / f"sub-{subject}" / "func")
     out_dir.mkdir(parents=True, exist_ok=True)
     base = f"sub-{subject}_task-abstractvalue_mask-BensonV1"
     p_cv = out_dir / f"{base}_desc-cvr2summary{smooth_label}.tsv"
