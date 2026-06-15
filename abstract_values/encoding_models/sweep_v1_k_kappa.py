@@ -122,7 +122,7 @@ def _preferred_orientation_deg(model, basis_pars, weights):
     """Argmax-of-tuning preferred orientation (deg, 0-180) per voxel."""
     fine = pd.DataFrame({"x": PREF_GRID_RAD})
     basis_pred = model.basis_predictions(fine, basis_pars)   # (200, n_basis)
-    curves = basis_pred.values @ weights.values              # (200, n_voxels)
+    curves = np.asarray(basis_pred) @ weights.values         # (200, n_voxels)
     pref_rad = PREF_GRID_RAD[np.argmax(curves, axis=0)]
     return np.rad2deg(pref_rad)
 
