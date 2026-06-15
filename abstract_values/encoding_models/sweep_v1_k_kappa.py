@@ -248,71 +248,92 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             print(f"  decode: vonmises mixture degenerate/missing -> "
                   f"top-{fallback_n} by nested-CV R2 per fold")
 
-    model = AxialVonMisesPRF()
-    cvr2_rows, hist_rows = [], []
-
-    for n_basis in n_basis_list:
-        for kappa in kappa_list:
-            basis_pars = make_basis_parameters(n_basis, kappa)
-
-            # cvR2 (per-voxel mean over folds)
-            cvr2 = _loo_cv_session_shift(model, basis_pars, data, paradigm)
-            cvr2_sel = cvr2.loc[sel]
-            row = {
-                "subject": subject, "n_basis": n_basis, "kappa": kappa,
-                "n_v1": n_v1, "n_sel": int(len(sel)),
-                "mean_cvr2_sel": float(cvr2_sel.mean()),
-                "median_cvr2_sel": float(cvr2_sel.median()),
-                "mean_cvr2_all": float(cvr2.mean()),
-                "frac_pos_sel": float((cvr2_sel > 0).mean()),
-            }
-
-            # out-of-sample decoding (FDR voxel selection, spherical noise)
-            if decode:
-                err, mean_n_sel = _decode_oos(
-                    data, paradigm, basis_pars, fdr_thr, fallback_n=fallback_n,
-                    spherical=spherical, noise_iter=noise_iter)
-                err_deg = np.rad2deg(np.abs(err))
-                row.update({
-                    "decode_mean_abs_err_deg": float(np.mean(err_deg)),
-                    "decode_median_abs_err_deg": float(np.median(err_deg)),
-                    "decode_circ_sd_deg": float(np.rad2deg(circular_sd(err))),
-                    "decode_mean_n_sel": float(mean_n_sel),
-                })
-            cvr2_rows.append(row)
-
-            # preferred-orientation histogram, full-data per-session weights,
-            # over the fixed selected voxel set
-            wts_by_ses = _fit_weights_per_session(
-                model, basis_pars, data.loc[:, sel], paradigm)
-            for ses in sessions:
-                if ses not in wts_by_ses:
-                    continue
-                pref_deg = _preferred_orientation_deg(
-                    model, basis_pars, wts_by_ses[ses])
-                counts, _ = np.histogram(pref_deg, bins=HIST_BINS)
-                for c, cnt in zip(HIST_CENTERS, counts):
-                    hist_rows.append({
-                        "subject": subject, "n_basis": n_basis, "kappa": kappa,
-                        "session": ses, "condition": sub.get_mapping(ses),
-                        "orientation_deg": float(c), "count": int(cnt),
-                    })
-            msg = (f"  n_basis={n_basis:2d} kappa={kappa:<4g} "
-                   f"mean cvR2(sel)={row['mean_cvr2_sel']:+.4f}")
-            if decode:
-                msg += (f"  decode |err|={row['decode_mean_abs_err_deg']:.1f}deg"
-                        f" (n_sel~{row['decode_mean_n_sel']:.0f})")
-            print(msg)
-
-    # ── write ─────────────────────────────────────────────────────────────────
+    # ── output files: written + flushed per (k, kappa) so partial results ─────
+    # survive a wall-time kill and the TSV row-count doubles as a progress
+    # meter (independent of any stdout buffering by the job wrapper).
     out_dir = (bids_folder / "derivatives" / "experiments"
                / "v1_k_kappa_sweep" / f"sub-{subject}" / "func")
     out_dir.mkdir(parents=True, exist_ok=True)
     base = f"sub-{subject}_task-abstractvalue_mask-BensonV1"
     p_cv = out_dir / f"{base}_desc-cvr2summary{smooth_label}.tsv"
     p_hist = out_dir / f"{base}_desc-preferredhist{smooth_label}.tsv"
-    pd.DataFrame(cvr2_rows).to_csv(p_cv, sep="\t", index=False)
-    pd.DataFrame(hist_rows).to_csv(p_hist, sep="\t", index=False)
+
+    cv_cols = ["subject", "n_basis", "kappa", "n_v1", "n_sel", "mean_cvr2_sel",
+               "median_cvr2_sel", "mean_cvr2_all", "frac_pos_sel"]
+    if decode:
+        cv_cols += ["decode_mean_abs_err_deg", "decode_median_abs_err_deg",
+                    "decode_circ_sd_deg", "decode_mean_n_sel"]
+    hist_cols = ["subject", "n_basis", "kappa", "session", "condition",
+                 "orientation_deg", "count"]
+
+    import csv
+    n_total = len(n_basis_list) * len(kappa_list)
+    model = AxialVonMisesPRF()
+
+    with open(p_cv, "w", newline="") as f_cv, open(p_hist, "w", newline="") as f_hist:
+        w_cv = csv.DictWriter(f_cv, fieldnames=cv_cols, delimiter="\t",
+                              extrasaction="ignore")
+        w_hist = csv.DictWriter(f_hist, fieldnames=hist_cols, delimiter="\t")
+        w_cv.writeheader(); w_hist.writeheader()
+        f_cv.flush(); f_hist.flush()
+
+        done = 0
+        for n_basis in n_basis_list:
+            for kappa in kappa_list:
+                basis_pars = make_basis_parameters(n_basis, kappa)
+
+                # cvR2 (per-voxel mean over folds)
+                cvr2 = _loo_cv_session_shift(model, basis_pars, data, paradigm)
+                cvr2_sel = cvr2.loc[sel]
+                row = {
+                    "subject": subject, "n_basis": n_basis, "kappa": kappa,
+                    "n_v1": n_v1, "n_sel": int(len(sel)),
+                    "mean_cvr2_sel": float(cvr2_sel.mean()),
+                    "median_cvr2_sel": float(cvr2_sel.median()),
+                    "mean_cvr2_all": float(cvr2.mean()),
+                    "frac_pos_sel": float((cvr2_sel > 0).mean()),
+                }
+
+                # out-of-sample decoding (FDR voxel selection, spherical noise)
+                if decode:
+                    err, mean_n_sel = _decode_oos(
+                        data, paradigm, basis_pars, fdr_thr, fallback_n=fallback_n,
+                        spherical=spherical, noise_iter=noise_iter)
+                    err_deg = np.rad2deg(np.abs(err))
+                    row.update({
+                        "decode_mean_abs_err_deg": float(np.mean(err_deg)),
+                        "decode_median_abs_err_deg": float(np.median(err_deg)),
+                        "decode_circ_sd_deg": float(np.rad2deg(circular_sd(err))),
+                        "decode_mean_n_sel": float(mean_n_sel),
+                    })
+                w_cv.writerow(row)
+
+                # preferred-orientation histogram, full-data per-session weights,
+                # over the fixed selected voxel set
+                wts_by_ses = _fit_weights_per_session(
+                    model, basis_pars, data.loc[:, sel], paradigm)
+                for ses in sessions:
+                    if ses not in wts_by_ses:
+                        continue
+                    pref_deg = _preferred_orientation_deg(
+                        model, basis_pars, wts_by_ses[ses])
+                    counts, _ = np.histogram(pref_deg, bins=HIST_BINS)
+                    for c, cnt in zip(HIST_CENTERS, counts):
+                        w_hist.writerow({
+                            "subject": subject, "n_basis": n_basis, "kappa": kappa,
+                            "session": ses, "condition": sub.get_mapping(ses),
+                            "orientation_deg": float(c), "count": int(cnt),
+                        })
+                f_cv.flush(); f_hist.flush()        # crash-safe + monitorable
+
+                done += 1
+                msg = (f"  [{done}/{n_total}] n_basis={n_basis:2d} "
+                       f"kappa={kappa:<4g} mean cvR2(sel)={row['mean_cvr2_sel']:+.4f}")
+                if decode:
+                    msg += (f"  decode |err|={row['decode_mean_abs_err_deg']:.1f}deg"
+                            f" (n_sel~{row['decode_mean_n_sel']:.0f})")
+                print(msg, flush=True)
+
     print(f"  wrote {p_cv.name}\n  wrote {p_hist.name}")
 
 

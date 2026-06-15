@@ -51,6 +51,9 @@ echo "Args: ${ARGS[*]}"
 
 . $HOME/init_conda.sh
 
-conda run -n abstract_values python -u \
+# --no-capture-output: `conda run` otherwise BUFFERS all stdout until the
+# process exits (python -u alone does NOT fix this), making a long job
+# impossible to monitor via its log. See the sciencecluster skill.
+conda run --no-capture-output -n abstract_values python -u \
     "$REPO/abstract_values/encoding_models/sweep_v1_k_kappa.py" \
     "${ARGS[@]}"
