@@ -257,6 +257,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
     base = f"sub-{subject}_task-abstractvalue_mask-BensonV1"
     p_cv = out_dir / f"{base}_desc-cvr2summary{smooth_label}.tsv"
     p_hist = out_dir / f"{base}_desc-preferredhist{smooth_label}.tsv"
+    p_vox = out_dir / f"{base}_desc-cvr2voxels{smooth_label}.tsv"
 
     cv_cols = ["subject", "n_basis", "kappa", "n_v1", "n_sel", "mean_cvr2_sel",
                "median_cvr2_sel", "mean_cvr2_all", "frac_pos_sel"]
@@ -265,17 +266,26 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                     "decode_circ_sd_deg", "decode_mean_n_sel"]
     hist_cols = ["subject", "n_basis", "kappa", "session", "condition",
                  "orientation_deg", "count"]
+    # per-voxel cvR2 over ALL V1 voxels (every config) -- lets the local
+    # plotter define "signal voxels" (e.g. cvR2>0 in >=1 config) and compute
+    # signal-restricted means, since most V1 voxels are untuned noise whose
+    # negative cvR2 drags the all-voxel mean below zero.
+    vox_cols = ["subject", "n_basis", "kappa", "voxel", "cvr2"]
 
     import csv
     n_total = len(n_basis_list) * len(kappa_list)
     model = AxialVonMisesPRF()
 
-    with open(p_cv, "w", newline="") as f_cv, open(p_hist, "w", newline="") as f_hist:
+    with open(p_cv, "w", newline="") as f_cv, \
+         open(p_hist, "w", newline="") as f_hist, \
+         open(p_vox, "w", newline="") as f_vox:
         w_cv = csv.DictWriter(f_cv, fieldnames=cv_cols, delimiter="\t",
                               extrasaction="ignore")
         w_hist = csv.DictWriter(f_hist, fieldnames=hist_cols, delimiter="\t")
+        w_vox = csv.writer(f_vox, delimiter="\t")
         w_cv.writeheader(); w_hist.writeheader()
-        f_cv.flush(); f_hist.flush()
+        w_vox.writerow(vox_cols)
+        f_cv.flush(); f_hist.flush(); f_vox.flush()
 
         done = 0
         for n_basis in n_basis_list:
@@ -308,6 +318,10 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                     })
                 w_cv.writerow(row)
 
+                # per-voxel cvR2 (all V1 voxels) for post-hoc signal selection
+                for vox, val in cvr2.items():
+                    w_vox.writerow([subject, n_basis, kappa, vox, float(val)])
+
                 # preferred-orientation histogram, full-data per-session weights,
                 # over the fixed selected voxel set
                 wts_by_ses = _fit_weights_per_session(
@@ -324,7 +338,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                             "session": ses, "condition": sub.get_mapping(ses),
                             "orientation_deg": float(c), "count": int(cnt),
                         })
-                f_cv.flush(); f_hist.flush()        # crash-safe + monitorable
+                f_cv.flush(); f_hist.flush(); f_vox.flush()   # crash-safe + monitorable
 
                 done += 1
                 msg = (f"  [{done}/{n_total}] n_basis={n_basis:2d} "

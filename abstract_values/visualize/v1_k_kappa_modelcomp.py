@@ -57,12 +57,31 @@ def _load(sweep_dir, smoothed):
           sweep_dir.glob(f"sub-*/func/*_desc-cvr2summary{smooth}.tsv")]
     hist = [pd.read_csv(p, sep="\t") for p in
             sweep_dir.glob(f"sub-*/func/*_desc-preferredhist{smooth}.tsv")]
+    vox = [pd.read_csv(p, sep="\t") for p in
+           sweep_dir.glob(f"sub-*/func/*_desc-cvr2voxels{smooth}.tsv")]
     cv = pd.concat(cv, ignore_index=True) if cv else pd.DataFrame()
     hist = pd.concat(hist, ignore_index=True) if hist else pd.DataFrame()
-    return cv, hist
+    vox = pd.concat(vox, ignore_index=True) if vox else pd.DataFrame()
+    return cv, hist, vox
 
 
-def _line_vs_k(ax, df, ycol, ylabel):
+def _signal_restricted_mean(vox):
+    """Per (subject, n_basis, kappa) mean cvR2 over SIGNAL voxels only --
+    voxels whose cvR2 > 0 in >=1 (k, kappa) config (within that subject).
+    Most V1 voxels are untuned noise; restricting to ever-positive voxels
+    isolates how the model does on voxels that carry orientation signal."""
+    if vox.empty:
+        return pd.DataFrame()
+    peak = vox.groupby(["subject", "voxel"])["cvr2"].transform("max")
+    sig = vox[peak > 0.0]
+    out = (sig.groupby(["subject", "n_basis", "kappa"])["cvr2"]
+           .mean().reset_index().rename(columns={"cvr2": "mean_cvr2_signal"}))
+    n_sig = (sig.groupby("subject")["voxel"].nunique()
+             .rename("n_signal").reset_index())
+    return out.merge(n_sig, on="subject")
+
+
+def _line_vs_k(ax, df, ycol, ylabel, null_line=False):
     kappas = sorted(df["kappa"].unique())
     pal = sns.color_palette("viridis", len(kappas))
     for kappa, c in zip(kappas, pal):
@@ -70,6 +89,8 @@ def _line_vs_k(ax, df, ycol, ylabel):
         stat = g.groupby("n_basis")[ycol].agg(["mean", "sem"]).reset_index()
         ax.errorbar(stat["n_basis"], stat["mean"], yerr=stat["sem"],
                     color=c, marker="o", ms=3, capsize=2, label=f"{kappa:g}")
+    if null_line:           # cvR2 is already relative to the test mean
+        ax.axhline(0, color="k", ls=":", lw=0.8, alpha=0.6, zorder=-1)
     ax.set_xlabel("Number of basis functions  k")
     ax.set_ylabel(ylabel)
     ax.legend(title="kappa", fontsize=7.5, title_fontsize=7.5,
@@ -77,24 +98,36 @@ def _line_vs_k(ax, df, ycol, ylabel):
 
 
 def run(sweep_dir, out, smoothed):
-    cv, hist = _load(sweep_dir, smoothed)
+    cv, hist, vox = _load(sweep_dir, smoothed)
     if cv.empty:
         raise SystemExit(f"No cvr2summary TSVs under {sweep_dir}")
     n_sub = cv["subject"].nunique()
     print(f"{n_sub} subjects · {sorted(cv['n_basis'].unique())} k · "
           f"{sorted(cv['kappa'].unique())} kappa")
     has_decode = "decode_mean_abs_err_deg" in cv.columns
+    sig = _signal_restricted_mean(vox)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out) as pdf:
-        # ── page 1: cvR2 vs k by kappa ────────────────────────────────────────
-        fig, axes = plt.subplots(1, 2, figsize=(7.5, 3.2), constrained_layout=True)
-        _line_vs_k(axes[0], cv, "mean_cvr2_sel",
-                   "Mean cvR2 (selected V1 voxels)")
-        _line_vs_k(axes[1], cv, "mean_cvr2_all", "Mean cvR2 (all V1 voxels)")
+        # ── page 1: cvR2 vs k by kappa (signal voxels + reference panels) ─────
+        fig, axes = plt.subplots(1, 3, figsize=(11, 3.2), constrained_layout=True)
+        if not sig.empty:
+            n_sig = int(sig.groupby("subject")["n_signal"].first().mean())
+            _line_vs_k(axes[0], sig, "mean_cvr2_signal",
+                       "Mean cvR2 (signal voxels)", null_line=True)
+            axes[0].set_title(f"Signal voxels (cvR2>0 in >=1 config; "
+                              f"~{n_sig}/subj)", fontsize=8)
+        else:
+            axes[0].text(0.5, 0.5, "No per-voxel TSVs\n(rerun sweep)",
+                         transform=axes[0].transAxes, ha="center", va="center",
+                         color="0.5")
+        _line_vs_k(axes[1], cv, "mean_cvr2_sel",
+                   "Mean cvR2 (R2>0.05 voxels)", null_line=True)
+        _line_vs_k(axes[2], cv, "mean_cvr2_all",
+                   "Mean cvR2 (all V1 voxels)", null_line=True)
         fig.suptitle(f"V1 Von Mises encoding cvR2 vs k x kappa  "
-                     f"(n={n_sub}, {'smoothed' if smoothed else 'unsmoothed'})",
-                     y=1.06)
+                     f"(n={n_sub}, {'smoothed' if smoothed else 'unsmoothed'}; "
+                     f"dotted = null/predict-mean)", y=1.06)
         pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
         # ── page 2: out-of-sample decoding error ──────────────────────────────
