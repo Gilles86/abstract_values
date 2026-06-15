@@ -127,6 +127,25 @@ def _preferred_orientation_deg(model, basis_pars, weights):
     return np.rad2deg(pref_rad)
 
 
+def _null_cvr2(data, paradigm):
+    """Per-voxel leave-one-run-out cvR2 of the TRUE null model: predict the
+    *training-set* mean on each held-out run. This is the honest baseline --
+    it is slightly negative with finite data (train mean != test mean) and
+    only ->0 in the limit, so 'has signal' means model cvR2 > this, NOT >0."""
+    sess = paradigm.index.get_level_values("session")
+    runs = paradigm.index.get_level_values("run")
+    per_fold = []
+    for test_ses, test_run in sorted(set(zip(sess, runs))):
+        test_mask = (sess == test_ses) & (runs == test_run)
+        train_mean = data.loc[~test_mask].mean(axis=0)
+        test_data = data.loc[test_mask]
+        pred = pd.DataFrame(np.broadcast_to(train_mean.values,
+                                            test_data.shape),
+                            index=test_data.index, columns=test_data.columns)
+        per_fold.append(get_rsq(test_data, pred))
+    return pd.concat(per_fold, axis=1).mean(axis=1)
+
+
 def _nested_cv_r2(model, basis_pars, train_data, train_par):
     """Inner leave-one-run-out CV R2 within the training set (unbiased,
     no circularity) -- used for voxel selection."""
@@ -258,6 +277,16 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
     p_cv = out_dir / f"{base}_desc-cvr2summary{smooth_label}.tsv"
     p_hist = out_dir / f"{base}_desc-preferredhist{smooth_label}.tsv"
     p_vox = out_dir / f"{base}_desc-cvr2voxels{smooth_label}.tsv"
+    p_null = out_dir / f"{base}_desc-nullcvr2{smooth_label}.tsv"
+
+    # True null model (predict training mean) -- per-voxel reference; computed
+    # once (k/kappa-independent). 'Signal' = model cvR2 > this, not > 0.
+    null_cvr2 = _null_cvr2(data, paradigm)
+    pd.DataFrame({"subject": subject, "voxel": null_cvr2.index,
+                  "null_cvr2": null_cvr2.values}).to_csv(p_null, sep="\t",
+                                                         index=False)
+    print(f"  null model: mean cvR2(all V1)={float(null_cvr2.mean()):+.4f} "
+          f"(predict train mean; the true 0-signal baseline)")
 
     cv_cols = ["subject", "n_basis", "kappa", "n_v1", "n_sel", "mean_cvr2_sel",
                "median_cvr2_sel", "mean_cvr2_all", "frac_pos_sel"]
