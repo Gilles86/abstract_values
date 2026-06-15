@@ -91,6 +91,28 @@ def _fit_weights_per_session(model, basis_pars, data, paradigm):
     return out
 
 
+def _loo_cv_joint(model, basis_pars, data, paradigm):
+    """Leave-one-run-out CV with a SINGLE joint weight set fit on all
+    training runs (both sessions pooled). Correct for orientation, whose
+    tuning is condition-invariant; uses 2x the training data and half the
+    parameters of the session-shift variant. Returns per-voxel mean cvR2."""
+    sess = paradigm.index.get_level_values("session")
+    runs = paradigm.index.get_level_values("run")
+    per_fold = []
+    for test_ses, test_run in sorted(set(zip(sess, runs))):
+        test_mask = (sess == test_ses) & (runs == test_run)
+        w = WeightFitter(model, basis_pars,
+                         data.loc[~test_mask].reset_index(drop=True),
+                         paradigm.loc[~test_mask].reset_index(drop=True)[["x"]]).fit()
+        test_data = data.loc[test_mask].reset_index(drop=True)
+        test_par = paradigm.loc[test_mask].reset_index(drop=True)[["x"]]
+        bp = model.basis_predictions(test_par, basis_pars)
+        pred = pd.DataFrame(bp @ w.values, index=test_data.index,
+                            columns=test_data.columns)
+        per_fold.append(get_rsq(test_data, pred))
+    return pd.concat(per_fold, axis=1).mean(axis=1)
+
+
 def _loo_cv_session_shift(model, basis_pars, data, paradigm):
     """Leave-one-run-out CV with per-session weights. Returns per-voxel
     mean cvR2 (Series indexed like data columns)."""
@@ -205,6 +227,49 @@ def _decode_oos(data, paradigm, basis_pars, fdr_thr, fallback_n=100,
         errors.append(circular_distance(decoded, test_par["x"].values))
 
     return np.concatenate(errors), float(np.mean(n_sels))
+
+
+def compare_cv(subject, n_basis, kappa, r2_thr=0.05, top_n=100,
+               smoothed=False, bids_folder=BIDS_FOLDER):
+    """Print-only diagnostic: joint vs session-shift cvR2 for one (k, kappa),
+    summarised over all V1 / R2>thr / top-N (by independent joint R2), with
+    the true-null reference. Writes nothing (safe to run alongside a sweep)."""
+    bids_folder = Path(bids_folder)
+    sub = Subject(subject, bids_folder=bids_folder)
+    sessions = sorted(sub.get_sessions())
+    smooth_label = "_smoothed" if smoothed else ""
+    mask_img = sub.get_roi_mask("BensonV1", hemi="LR")
+    betas_img = sub.get_single_trial_estimates(sessions, desc="gabor",
+                                               smoothed=smoothed)
+    masker = NiftiMasker(mask_img=mask_img, target_affine=betas_img.affine,
+                         target_shape=betas_img.shape[:3]).fit()
+    paradigm = get_gabor_paradigm_with_runs(sub, sessions)
+    data = pd.DataFrame(masker.transform(betas_img).astype(np.float32),
+                        index=paradigm.index)
+    r2_path = (bids_folder / "derivatives" / "encoding_models" / "vonmises"
+               / f"sub-{subject}" / "func"
+               / f"sub-{subject}_task-abstractvalue_space-T1w"
+                 f"_desc-r2{smooth_label}_pe.nii.gz")
+    joint_r2 = pd.Series(masker.transform(nib.load(str(r2_path))).ravel()
+                         .astype(np.float32), index=data.columns)
+    sel = joint_r2[joint_r2 > r2_thr].index
+    top = joint_r2.sort_values(ascending=False).index[:top_n]
+
+    model = AxialVonMisesPRF()
+    basis_pars = make_basis_parameters(n_basis, kappa)
+    null = _null_cvr2(data, paradigm)
+    joint = _loo_cv_joint(model, basis_pars, data, paradigm)
+    sshift = _loo_cv_session_shift(model, basis_pars, data, paradigm)
+
+    print(f"\nsub-{subject}  k={n_basis} kappa={kappa}  "
+          f"({data.shape[1]} V1 voxels, {len(sel)} with R2>{r2_thr}, top-{top_n})")
+    print(f"  {'set':<16}{'JOINT':>10}{'SESS-SHIFT':>12}{'NULL':>10}")
+    for label, idx in [("all V1", data.columns), (f"R2>{r2_thr}", sel),
+                       (f"top-{top_n}", top)]:
+        print(f"  {label:<16}{joint.loc[idx].mean():>10.4f}"
+              f"{sshift.loc[idx].mean():>12.4f}{null.loc[idx].mean():>10.4f}")
+    print(f"  frac voxels beating null (JOINT, top-{top_n}): "
+          f"{float((joint.loc[top] > null.loc[top]).mean()):.2f}")
 
 
 def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
@@ -399,9 +464,17 @@ def main():
                         "(default: spherical, which is preferred here)")
     p.add_argument("--noise-iter", type=int, default=1000,
                    help="Noise-model fit iterations for decoding (default 1000)")
+    p.add_argument("--compare-cv", action="store_true",
+                   help="Print-only diagnostic: joint vs session-shift cvR2 for "
+                        "the first (n_basis, kappa); writes nothing.")
     p.add_argument("--smoothed", action="store_true")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     args = p.parse_args()
+    if args.compare_cv:
+        compare_cv(args.subject, args.n_basis[0], args.kappa[0],
+                   r2_thr=args.r2_thr, smoothed=args.smoothed,
+                   bids_folder=args.bids_folder)
+        return
     run_one(args.subject, args.n_basis, args.kappa, r2_thr=args.r2_thr,
             decode=args.decode, fdr_alpha=args.fdr_alpha,
             spherical=not args.full_noise, noise_iter=args.noise_iter,
