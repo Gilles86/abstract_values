@@ -49,11 +49,14 @@ ARGS=(
 echo "sweep_v1_k_kappa: sub-${PARTICIPANT_LABEL}  n_basis=[${N_BASIS}]  kappa=[${KAPPA}]  decode=${DECODE}"
 echo "Args: ${ARGS[*]}"
 
-. $HOME/init_conda.sh
-
-# --no-capture-output: `conda run` otherwise BUFFERS all stdout until the
-# process exits (python -u alone does NOT fix this), making a long job
-# impossible to monitor via its log. See the sciencecluster skill.
-conda run --no-capture-output -n abstract_values python -u \
+# Run via the env binary directly under `exec` (NOT `conda run`):
+#  - streams stdout live (no wrapper pipe to buffer; `conda run` buffers
+#    everything until exit, and even `--no-capture-output` does not forward
+#    SIGTERM to python -- conda#10351 -- so scancel/timeout orphans the child).
+#  - `exec` makes python the job-step process, so SLURM's SIGTERM hits it
+#    directly. Safe here: pure TF/numpy env with no activate.d scripts.
+# See the sciencecluster skill.
+ENV=$HOME/data/conda/envs/abstract_values
+exec ${ENV}/bin/python -u \
     "$REPO/abstract_values/encoding_models/sweep_v1_k_kappa.py" \
     "${ARGS[@]}"
