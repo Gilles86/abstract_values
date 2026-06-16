@@ -50,43 +50,60 @@ COND_COLOUR = {"joint": "#264653", "shift": "#2A9D8F", "separate": "#E9C46A"}
 
 def _load(sweep_dir, smoothed):
     sm = "_smoothed" if smoothed else ""
-    cv = [pd.read_csv(p, sep="\t") for p in
-          sweep_dir.glob(f"sub-*/func/*_desc-cvr2summary{sm}.tsv")]
-    null = [pd.read_csv(p, sep="\t") for p in
-            sweep_dir.glob(f"sub-*/func/*_desc-nullcvr2{sm}.tsv")]
-    cv = pd.concat(cv, ignore_index=True) if cv else pd.DataFrame()
-    null = pd.concat(null, ignore_index=True) if null else pd.DataFrame()
-    return cv, null
+
+    def _cat(pattern):
+        fs = list(sweep_dir.glob(pattern))
+        return pd.concat([pd.read_csv(p, sep="\t") for p in fs],
+                         ignore_index=True) if fs else pd.DataFrame()
+
+    vox = _cat(f"sub-*/func/*_desc-cvr2voxels{sm}.tsv")
+    null = _cat(f"sub-*/func/*_desc-nullcvr2{sm}.tsv")
+    sel = _cat(f"sub-*/func/*_desc-voxelselect{sm}.tsv")
+    return vox, null, sel
 
 
-def _top_null(null, top_n=100):
-    """Mean null cvR2 over the top-N voxels by independent value-R2,
-    averaged across subjects."""
-    if null.empty or null["value_r2"].isna().all():
-        return float("nan")
-    top = (null.dropna(subset=["value_r2"])
-           .sort_values("value_r2", ascending=False)
-           .groupby("subject").head(top_n))
-    return float(top.groupby("subject")["null_cvr2"].mean().mean())
+def _union_per_subject(vox, sel):
+    """Per (subject, model, cond, n_basis, fwhm) mean cvR2 over the UNION
+    voxel set (passes FDR under aprf OR aprf-weighted) -- the model-neutral
+    shared set. Same voxels for every model. Returns the per-subject frame."""
+    if vox.empty or sel.empty:
+        return pd.DataFrame()
+    union = sel.loc[sel["in_union"] == 1, ["subject", "voxel"]]
+    v = vox.merge(union, on=["subject", "voxel"], how="inner")
+    return (v.groupby(["subject", "model", "cond", "n_basis", "fwhm"],
+                      dropna=False)["cvr2"].mean().reset_index())
 
 
-def _agg(df, ycol="mean_cvr2_top"):
+def _union_null(null, sel):
+    if null.empty or sel.empty:
+        return float("nan"), float("nan")
+    union = sel.loc[sel["in_union"] == 1, ["subject", "voxel"]]
+    n = null.merge(union, on=["subject", "voxel"], how="inner")
+    per_sub = n.groupby("subject")["null_cvr2"].mean()
+    n_union = union.groupby("subject").size().mean()
+    return float(per_sub.mean()), float(n_union)
+
+
+def _agg(df, ycol="cvr2"):
     """mean +/- SEM across subjects."""
     return df.groupby(["model", "cond", "n_basis", "fwhm"], dropna=False)[ycol] \
              .agg(["mean", "sem"]).reset_index()
 
 
 def run(sweep_dir, out, smoothed):
-    cv, null = _load(sweep_dir, smoothed)
-    if cv.empty:
-        raise SystemExit(f"No cvr2summary TSVs under {sweep_dir}")
-    n_sub = cv["subject"].nunique()
-    print(f"{n_sub} subjects · models={sorted(cv['model'].unique())} · "
-          f"conds={sorted(cv['cond'].unique())}")
-    null_top = _top_null(null)
+    vox, null, sel = _load(sweep_dir, smoothed)
+    per_sub = _union_per_subject(vox, sel)
+    if per_sub.empty:
+        raise SystemExit(f"No per-voxel + voxelselect TSVs under {sweep_dir}")
+    n_sub = per_sub["subject"].nunique()
+    null_top, n_union = _union_null(null, sel)
+    print(f"{n_sub} subjects · models={sorted(per_sub['model'].unique())} · "
+          f"conds={sorted(per_sub['cond'].unique())} · "
+          f"~{n_union:.0f} union voxels/subj · null={null_top:+.4f}")
 
-    single = cv[cv["model"] == "single"]
-    weighted = cv[cv["model"] == "weighted"].copy()
+    single = per_sub[per_sub["model"] == "single"]
+    weighted = per_sub[per_sub["model"] == "weighted"].copy()
+    ylab = f"Mean cvR2 (union FDR voxels, ~{n_union:.0f}/subj)"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     with PdfPages(out) as pdf:
@@ -95,19 +112,18 @@ def run(sweep_dir, out, smoothed):
 
         # A: single-pRF by condition
         ax = axes[0]
-        s = (single.groupby(["subject", "cond"])["mean_cvr2_top"].mean()
-             .reset_index())
+        s = single.groupby(["subject", "cond"])["cvr2"].mean().reset_index()
         order = [c for c in COND_ORDER if c in s["cond"].unique()]
-        sns.barplot(data=s, x="cond", y="mean_cvr2_top", order=order,
+        sns.barplot(data=s, x="cond", y="cvr2", order=order,
                     hue="cond", palette=COND_COLOUR, legend=False,
                     errorbar="se", ax=ax)
-        sns.stripplot(data=s, x="cond", y="mean_cvr2_top", order=order,
+        sns.stripplot(data=s, x="cond", y="cvr2", order=order,
                       color="0.25", size=3, alpha=0.6, ax=ax)
         if np.isfinite(null_top):
             ax.axhline(null_top, color="k", ls=":", lw=0.9,
                        label="Null (train mean)")
             ax.legend(fontsize=7.5)
-        ax.set_xlabel(""); ax.set_ylabel("Mean cvR2 (top-100 voxels)")
+        ax.set_xlabel(""); ax.set_ylabel(ylab)
         ax.set_title("Single pRF: condition handling", fontsize=9)
 
         # B: weighted vs single (joint condition)
@@ -118,13 +134,13 @@ def run(sweep_dir, out, smoothed):
             g = wj[wj["fwhm"] == fwhm].sort_values("n_basis")
             ax.errorbar(g["n_basis"], g["mean"], yerr=g["sem"], color=c,
                         marker="o", ms=3, capsize=2, label=f"{fwhm:g}")
-        sj = single[single["cond"] == "joint"]["mean_cvr2_top"]
+        sj = single[single["cond"] == "joint"]["cvr2"]
         ax.axhline(sj.mean(), color="#264653", ls="--", lw=1.2,
                    label="single (joint)")
         if np.isfinite(null_top):
             ax.axhline(null_top, color="k", ls=":", lw=0.9, label="null")
         ax.set_xlabel("Number of basis functions  k")
-        ax.set_ylabel("Mean cvR2 (top-100 voxels)")
+        ax.set_ylabel("Mean cvR2 (union FDR voxels)")
         ax.set_title("Weighted basis vs single (joint cond.)", fontsize=9)
         ax.legend(title="fwhm (CHF)", fontsize=7, title_fontsize=7.5, ncol=1)
 
@@ -147,7 +163,7 @@ def run(sweep_dir, out, smoothed):
             if np.isfinite(null_top):
                 ax.axhline(null_top, color="k", ls=":", lw=0.9, zorder=-1)
             ax.set_xlabel("Number of basis functions  k")
-            ax.set_ylabel("Mean cvR2 (top-100 voxels)")
+            ax.set_ylabel("Mean cvR2 (union FDR voxels)")
             ax.set_title(f"Weighted basis — {cond}", fontsize=9)
             ax.legend(title="fwhm (CHF)", fontsize=7, title_fontsize=7.5)
         fig.suptitle("NPCr weighted-basis value model: k x fwhm", y=1.05)
