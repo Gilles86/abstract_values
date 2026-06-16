@@ -206,14 +206,22 @@ def run(sweep_dir, out, smoothed):
                      f"joint CV; dotted = true null / predict train mean)", y=1.06)
         pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
-        # ── page 2: out-of-sample decoding error ──────────────────────────────
+        # ── page 2: out-of-sample decoding (error + circular correlation) ─────
         if has_decode:
-            fig, axes = plt.subplots(1, 2, figsize=(7.5, 3.2),
+            has_corr = "decode_circ_corr" in cv.columns
+            ncol = 3 if has_corr else 2
+            fig, axes = plt.subplots(1, ncol, figsize=(3.7 * ncol, 3.2),
                                      constrained_layout=True)
             _line_vs_k(axes[0], cv, "decode_mean_abs_err_deg",
                        "Mean abs decoding error (deg)")
             _line_vs_k(axes[1], cv, "decode_circ_sd_deg",
                        "Circular SD of decoding error (deg)")
+            if has_corr:
+                _line_vs_k(axes[2], cv, "decode_circ_corr",
+                           "Circular corr (true vs decoded)")
+                axes[2].axhline(0, color="k", ls=":", lw=0.8, alpha=0.5,
+                                zorder=-1)
+                axes[2].set_title("higher = better", fontsize=8)
             fig.suptitle("V1 out-of-sample orientation decoding (FDR voxels) "
                          "vs k x kappa", y=1.06)
             pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)

@@ -64,7 +64,8 @@ from braincoder.utils import get_rsq
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 from abstract_values.encoding_models.fit_vonmises_cv import (
     get_gabor_paradigm_with_runs, make_basis_parameters)
-from abstract_values.utils.circstats import circular_distance, circular_sd
+from abstract_values.utils.circstats import (circular_distance, circular_sd,
+                                             circular_corr)
 
 DEFAULT_N_BASIS = (4, 6, 8, 12, 16, 20, 24)
 DEFAULT_KAPPA = (1.0, 2.0, 4.0, 8.0)
@@ -189,14 +190,16 @@ def _nested_cv_r2(model, basis_pars, train_data, train_par):
 def _decode_oos(data, paradigm, basis_pars, fdr_thr, fallback_n=100,
                 spherical=True, noise_iter=1000):
     """Leave-one-run-out out-of-sample decoding of orientation, FDR voxel
-    selection on nested-CV R2. Returns (signed_errors_rad, mean_n_sel)."""
+    selection on nested-CV R2. Returns (true_rad, decoded_rad, mean_n_sel)
+    pooled over all held-out trials (signed error and circular correlation
+    are both derived downstream from true vs decoded)."""
     model = AxialVonMisesPRF(allow_neg_amplitudes=True)
     stim_range = np.sort(paradigm["x"].unique()).astype(np.float32)
     sess = paradigm.index.get_level_values("session")
     runs = paradigm.index.get_level_values("run")
     folds = sorted(set(zip(sess, runs)))
 
-    errors, n_sels = [], []
+    trues, decodeds, n_sels = [], [], []
     for test_ses, test_run in folds:
         test_mask = (sess == test_ses) & (runs == test_run)
         train_data, test_data = data.loc[~test_mask], data.loc[test_mask]
@@ -223,10 +226,11 @@ def _decode_oos(data, paradigm, basis_pars, fdr_thr, fallback_n=100,
         # posterior circular mean (period pi, doubled-angle) -> point estimate
         w = pdf.values
         z = (w * np.exp(1j * 2 * stim_range[None, :])).sum(axis=1)
-        decoded = 0.5 * np.angle(z)
-        errors.append(circular_distance(decoded, test_par["x"].values))
+        decodeds.append(0.5 * np.angle(z))
+        trues.append(test_par["x"].values)
 
-    return np.concatenate(errors), float(np.mean(n_sels))
+    return (np.concatenate(trues), np.concatenate(decodeds),
+            float(np.mean(n_sels)))
 
 
 def compare_cv(subject, n_basis, kappa, r2_thr=0.05, top_n=100,
@@ -363,7 +367,8 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                "median_cvr2_sel", "mean_cvr2_all", "frac_pos_sel"]
     if decode:
         cv_cols += ["decode_mean_abs_err_deg", "decode_median_abs_err_deg",
-                    "decode_circ_sd_deg", "decode_mean_n_sel"]
+                    "decode_circ_sd_deg", "decode_circ_corr", "decode_mean_n_sel"]
+    p_dec = out_dir / f"{base}_desc-decodetrials{smooth_label}.tsv"
     hist_cols = ["subject", "n_basis", "kappa", "session", "condition",
                  "orientation_deg", "count"]
     # per-voxel cvR2 over ALL V1 voxels (every config) -- lets the local
@@ -373,12 +378,14 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
     vox_cols = ["subject", "n_basis", "kappa", "voxel", "cvr2"]
 
     import csv
+    from contextlib import ExitStack
     n_total = len(n_basis_list) * len(kappa_list)
     model = AxialVonMisesPRF()
 
-    with open(p_cv, "w", newline="") as f_cv, \
-         open(p_hist, "w", newline="") as f_hist, \
-         open(p_vox, "w", newline="") as f_vox:
+    with ExitStack() as stack:
+        f_cv = stack.enter_context(open(p_cv, "w", newline=""))
+        f_hist = stack.enter_context(open(p_hist, "w", newline=""))
+        f_vox = stack.enter_context(open(p_vox, "w", newline=""))
         w_cv = csv.DictWriter(f_cv, fieldnames=cv_cols, delimiter="\t",
                               extrasaction="ignore")
         w_hist = csv.DictWriter(f_hist, fieldnames=hist_cols, delimiter="\t")
@@ -386,6 +393,14 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
         w_cv.writeheader(); w_hist.writeheader()
         w_vox.writerow(vox_cols)
         f_cv.flush(); f_hist.flush(); f_vox.flush()
+
+        w_dec = None
+        if decode:                              # per-trial decoded vs true
+            f_dec = stack.enter_context(open(p_dec, "w", newline=""))
+            w_dec = csv.writer(f_dec, delimiter="\t")
+            w_dec.writerow(["subject", "n_basis", "kappa",
+                            "true_deg", "decoded_deg"])
+            f_dec.flush()
 
         done = 0
         for n_basis in n_basis_list:
@@ -406,16 +421,21 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
 
                 # out-of-sample decoding (FDR voxel selection, spherical noise)
                 if decode:
-                    err, mean_n_sel = _decode_oos(
+                    true, decoded, mean_n_sel = _decode_oos(
                         data, paradigm, basis_pars, fdr_thr, fallback_n=fallback_n,
                         spherical=spherical, noise_iter=noise_iter)
+                    err = circular_distance(decoded, true)
                     err_deg = np.rad2deg(np.abs(err))
                     row.update({
                         "decode_mean_abs_err_deg": float(np.mean(err_deg)),
                         "decode_median_abs_err_deg": float(np.median(err_deg)),
                         "decode_circ_sd_deg": float(np.rad2deg(circular_sd(err))),
+                        "decode_circ_corr": float(circular_corr(true, decoded)),
                         "decode_mean_n_sel": float(mean_n_sel),
                     })
+                    for t, d in zip(np.rad2deg(true), np.rad2deg(decoded) % 180):
+                        w_dec.writerow([subject, n_basis, kappa,
+                                        f"{t:.2f}", f"{d:.2f}"])
                 w_cv.writerow(row)
 
                 # per-voxel cvR2 (all V1 voxels) for post-hoc signal selection
@@ -439,6 +459,8 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                             "orientation_deg": float(c), "count": int(cnt),
                         })
                 f_cv.flush(); f_hist.flush(); f_vox.flush()   # crash-safe + monitorable
+                if decode:
+                    f_dec.flush()
 
                 done += 1
                 msg = (f"  [{done}/{n_total}] n_basis={n_basis:2d} "

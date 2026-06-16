@@ -35,6 +35,20 @@ def circular_sd(theta_rad: np.ndarray) -> float:
     return np.sqrt(-2.0 * np.log(R)) / SCALE
 
 
+def circular_corr(a_rad: np.ndarray, b_rad: np.ndarray) -> float:
+    """Jammalamadaka-SenGupta circular-circular correlation on a pi-periodic
+    (axial) axis. Doubles the angles, then the standard estimator
+    Sum sin(a-abar)sin(b-bbar) / sqrt(Sum sin^2(a-abar) Sum sin^2(b-bbar)).
+    +1 perfect, 0 none, -1 perfect anti-correlation."""
+    a = SCALE * np.asarray(a_rad, dtype=float)
+    b = SCALE * np.asarray(b_rad, dtype=float)
+    abar = np.arctan2(np.sin(a).mean(), np.cos(a).mean())
+    bbar = np.arctan2(np.sin(b).mean(), np.cos(b).mean())
+    sa, sb = np.sin(a - abar), np.sin(b - bbar)
+    den = np.sqrt(np.sum(sa ** 2) * np.sum(sb ** 2))
+    return float(np.sum(sa * sb) / den) if den > 0 else float("nan")
+
+
 def circular_distance(a_rad: np.ndarray, b_rad: np.ndarray) -> np.ndarray:
     """Signed minimal distance from ``b`` to ``a`` on a π-periodic axis
     (returned in (-π/2, π/2])."""
