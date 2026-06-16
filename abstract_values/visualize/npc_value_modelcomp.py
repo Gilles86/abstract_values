@@ -59,7 +59,8 @@ def _load(sweep_dir, smoothed):
     vox = _cat(f"sub-*/func/*_desc-cvr2voxels{sm}.tsv")
     null = _cat(f"sub-*/func/*_desc-nullcvr2{sm}.tsv")
     sel = _cat(f"sub-*/func/*_desc-voxelselect{sm}.tsv")
-    return vox, null, sel
+    decode = _cat(f"sub-*/func/*_desc-decodesummary{sm}.tsv")
+    return vox, null, sel, decode
 
 
 def _union_per_subject(vox, sel):
@@ -90,8 +91,30 @@ def _agg(df, ycol="cvr2"):
              .agg(["mean", "sem"]).reset_index()
 
 
+def _decode_page(pdf, decode, n_sub):
+    """Page: out-of-sample value decoding MAE + Pearson r, model x cond."""
+    MODEL_C = {"single": "#264653", "weighted": "#E76F51"}
+    order = [c for c in COND_ORDER if c in decode["cond"].unique()]
+    fig, axes = plt.subplots(1, 2, figsize=(8.5, 3.4), constrained_layout=True)
+    for ax, (col, lab, lo) in zip(
+            axes, [("mae_chf", "Decoding MAE (CHF)  ↓ better", True),
+                   ("pearson_r", "Pearson r (true vs decoded)  ↑ better", False)]):
+        sns.barplot(data=decode, x="cond", y=col, order=order,
+                    hue="model", hue_order=["single", "weighted"],
+                    palette=MODEL_C, errorbar="se", ax=ax)
+        sns.stripplot(data=decode, x="cond", y=col, order=order,
+                      hue="model", hue_order=["single", "weighted"],
+                      dodge=True, color="0.25", size=3, alpha=0.5,
+                      legend=False, ax=ax)
+        ax.set_xlabel(""); ax.set_ylabel(lab)
+        ax.legend(title="model", fontsize=7.5, title_fontsize=7.5)
+    fig.suptitle(f"NPCr out-of-sample VALUE decoding (union voxels)  "
+                 f"single vs weighted x joint vs separate  (n={n_sub})", y=1.05)
+    pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
 def run(sweep_dir, out, smoothed):
-    vox, null, sel = _load(sweep_dir, smoothed)
+    vox, null, sel, decode = _load(sweep_dir, smoothed)
     per_sub = _union_per_subject(vox, sel)
     if per_sub.empty:
         raise SystemExit(f"No per-voxel + voxelselect TSVs under {sweep_dir}")
@@ -168,6 +191,10 @@ def run(sweep_dir, out, smoothed):
             ax.legend(title="fwhm (CHF)", fontsize=7, title_fontsize=7.5)
         fig.suptitle("NPCr weighted-basis value model: k x fwhm", y=1.05)
         pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+        # ── page 3: out-of-sample value decoding (tiebreaker) ─────────────────
+        if not decode.empty:
+            _decode_page(pdf, decode, decode["subject"].nunique())
 
     print(f"Wrote {out}")
 
