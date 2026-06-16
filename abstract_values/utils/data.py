@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -6,7 +7,10 @@ import numpy as np
 import pandas as pd
 from nilearn import image
 
-BIDS_FOLDER = Path('/data/ds-abstractvalue')
+# Default to the local mac path; override with $BIDS_FOLDER (e.g. the cluster
+# share /shares/zne.uzh/gdehol/ds-abstractvalue) so scripts that build paths
+# from this constant — not just the ones taking --bids-folder — work remotely.
+BIDS_FOLDER = Path(os.environ.get('BIDS_FOLDER', '/data/ds-abstractvalue'))
 
 
 class Subject:
