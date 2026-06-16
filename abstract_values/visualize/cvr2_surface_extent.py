@@ -78,27 +78,41 @@ def plot(tsv, out, ycol):
     import matplotlib.pyplot as plt
     import seaborn as sns
     df = pd.read_csv(tsv, sep="\t")
-    order = [m for m in ["aprf", "vonmises", "aprf-weighted", "aprf-shift",
-                         "aprf-session-shift"] if m in df["model"].unique()]
-    order += [m for m in df["model"].unique() if m not in order]
+    # split by what each model CODES: orientation (V1) vs value (NPC)
+    df["coding"] = np.where(df["model"].str.startswith("vonmises"),
+                            "Orientation (V1)", "Value (NPC)")
+    # within-coding model order (joint first, then shift/flexible variants)
+    pref = ["vonmises", "vonmises-shift",
+            "aprf", "aprf-weighted", "aprf-shift", "aprf-session-shift"]
+    COLR = {"Orientation (V1)": "#2A9D8F", "Value (NPC)": "#E76F51"}
     lab = {"n_pos": "Vertices with cvR2 > 0",
            "frac_pos": "Fraction of cortex with cvR2 > 0"}[ycol]
+    panels = [c for c in ("Orientation (V1)", "Value (NPC)")
+              if c in df["coding"].unique()]
     with sns.plotting_context("talk"), sns.axes_style("ticks"):
-        fig, ax = plt.subplots(figsize=(1.1 * len(order) + 2, 4),
-                               constrained_layout=True)
-        sns.barplot(df, x="model", y=ycol, order=order, errorbar="se",
-                    color="#4C72B0", ax=ax)
-        sns.stripplot(df, x="model", y=ycol, order=order, color="0.25",
-                      size=4, alpha=0.6, ax=ax)
-        ax.set_xlabel(""); ax.set_ylabel(lab)
-        if ycol == "frac_pos":
-            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
-        ax.set_title(f"Out-of-sample cortical extent per model "
-                     f"(n={df['subject'].nunique()})", fontsize=11)
-        plt.setp(ax.get_xticklabels(), rotation=20, ha="right")
-        sns.despine(ax=ax, offset=4, trim=True)
+        fig, axes = plt.subplots(
+            1, len(panels), figsize=(2.3 * df["model"].nunique() + 1, 4.2),
+            constrained_layout=True, squeeze=False)
+        for ax, coding in zip(axes[0], panels):
+            d = df[df["coding"] == coding]
+            order = [m for m in pref if m in d["model"].unique()]
+            order += [m for m in d["model"].unique() if m not in order]
+            sns.barplot(d, x="model", y=ycol, order=order, errorbar="se",
+                        color=COLR[coding], ax=ax)
+            sns.stripplot(d, x="model", y=ycol, order=order, color="0.25",
+                          size=4, alpha=0.6, ax=ax)
+            ax.set_xlabel(""); ax.set_ylabel(lab)
+            ax.set_title(coding, fontsize=11)          # separate y-scale per panel
+            if ycol == "frac_pos":
+                ax.yaxis.set_major_formatter(
+                    plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
+            plt.setp(ax.get_xticklabels(), rotation=20, ha="right")
+            sns.despine(ax=ax, offset=4, trim=True)
+        fig.suptitle(f"Out-of-sample cortical extent per model  "
+                     f"(n={df['subject'].nunique()}; note: separate y-scales)",
+                     fontsize=12, y=1.04)
         Path(out).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out)
+        fig.savefig(out, bbox_inches="tight")
     print(f"wrote {out}")
 
 
