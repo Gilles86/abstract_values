@@ -87,6 +87,34 @@ def discover_subjects(bids_folder):
     return sorted(p.name.removeprefix("sub-") for p in base.glob("sub-*"))
 
 
+COND_COLOUR = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
+
+
+def mapping_jacobian(subject, bids_folder):
+    """Empirical |d value / d orientation| as a function of value, per
+    condition, recovered from the (orientation, value) gabor pairs. This is
+    the width a *fixed* orientation-tuning would project to in value space:
+    if NPC value-fwhm tracks this, the per-condition width shift is just the
+    mapping geometry (perceptual code); if fwhm is condition-invariant in
+    value space, it's an abstract value code."""
+    sub = Subject(subject, bids_folder=bids_folder)
+    out = {}
+    for ses in sorted(sub.get_sessions()):
+        cond = sub.get_mapping(ses)
+        ev = sub.get_events(ses).reset_index()
+        gab = (ev[ev["event_type"] == "gabor"][["orientation", "value"]]
+               .dropna().groupby("orientation", as_index=False)["value"].mean()
+               .sort_values("orientation"))
+        ori = gab["orientation"].to_numpy(float)
+        val = gab["value"].to_numpy(float)
+        if len(ori) < 3:
+            continue
+        dvdori = np.abs(np.gradient(val, ori))
+        order = np.argsort(val)
+        out[cond] = (val[order], dvdori[order])
+    return out
+
+
 def _scatter(ax, df, par, lim, label):
     x, y = df[f"{par}_cdf"], df[f"{par}_invcdf"]
     ax.plot(lim, lim, color="k", ls=":", lw=0.8, alpha=0.6, zorder=0)
@@ -136,6 +164,52 @@ def run(subjects, r2_thr, out, bids_folder, smoothed=False):
                        label=f"median {g[col].median():+.1f}")
             ax.legend(fontsize=7)
         fig.suptitle(f"Per-subject median per-condition shift (fwhm-shift)", y=1.03)
+        pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+        # ── page 3: width as a function of position + mapping-Jacobian test ───
+        bins = np.linspace(0, 45, 13)
+        ctr = 0.5 * (bins[:-1] + bins[1:])
+        fig, axes = plt.subplots(1, 2, figsize=(9, 4.0), constrained_layout=True)
+        ax = axes[0]
+        for cond, col in COND_COLOUR.items():
+            mode = df[f"mode_{cond.replace('inverse_cdf','invcdf')}"]
+            fw = df[f"fwhm_{cond.replace('inverse_cdf','invcdf')}"]
+            bidx = np.digitize(mode, bins) - 1
+            m = [np.nanmean(fw[bidx == b]) if (bidx == b).sum() else np.nan
+                 for b in range(len(ctr))]
+            ax.plot(ctr, m, "-o", ms=3, color=col,
+                    label=f"{'CDF' if cond=='cdf' else 'InvCDF'} fwhm")
+        # overlay mapping Jacobian (scaled to the observed fwhm level) per cond
+        jac = mapping_jacobian(df["subject"].iloc[0], bids_folder)
+        allfw = np.r_[df["fwhm_cdf"], df["fwhm_invcdf"]]
+        scale_to = np.nanmedian(allfw)
+        for cond, col in COND_COLOUR.items():
+            if cond not in jac:
+                continue
+            v, dv = jac[cond]
+            dv_s = dv * (scale_to / np.nanmedian(dv))
+            ax.plot(v, dv_s, ls="--", lw=1.4, color=col, alpha=0.7,
+                    label=f"{'CDF' if cond=='cdf' else 'InvCDF'} Jacobian (scaled)")
+        ax.set(xlabel="Preferred value (CHF)", ylabel="Tuning width FWHM (CHF)",
+               xlim=(0, 45))
+        ax.set_title("Width vs position: observed vs mapping Jacobian", fontsize=9)
+        ax.legend(fontsize=7)
+
+        ax = axes[1]                       # Δfwhm (invcdf − cdf) vs position
+        dmode = df["mode_cdf"]; dfw = df["fwhm_invcdf"] - df["fwhm_cdf"]
+        bidx = np.digitize(dmode, bins) - 1
+        mean = [np.nanmean(dfw[bidx == b]) if (bidx == b).sum() else np.nan
+                for b in range(len(ctr))]
+        sem = [np.nanstd(dfw[bidx == b]) / max(np.sqrt((bidx == b).sum()), 1)
+               if (bidx == b).sum() else np.nan for b in range(len(ctr))]
+        ax.axhline(0, color="k", ls=":", lw=0.8)
+        ax.errorbar(ctr, mean, yerr=sem, marker="o", ms=3, color="#3B5BA5", capsize=2)
+        ax.set(xlabel="Preferred value — CDF (CHF)",
+               ylabel="Δ fwhm  (Inverse-CDF − CDF, CHF)", xlim=(0, 45))
+        ax.set_title("Width shift vs position", fontsize=9)
+        fig.suptitle("Does the per-condition width shift track the mapping "
+                     "geometry? (fixed-orientation-tuning prediction = dashed)",
+                     y=1.04, fontsize=10)
         pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
     print(f"Wrote {out}")
 
