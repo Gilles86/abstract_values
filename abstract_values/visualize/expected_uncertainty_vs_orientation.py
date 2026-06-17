@@ -40,6 +40,19 @@ PALETTE = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
 LABEL = {"cdf": "CDF", "inverse_cdf": "Inverse CDF"}
 
 
+def behavioral_sd_by_orientation():
+    """Per (subject, condition, orientation) SD of the BDM bid — the
+    behavioural analogue of the neural decoded uncertainty (same CHF units)."""
+    b = get_all_behavioral_data()
+    b = b[b["event_type"] == "feedback"].reset_index()
+    b["response"] = pd.to_numeric(b["response"], errors="coerce")
+    b = b.dropna(subset=["response"])
+    g = (b.groupby(["subject", "mapping", "orientation"])["response"].std()
+         .reset_index().rename(columns={"mapping": "condition",
+                                        "response": "beh_sd"}))
+    return g
+
+
 def value_to_orientation_map():
     """{condition: DataFrame(value, orientation)} from the gabor pairs."""
     b = get_all_behavioral_data()
@@ -68,19 +81,25 @@ def run(tsv, out):
     n_sub = df["subject"].nunique()
     print(f"{n_sub} subjects · {len(df)} (subject,orientation,condition) points")
 
+    beh = behavioral_sd_by_orientation()
+
     with sns.plotting_context("talk"), sns.axes_style("ticks"):
-        fig, ax = plt.subplots(figsize=(5.2, 3.8), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=(6.4, 4.0), constrained_layout=True)
         for cond in ("cdf", "inverse_cdf"):
             d = df[df["condition"] == cond]
             sns.lineplot(data=d, x="orientation", y="sd_E", color=PALETTE[cond],
-                         errorbar=("se", 1), marker="o", ms=4, label=LABEL[cond],
-                         ax=ax)
+                         errorbar=("se", 1), marker="o", ms=4, ax=ax,
+                         label=f"{LABEL[cond]} — NPCr decoded")
+            bd = beh[beh["condition"] == cond]
+            sns.lineplot(data=bd, x="orientation", y="beh_sd", color=PALETTE[cond],
+                         errorbar=("se", 1), marker="s", ms=4, ls="--", ax=ax,
+                         label=f"{LABEL[cond]} — behavioral bid")
         ax.set_xlim(0, 180); ax.set_xticks([0, 45, 90, 135, 180])
         ax.set_xlabel("Orientation (deg)")
-        ax.set_ylabel("NPCr decoded uncertainty √Var (CHF)")
-        ax.set_title(f"Expected uncertainty vs orientation  (n={n_sub})",
-                     fontsize=11)
-        ax.legend(frameon=False, fontsize=9)
+        ax.set_ylabel("Uncertainty about value √Var (CHF)")
+        ax.set_title(f"Value uncertainty vs orientation: neural vs behavioral "
+                     f"(n={n_sub})", fontsize=10)
+        ax.legend(frameon=False, fontsize=7.5, ncol=2)
         sns.despine(ax=ax, offset=4, trim=True)
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out, bbox_inches="tight")
