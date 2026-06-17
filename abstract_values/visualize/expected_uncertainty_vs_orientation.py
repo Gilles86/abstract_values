@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.backends.backend_pdf import PdfPages
 
 from abstract_values.behavior.data import get_all_behavioral_data
 
@@ -82,27 +83,31 @@ def run(tsv, out):
     print(f"{n_sub} subjects · {len(df)} (subject,orientation,condition) points")
 
     beh = behavioral_sd_by_orientation()
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
 
-    with sns.plotting_context("talk"), sns.axes_style("ticks"):
-        fig, ax = plt.subplots(figsize=(6.4, 4.0), constrained_layout=True)
-        for cond in ("cdf", "inverse_cdf"):
-            d = df[df["condition"] == cond]
-            sns.lineplot(data=d, x="orientation", y="sd_E", color=PALETTE[cond],
-                         errorbar=("se", 1), marker="o", ms=4, ax=ax,
-                         label=f"{LABEL[cond]} — NPCr decoded")
-            bd = beh[beh["condition"] == cond]
-            sns.lineplot(data=bd, x="orientation", y="beh_sd", color=PALETTE[cond],
-                         errorbar=("se", 1), marker="s", ms=4, ls="--", ax=ax,
-                         label=f"{LABEL[cond]} — behavioral bid")
-        ax.set_xlim(0, 180); ax.set_xticks([0, 45, 90, 135, 180])
-        ax.set_xlabel("Orientation (deg)")
-        ax.set_ylabel("Uncertainty about value √Var (CHF)")
-        ax.set_title(f"Value uncertainty vs orientation: neural vs behavioral "
-                     f"(n={n_sub})", fontsize=10)
-        ax.legend(frameon=False, fontsize=7.5, ncol=2)
-        sns.despine(ax=ax, offset=4, trim=True)
-        Path(out).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out, bbox_inches="tight")
+    def _page(data, ycol, ylab, title):
+        with sns.plotting_context("talk"), sns.axes_style("ticks"):
+            fig, ax = plt.subplots(figsize=(5.4, 3.9), constrained_layout=True)
+            for cond in ("cdf", "inverse_cdf"):
+                sns.lineplot(data=data[data["condition"] == cond],
+                             x="orientation", y=ycol, color=PALETTE[cond],
+                             errorbar=("se", 1), marker="o", ms=4,
+                             label=LABEL[cond], ax=ax)
+            ax.set_xlim(0, 180); ax.set_xticks([0, 45, 90, 135, 180])
+            ax.set_xlabel("Orientation (deg)"); ax.set_ylabel(ylab)
+            ax.set_title(title, fontsize=11)
+            ax.legend(frameon=False, fontsize=9)
+            sns.despine(ax=ax, offset=4, trim=True)
+            return fig
+
+    with PdfPages(out) as pdf:
+        f = _page(df, "sd_E", "NPCr decoded value uncertainty √Var (CHF)",
+                  f"NPCr decoded VALUE uncertainty vs orientation (n={n_sub})")
+        pdf.savefig(f, bbox_inches="tight"); plt.close(f)
+        f = _page(beh, "beh_sd", "Behavioral bid SD (CHF)",
+                  f"Behavioral bid variability vs orientation "
+                  f"(n={beh['subject'].nunique()})")
+        pdf.savefig(f, bbox_inches="tight"); plt.close(f)
     print(f"Wrote {out}")
 
 
