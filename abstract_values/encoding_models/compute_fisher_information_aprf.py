@@ -168,7 +168,7 @@ def main(subject, sessions=None, roi='NPCr', hemi='None', n_voxels=250,
                          target_shape=ref_betas.shape[:3]).fit()
 
     # ── branch on model type ──────────────────────────────────────────────────
-    if model == 'session-shift':
+    if model in ('session-shift', 'fwhm-shift'):
         _main_session_shift(
             subject=subject, sub=sub, sessions=sessions,
             masker=masker, mask_desc=mask_desc,
@@ -179,7 +179,8 @@ def main(subject, sessions=None, roi='NPCr', hemi='None', n_voxels=250,
             smooth_label=smooth_label,
             spherical_noise=spherical_noise,
             fdr_alpha=fdr_alpha,
-            fdr_fallback_n_voxels=fdr_fallback_n_voxels)
+            fdr_fallback_n_voxels=fdr_fallback_n_voxels,
+            model_name=model)
     else:
         _main_standard(
             subject=subject, sub=sub, sessions=sessions,
@@ -269,57 +270,68 @@ def _main_session_shift(subject, sub, sessions, masker, mask_desc,
                         n_voxels, n_values, n_noise_iterations, n_mc_samples,
                         bids_folder, smoothed, smooth_label,
                         spherical_noise=True,
-                        fdr_alpha=None, fdr_fallback_n_voxels=100):
-    """Session-shift aPRF Fisher information (one FI curve per session).
+                        fdr_alpha=None, fdr_fallback_n_voxels=100,
+                        model_name='session-shift'):
+    """Per-session aPRF Fisher information (one FI curve per session/condition).
 
-    Parameters are loaded from aprf-session-shift/.  For each session i the
-    mode is taken from mode_i; fwhm/amplitude/baseline are shared.  The noise
-    model is fitted separately on each session's betas.
+    ``session-shift``: mode shifts per session (mode_i), fwhm/amp/baseline
+    shared. ``fwhm-shift``: mode AND fwhm shift per session (mode_i, fwhm_i),
+    amp/baseline shared. The noise model is fitted separately on each
+    session's betas. Output goes under the matching model dir.
     """
     from nilearn import image as nli
 
+    model_dir = {'session-shift': 'aprf-session-shift',
+                 'fwhm-shift': 'aprf-fwhm-shift'}[model_name]
+    per_session_fwhm = (model_name == 'fwhm-shift')
     ss_dir = (bids_folder / 'derivatives' / 'encoding_models'
-              / 'aprf-session-shift' / f'sub-{subject}' / 'func')
+              / model_dir / f'sub-{subject}' / 'func')
 
     def load_param(desc):
-        # smooth_label is "" for unsmoothed, "_smoothed" otherwise — matches
-        # how the session-shift fitter names its outputs.
         fn = (ss_dir / f'sub-{subject}_task-abstractvalue_space-T1w'
                        f'_desc-{desc}{smooth_label}_pe.nii.gz')
         if not fn.exists():
-            raise FileNotFoundError(f'No session-shift parameter file: {fn}')
+            raise FileNotFoundError(f'No {model_name} parameter file: {fn}')
         return nli.load_img(str(fn))
 
-    fwhm_arr = masker.transform(load_param('fwhm')).squeeze().astype(np.float32)
     amp_arr  = masker.transform(load_param('amplitude')).squeeze().astype(np.float32)
     base_arr = masker.transform(load_param('baseline')).squeeze().astype(np.float32)
     r2       = pd.Series(masker.transform(load_param('r2')).squeeze().astype(np.float32))
 
-    # Filter voxels with invalid parameters:
-    # - mode must be > 0 (log-Gaussian undefined at mode ≤ 0)
-    # - fwhm must be > 0 (zero fwhm = flat tuning = zero gradient = zero FI)
     mode_descs = [f'mode_{i}' for i in range(1, len(sessions) + 1)]
     mode_arrays = {md: masker.transform(load_param(md)).squeeze().astype(np.float32)
                    for md in mode_descs}
-    valid = (fwhm_arr > 0) & (amp_arr != 0)
+    if per_session_fwhm:
+        fwhm_descs = [f'fwhm_{i}' for i in range(1, len(sessions) + 1)]
+        fwhm_arrays = {fd: masker.transform(load_param(fd)).squeeze().astype(np.float32)
+                       for fd in fwhm_descs}
+    else:
+        fwhm_shared = masker.transform(load_param('fwhm')).squeeze().astype(np.float32)
+        fwhm_descs = ['fwhm'] * len(sessions)
+        fwhm_arrays = {'fwhm': fwhm_shared}
+
+    # Valid voxels: mode>0 (log-Gaussian) and fwhm>0 (flat tuning => zero FI).
+    valid = (amp_arr != 0)
     for arr in mode_arrays.values():
+        valid &= arr > 0
+    for arr in fwhm_arrays.values():
         valid &= arr > 0
     r2_valid = r2[valid]
 
-    print(f'  {len(r2)} voxels in mask ({mask_desc}), {valid.sum()} with valid modes')
+    print(f'  {len(r2)} voxels in mask ({mask_desc}), {valid.sum()} with valid params')
 
     sel, sel_tag = _select_voxels(r2_valid, n_voxels, fdr_alpha,
                                      fdr_fallback_n_voxels,
                                      subject, smoothed,
                                      bids_folder, mixture_model='aprf')
 
-    for ses_i, mode_desc in zip(sessions, mode_descs):
-        print(f'\n  --- session {ses_i} ({mode_desc}) ---')
+    for ses_i, mode_desc, fwhm_desc in zip(sessions, mode_descs, fwhm_descs):
+        print(f'\n  --- session {ses_i} ({mode_desc}, {fwhm_desc}) ---')
 
         mode_arr = mode_arrays[mode_desc]
         pars_df = pd.DataFrame({
             'mode':      mode_arr,
-            'fwhm':      fwhm_arr,
+            'fwhm':      fwhm_arrays[fwhm_desc],
             'amplitude': amp_arr,
             'baseline':  base_arr,
         })
@@ -341,7 +353,7 @@ def _main_session_shift(subject, sub, sessions, masker, mask_desc,
             spherical_noise=spherical_noise)
 
         out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-                   / 'aprf-session-shift' / f'sub-{subject}'
+                   / model_dir / f'sub-{subject}'
                    / f'ses-{ses_i}' / 'func')
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -393,7 +405,7 @@ if __name__ == '__main__':
                           help='Fit full residual covariance instead. '
                                'Output: no _noise-* tag (legacy filename).')
     parser.add_argument('--model', default='standard',
-                        choices=['standard', 'session-shift'],
+                        choices=['standard', 'session-shift', 'fwhm-shift'],
                         help='aPRF model type (default: standard)')
     args = parser.parse_args()
 

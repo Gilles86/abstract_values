@@ -289,13 +289,20 @@ def run(subjects, nvoxels, mask, out,
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--subjects", nargs="+")
-    p.add_argument("--nvoxels", type=int, default=100)
+    p.add_argument("--nvoxels", default="100",
+                   help="voxel-selection tag in the FI filename, e.g. '100', "
+                        "'250_noise-spherical', or 'fdr05_noise-spherical'")
     p.add_argument("--mask", default="NPCr")
     p.add_argument("--variants", nargs="+",
                    default=["unsmoothed", "smoothed"],
                    choices=["unsmoothed", "smoothed"])
+    p.add_argument("--model-dir", default="aprf-session-shift",
+                   help="encoding_models subdir holding per-session FI TSVs "
+                        "(e.g. aprf-fwhm-shift for the fwhm-shift model)")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
+    global DERIV
+    DERIV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / args.model_dir
     run(args.subjects, args.nvoxels, args.mask, Path(args.out),
         variants=tuple(args.variants))
 
