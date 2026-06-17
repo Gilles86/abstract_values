@@ -67,42 +67,52 @@ def value_to_orientation_map():
     return out
 
 
-def run(tsv, out):
+def run(tsv, out, compare_tsv=None, label="spherical", compare_label="full Ω"):
     eu = pd.read_csv(tsv, sep="\t")
     eu = eu[["subject", "condition", "value", "sd_E"]].copy()
-    eu["vkey"] = eu["value"].round(1)
     vmap = value_to_orientation_map()
 
-    rows = []
-    for cond, m in vmap.items():
-        sub = eu[eu["condition"] == cond].merge(
+    def to_orientation(tsv_path):
+        e = pd.read_csv(tsv_path, sep="\t")[["subject", "condition", "value", "sd_E"]].copy()
+        e["vkey"] = e["value"].round(1)
+        return pd.concat([e[e["condition"] == c].merge(
             m[["vkey", "orientation"]], on="vkey", how="inner")
-        rows.append(sub)
-    df = pd.concat(rows, ignore_index=True)
+            for c, m in vmap.items()], ignore_index=True)
+
+    df = to_orientation(tsv)
+    cmp = to_orientation(compare_tsv) if compare_tsv else None
     n_sub = df["subject"].nunique()
-    print(f"{n_sub} subjects · {len(df)} (subject,orientation,condition) points")
+    print(f"{n_sub} subjects · {len(df)} points"
+          + (f" · +compare {compare_label}" if cmp is not None else ""))
 
     beh = behavioral_sd_by_orientation()
     Path(out).parent.mkdir(parents=True, exist_ok=True)
 
-    def _page(data, ycol, ylab, title):
+    def _page(data, ycol, ylab, title, cmp_data=None):
         with sns.plotting_context("talk"), sns.axes_style("ticks"):
-            fig, ax = plt.subplots(figsize=(5.4, 3.9), constrained_layout=True)
+            fig, ax = plt.subplots(figsize=(5.6, 3.9), constrained_layout=True)
             for cond in ("cdf", "inverse_cdf"):
                 sns.lineplot(data=data[data["condition"] == cond],
                              x="orientation", y=ycol, color=PALETTE[cond],
                              errorbar=("se", 1), marker="o", ms=4,
-                             label=LABEL[cond], ax=ax)
+                             label=f"{LABEL[cond]} ({label})" if cmp_data is not None
+                             else LABEL[cond], ax=ax)
+                if cmp_data is not None:
+                    sns.lineplot(data=cmp_data[cmp_data["condition"] == cond],
+                                 x="orientation", y=ycol, color=PALETTE[cond],
+                                 errorbar=("se", 1), marker="s", ms=4, ls="--",
+                                 label=f"{LABEL[cond]} ({compare_label})", ax=ax)
             ax.set_xlim(0, 180); ax.set_xticks([0, 45, 90, 135, 180])
             ax.set_xlabel("Orientation (deg)"); ax.set_ylabel(ylab)
-            ax.set_title(title, fontsize=11)
-            ax.legend(frameon=False, fontsize=9)
+            ax.set_title(title, fontsize=10)
+            ax.legend(frameon=False, fontsize=7.5)
             sns.despine(ax=ax, offset=4, trim=True)
             return fig
 
     with PdfPages(out) as pdf:
         f = _page(df, "sd_E", "NPCr decoded value uncertainty √Var (CHF)",
-                  f"NPCr decoded VALUE uncertainty vs orientation (n={n_sub})")
+                  f"NPCr decoded VALUE uncertainty vs orientation (n={n_sub})",
+                  cmp_data=cmp)
         pdf.savefig(f, bbox_inches="tight"); plt.close(f)
         f = _page(beh, "beh_sd", "Behavioral bid SD (CHF)",
                   f"Behavioral bid variability vs orientation "
@@ -115,9 +125,15 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--tsv", default="notes/data/eu_fwhmshift_n12.tsv")
+    p.add_argument("--compare-tsv", default=None,
+                   help="second EU sidecar to overlay on the neural page "
+                        "(e.g. full-covariance vs spherical)")
+    p.add_argument("--label", default="spherical")
+    p.add_argument("--compare-label", default="full Ω")
     p.add_argument("--out", default="notes/figures/eu_fwhmshift_vs_orientation.pdf")
     args = p.parse_args()
-    run(args.tsv, args.out)
+    run(args.tsv, args.out, compare_tsv=args.compare_tsv,
+        label=args.label, compare_label=args.compare_label)
 
 
 if __name__ == "__main__":
