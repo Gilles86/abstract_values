@@ -37,6 +37,8 @@ BATCH_STIMULI="${BATCH_STIMULI:-25}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-1}"  # default: iid Gaussian (see Python script)
 MODEL="${MODEL:-lognormal}"  # lognormal | gaussian (PRF shape)
+PRIOR="${PRIOR:-none}"       # none | flat | objective (decoding prior)
+PRIOR_BW="${PRIOR_BW:-}"     # KDE bandwidth for objective prior (optional)
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
@@ -61,8 +63,10 @@ ARGS=(
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
 [ "$MODEL" != "lognormal" ] && ARGS+=(--model "$MODEL")
+[ "$PRIOR" != "none" ] && ARGS+=(--prior "$PRIOR")
+[ -n "$PRIOR_BW" ] && ARGS+=(--prior-bw "$PRIOR_BW")
 
-echo "compute_eu_aprf: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  n_simulations=${N_SIMULATIONS}  spherical=${SPHERICAL}"
+echo "compute_eu_aprf: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  n_simulations=${N_SIMULATIONS}  spherical=${SPHERICAL}  model=${MODEL}  prior=${PRIOR}"
 echo "Args: ${ARGS[*]}"
 
 . $HOME/init_conda.sh

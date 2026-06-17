@@ -59,14 +59,18 @@ COND_COLOUR = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
 # Noise model whose expected-decoded TSVs to read ("full" = original untagged
 # filename; "spherical" = _noise-spherical). Set from --noise in main().
 NOISE_VARIANT = "full"
+# Decoding prior: "none" = flat-over-trained-grid (untagged); "flat"/"objective"
+# read the _prior-<p> sidecars. Set from --prior in main().
+PRIOR_VARIANT = "none"
 
 
 def _tsv_path(subject, session, mask, nvoxels, nsims, smoothed):
     smooth = "_smoothed" if smoothed else ""
     noise_tag = "_noise-spherical" if NOISE_VARIANT == "spherical" else ""
+    prior_tag = "" if PRIOR_VARIANT == "none" else f"_prior-{PRIOR_VARIANT}"
     return (DERIV / f"sub-{subject}" / f"ses-{session}" / "func"
             / f"sub-{subject}_ses-{session}_task-abstractvalue_mask-{mask}"
-              f"_nvoxels-{nvoxels}_nsims-{nsims}{noise_tag}{smooth}_desc-expected_decoded_pe.tsv")
+              f"_nvoxels-{nvoxels}_nsims-{nsims}{noise_tag}{prior_tag}{smooth}_desc-expected_decoded_pe.tsv")
 
 
 def discover_subjects(mask, nvoxels, nsims, smoothed):
@@ -375,13 +379,18 @@ def main():
                    choices=["unsmoothed", "smoothed"])
     p.add_argument("--noise", default="full", choices=["full", "spherical"],
                    help="Which noise-model expected-decoded TSVs to read")
+    p.add_argument("--prior", default="none",
+                   choices=["none", "flat", "objective"],
+                   help="Which decoding-prior expected-decoded TSVs to read "
+                        "(matches compute_expected_decoded_value_aprf --prior)")
     p.add_argument("--model-dir", default="aprf-session-shift",
                    help="encoding_models subdir with the expected-decoded TSVs "
                         "(e.g. aprf-fwhm-shift)")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
-    global NOISE_VARIANT, DERIV
+    global NOISE_VARIANT, PRIOR_VARIANT, DERIV
     NOISE_VARIANT = args.noise
+    PRIOR_VARIANT = args.prior
     DERIV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / args.model_dir
     run(args.subjects, args.mask, args.nvoxels, args.nsims, Path(args.out),
         variants=tuple(args.variants))

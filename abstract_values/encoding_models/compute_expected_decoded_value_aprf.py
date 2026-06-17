@@ -36,6 +36,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import gaussian_kde
 from nilearn.maskers import NiftiMasker
 from nilearn import image as nli
 
@@ -144,6 +145,66 @@ def _simulate_and_decode_legacy(model, pars_df, omega, dof,
     return pd.DataFrame(rows)
 
 
+def _objective_value_prior(presented_values, grid, bw=None):
+    """Empirical objective-value prior on ``grid`` — a KDE of the CHF
+    values actually presented this session, normalised to integrate to 1
+    over the grid. CDF mapping gives a ~flat density; InvCDF mapping a
+    peaked one — this is the per-condition prior the user asked to inject
+    (vs. the flat/uniform-over-grid default)."""
+    kde = gaussian_kde(np.asarray(presented_values, dtype=np.float64),
+                       bw_method=bw)
+    p = kde(grid)
+    return p / np.trapz(p, grid)
+
+
+def _decode_with_prior(model, pars_df, omega, dof, true_values,
+                       decode_grid, prior, n_simulations, batch_stimuli=25):
+    """Simulate at each ``true_values`` stimulus, decode over a fine
+    ``decode_grid`` with an arbitrary ``prior`` weighting (posterior ∝
+    likelihood × prior), aggregate per true value.
+
+    Returns a DataFrame matching ``get_expected_uncertainty``'s schema
+    (value, mean_E, var_E, mean_error, mean_abs_error, n_sims) so the
+    downstream collectors/plotters need no change.
+    """
+    decode_df = pd.DataFrame({"x": np.asarray(decode_grid, dtype=np.float32)})
+    decode_df.index.name = "stimulus"
+    prior = np.asarray(prior, dtype=np.float64)
+    true_values = np.asarray(true_values, dtype=np.float32)
+    n_total = len(true_values)
+    rows = []
+    for start in range(0, n_total, batch_stimuli):
+        stop = min(start + batch_stimuli, n_total)
+        stim_batch = pd.DataFrame({"x": true_values[start:stop]})
+        stim_batch.index.name = "stimulus"
+        sim_data = model.simulate(stim_batch, pars_df, noise=omega, dof=dof,
+                                  n_repeats=n_simulations)
+        pdf = model.get_stimulus_pdf(sim_data, parameters=pars_df,
+                                     omega=omega, dof=dof,
+                                     stimulus_range=decode_df, normalize=False)
+        if pdf.columns.nlevels > 1:
+            pdf = pdf.droplevel(1, axis=1)
+        # posterior ∝ likelihood × prior  (columns align with decode_grid)
+        pdf = pd.DataFrame(pdf.values * prior[np.newaxis, :],
+                           index=pdf.index, columns=pdf.columns)
+        E = np.asarray(get_expected_value(pdf, normalize=True))
+        idx = sim_data.index
+        levels = idx.names
+        stim_lvl = next((n for n in levels if n in ("stimulus", "value")), levels[0])
+        true_arr = stim_batch["x"].reindex(idx.get_level_values(stim_lvl)).values
+        rows.extend(zip([float(t) for t in true_arr], [float(e) for e in E]))
+        print(f"    [stim {start}:{stop}/{n_total}] simulated+decoded "
+              f"{(stop - start) * n_simulations} trials")
+    d = pd.DataFrame(rows, columns=["value", "E"])
+    d["abs_err"] = (d["E"] - d["value"]).abs()
+    agg = d.groupby("value").agg(mean_E=("E", "mean"), var_E=("E", "var"),
+                                 mean_abs_error=("abs_err", "mean"),
+                                 n_sims=("E", "size"))
+    agg["mean_error"] = agg["mean_E"] - agg.index.to_numpy()
+    return agg.reset_index()[["value", "mean_E", "var_E", "mean_error",
+                              "mean_abs_error", "n_sims"]]
+
+
 def main(subject, sessions=None, roi="NPCr", hemi="None",
          n_voxels=100, n_simulations=1000, n_values=200,
          n_noise_iterations=1000, batch_stimuli=25,
@@ -151,7 +212,8 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
          match_trained=True,
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False, spherical_noise=True, model_type="lognormal"):
+         smoothed=False, spherical_noise=True, model_type="lognormal",
+         prior="none", prior_bw=None):
     """If ``fdr_alpha`` is set, voxels are selected by FDR-thresholding the
     aprf-weighted whole-brain R² mixture instead of the per-subject top-N.
     ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture is
@@ -329,17 +391,41 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         dof_str = f"{float(dof):.1f}" if dof is not None else "None (Gaussian)"
         print(f"  noise model: dof={dof_str}")
 
-        print(f"  simulating {n_simulations} repeats × {n_values} stimuli "
-              f"({n_simulations * n_values} trials)…")
-        # Single call: braincoder.EncodingModel.get_expected_uncertainty
-        # does the simulate → decode → aggregate cycle and returns the
-        # per-stimulus DataFrame directly. Replaces ~40 lines of manual
-        # batching/groupby with one method call.
-        agg = model.get_expected_uncertainty(
-            stimulus_grid, omega=omega, dof=dof,
-            parameters=pars_df, n_simulations=n_simulations,
-            batch_stimuli=batch_stimuli, progress=True,
-        ).reset_index().rename(columns={"value": "value"})
+        n_sim_stim = len(stimulus_grid)
+        print(f"  simulating {n_simulations} repeats × {n_sim_stim} stimuli "
+              f"({n_simulations * n_sim_stim} trials)  prior={prior}…")
+        if prior == "none":
+            # Flat prior over the (discrete) simulation grid itself.
+            # Single call: braincoder.get_expected_uncertainty does the
+            # simulate → decode → aggregate cycle and returns the
+            # per-stimulus DataFrame directly.
+            agg = model.get_expected_uncertainty(
+                stimulus_grid, omega=omega, dof=dof,
+                parameters=pars_df, n_simulations=n_simulations,
+                batch_stimuli=batch_stimuli, progress=True,
+            ).reset_index().rename(columns={"value": "value"})
+        else:
+            # Decode over a fine continuous grid spanning the trained range,
+            # weighting the posterior by a prior. prior="flat" → uniform
+            # density (control, isolates grid resolution); prior="objective"
+            # → empirical per-condition objective-value density (KDE). Both
+            # simulate true values at the trained grid so the per-value EU is
+            # directly comparable to the flat-prior (prior="none") run.
+            decode_grid = np.linspace(float(stimulus_grid.min()),
+                                      float(stimulus_grid.max()),
+                                      n_values, dtype=np.float32)
+            if prior == "objective":
+                prior_w = _objective_value_prior(
+                    ses_paradigm["x"].values, decode_grid, bw=prior_bw)
+            else:                                   # flat
+                prior_w = np.ones_like(decode_grid, dtype=np.float64)
+            print(f"  decode grid: continuous [{decode_grid.min():.2f}, "
+                  f"{decode_grid.max():.2f}] CHF ({n_values} pts), "
+                  f"prior='{prior}'")
+            agg = _decode_with_prior(
+                model, pars_df, omega, dof, stimulus_grid,
+                decode_grid, prior_w, n_simulations,
+                batch_stimuli=batch_stimuli)
 
         out_dir = (bids_folder / "derivatives" / "encoding_models"
                    / out_subdir / f"sub-{subject}"
@@ -348,10 +434,11 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         # Backward-compatible naming: full noise keeps the original (untagged)
         # filename; spherical adds a _noise-spherical tag so both can coexist.
         noise_tag = "_noise-spherical" if spherical_noise else ""
+        prior_tag = "" if prior == "none" else f"_prior-{prior}"
         out_fn = (out_dir /
                   f"sub-{subject}_ses-{ses_i}_task-abstractvalue"
                   f"_mask-{mask_desc}_{sel_tag}_nsims-{n_simulations}"
-                  f"{noise_tag}{smooth_label}_desc-expected_decoded_pe.tsv")
+                  f"{noise_tag}{prior_tag}{smooth_label}_desc-expected_decoded_pe.tsv")
         agg.to_csv(out_fn, sep="\t", index=False)
         print(f"  saved {out_fn}")
 
@@ -410,6 +497,18 @@ if __name__ == "__main__":
                           action="store_false",
                           help="Fit full residual covariance instead of "
                                "spherical. Output: no _noise-* tag.")
+    parser.add_argument("--prior", default="none",
+                        choices=["none", "flat", "objective"],
+                        help="Decoding prior. 'none' (default): flat prior "
+                             "over the discrete trained grid (current "
+                             "behaviour, get_expected_uncertainty). 'flat': "
+                             "uniform density over a fine continuous grid "
+                             "(control). 'objective': empirical per-condition "
+                             "objective-value density (KDE of presented CHF "
+                             "values). flat/objective add a _prior-<p> tag.")
+    parser.add_argument("--prior-bw", type=float, default=None,
+                        help="KDE bandwidth (scipy bw_method) for the "
+                             "objective prior; default Scott's rule.")
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions,
@@ -424,4 +523,4 @@ if __name__ == "__main__":
          batch_stimuli=args.batch_stimuli,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, spherical_noise=args.spherical_noise,
-         model_type=args.model)
+         model_type=args.model, prior=args.prior, prior_bw=args.prior_bw)
