@@ -80,12 +80,14 @@ def _load_session_shift_params(subject, smoothed, masker, bids_folder,
             raise FileNotFoundError(f"No session-shift param: {fn}")
         return nli.load_img(str(fn))
 
-    try:                                          # shared fwhm (session-shift)
-        fwhm = masker.transform(load("fwhm")).squeeze().astype(np.float32)
-    except FileNotFoundError:                      # fwhm-shift has none
-        fwhm = None
-    amp  = masker.transform(load("amplitude")).squeeze().astype(np.float32)
-    base = masker.transform(load("baseline")).squeeze().astype(np.float32)
+    def load_opt(desc):                            # shared param, may be absent
+        try:
+            return masker.transform(load(desc)).squeeze().astype(np.float32)
+        except FileNotFoundError:
+            return None
+    fwhm = load_opt("fwhm")                        # absent for fwhm-/fully-shift
+    amp  = load_opt("amplitude")                   # absent for fully-shift
+    base = load_opt("baseline")                    # absent for fully-shift
     r2   = pd.Series(masker.transform(load("r2")).squeeze().astype(np.float32))
 
     modes: dict[str, np.ndarray] = {}
