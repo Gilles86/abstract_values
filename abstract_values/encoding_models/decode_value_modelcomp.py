@@ -48,6 +48,8 @@ from abstract_values.utils.data import Subject, BIDS_FOLDER
 from abstract_values.encoding_models.model_specs import get_spec
 from abstract_values.encoding_models.fit_pipeline import fit_one_model
 from abstract_values.encoding_models.sweep_npc_value import get_value_paradigm
+from abstract_values.encoding_models.compute_expected_decoded_value_aprf \
+    import _objective_value_prior
 
 MODELS = ("single", "weighted")
 CONDS = ("joint", "separate")
@@ -67,8 +69,15 @@ def _union_voxels(bids_folder, subject, smooth_label):
 
 
 def _decode(data, paradigm, model_kind, cond, value_min, value_max,
-            n_iter, n_basis, fwhm, spherical=True, noise_iter=1000):
-    """Leave-one-run-out value decoding; returns (true, decoded) arrays."""
+            n_iter, n_basis, fwhm, spherical=True, noise_iter=1000,
+            prior="none", prior_bw=None):
+    """Leave-one-run-out value decoding; returns (true, decoded) arrays.
+
+    ``prior="objective"`` weights the posterior by the empirical
+    objective-value density (KDE of the *training-fold* CHF values — a
+    design fact, no test leakage) before taking the posterior mean.
+    ``prior="none"`` keeps the flat-over-grid posterior mean.
+    """
     grid = np.linspace(value_min, value_max, N_GRID).astype(np.float32)
     grid_df = pd.DataFrame({"x": grid})
     s = paradigm.index.get_level_values("session")
@@ -116,6 +125,12 @@ def _decode(data, paradigm, model_kind, cond, value_min, value_max,
                                          weights=w, omega=omega, dof=dof,
                                          normalize=True)
         p = np.asarray(pdf.values, dtype=np.float64)
+        if prior == "objective":
+            # Prior from the training-fold value distribution (per fold so
+            # 'separate' uses this condition's values, 'joint' uses both).
+            prior_w = _objective_value_prior(train_par["x"].to_numpy(),
+                                             grid, bw=prior_bw)
+            p = p * prior_w[None, :]
         p = p / p.sum(axis=1, keepdims=True)
         decodeds.append(p @ grid)               # posterior mean = E[value]
         trues.append(test_x)
@@ -123,7 +138,8 @@ def _decode(data, paradigm, model_kind, cond, value_min, value_max,
 
 
 def run_one(subject, n_basis=8, fwhm=6.0, n_iter=500, noise_iter=1000,
-            spherical=True, smoothed=False, bids_folder=BIDS_FOLDER):
+            spherical=True, smoothed=False, prior="none", prior_bw=None,
+            bids_folder=BIDS_FOLDER):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -148,30 +164,34 @@ def run_one(subject, n_basis=8, fwhm=6.0, n_iter=500, noise_iter=1000,
                / "npc_value_sweep" / f"sub-{subject}" / "func")
     out_dir.mkdir(parents=True, exist_ok=True)
     base = f"sub-{subject}_task-abstractvalue_mask-NPCr"
-    p_sum = out_dir / f"{base}_desc-decodesummary{smooth_label}.tsv"
-    p_trial = out_dir / f"{base}_desc-decodetrials{smooth_label}.tsv"
+    prior_tag = "" if prior == "none" else f"_prior-{prior}"
+    p_sum = out_dir / f"{base}{prior_tag}_desc-decodesummary{smooth_label}.tsv"
+    p_trial = out_dir / f"{base}{prior_tag}_desc-decodetrials{smooth_label}.tsv"
+    print(f"  prior={prior}")
 
     with ExitStack() as stack:
         f_sum = stack.enter_context(open(p_sum, "w", newline=""))
         f_tr = stack.enter_context(open(p_trial, "w", newline=""))
         w_sum = csv.writer(f_sum, delimiter="\t")
         w_tr = csv.writer(f_tr, delimiter="\t")
-        w_sum.writerow(["subject", "model", "cond", "n_union",
+        w_sum.writerow(["subject", "model", "cond", "prior", "n_union",
                         "mae_chf", "pearson_r"])
-        w_tr.writerow(["subject", "model", "cond", "true_chf", "decoded_chf"])
+        w_tr.writerow(["subject", "model", "cond", "prior",
+                       "true_chf", "decoded_chf"])
         f_sum.flush(); f_tr.flush()
 
         for model_kind in MODELS:
             for cond in CONDS:
                 true, dec = _decode(data, paradigm, model_kind, cond,
                                     value_min, value_max, n_iter, n_basis, fwhm,
-                                    spherical=spherical, noise_iter=noise_iter)
+                                    spherical=spherical, noise_iter=noise_iter,
+                                    prior=prior, prior_bw=prior_bw)
                 mae = float(np.mean(np.abs(dec - true)))
                 r = float(np.corrcoef(true, dec)[0, 1])
-                w_sum.writerow([subject, model_kind, cond, len(union),
+                w_sum.writerow([subject, model_kind, cond, prior, len(union),
                                 f"{mae:.4f}", f"{r:.4f}"])
                 for t, d in zip(true, dec):
-                    w_tr.writerow([subject, model_kind, cond,
+                    w_tr.writerow([subject, model_kind, cond, prior,
                                    f"{t:.2f}", f"{d:.2f}"])
                 f_sum.flush(); f_tr.flush()
                 print(f"  {model_kind:<8} {cond:<8} "
@@ -189,11 +209,18 @@ def main():
     p.add_argument("--noise-iter", type=int, default=1000)
     p.add_argument("--full-noise", action="store_true")
     p.add_argument("--smoothed", action="store_true")
+    p.add_argument("--prior", default="none", choices=["none", "objective"],
+                   help="Decoding prior: 'none' flat over grid; 'objective' "
+                        "weights posterior by the training-fold objective-"
+                        "value density (KDE).")
+    p.add_argument("--prior-bw", type=float, default=None,
+                   help="KDE bandwidth for the objective prior (Scott default)")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     args = p.parse_args()
     run_one(args.subject, n_basis=args.n_basis, fwhm=args.fwhm,
             n_iter=args.n_iter, noise_iter=args.noise_iter,
             spherical=not args.full_noise, smoothed=args.smoothed,
+            prior=args.prior, prior_bw=args.prior_bw,
             bids_folder=args.bids_folder)
 
 

@@ -25,6 +25,7 @@ FWHM="${FWHM:-6}"
 N_ITER="${N_ITER:-500}"
 NOISE_ITER="${NOISE_ITER:-1000}"
 SMOOTHED="${SMOOTHED:-0}"
+PRIOR="${PRIOR:-none}"        # none | objective (decoding prior)
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -37,8 +38,9 @@ ARGS=(
     --n-iter "$N_ITER" --noise-iter "$NOISE_ITER"
 )
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$PRIOR" != "none" ] && ARGS+=(--prior "$PRIOR")
 
-echo "decode_value_mc: sub-${PARTICIPANT_LABEL}  k=${N_BASIS} fwhm=${FWHM}"
+echo "decode_value_mc: sub-${PARTICIPANT_LABEL}  k=${N_BASIS} fwhm=${FWHM}  prior=${PRIOR}"
 echo "Args: ${ARGS[*]}"
 
 exec ${ENV}/bin/python -u \
