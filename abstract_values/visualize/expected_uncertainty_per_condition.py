@@ -375,10 +375,14 @@ def main():
                    choices=["unsmoothed", "smoothed"])
     p.add_argument("--noise", default="full", choices=["full", "spherical"],
                    help="Which noise-model expected-decoded TSVs to read")
+    p.add_argument("--model-dir", default="aprf-session-shift",
+                   help="encoding_models subdir with the expected-decoded TSVs "
+                        "(e.g. aprf-fwhm-shift)")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
-    global NOISE_VARIANT
+    global NOISE_VARIANT, DERIV
     NOISE_VARIANT = args.noise
+    DERIV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / args.model_dir
     run(args.subjects, args.mask, args.nvoxels, args.nsims, Path(args.out),
         variants=tuple(args.variants))
 

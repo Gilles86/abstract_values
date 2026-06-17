@@ -80,18 +80,27 @@ def _load_session_shift_params(subject, smoothed, masker, bids_folder,
             raise FileNotFoundError(f"No session-shift param: {fn}")
         return nli.load_img(str(fn))
 
-    fwhm = masker.transform(load("fwhm")).squeeze().astype(np.float32)
+    try:                                          # shared fwhm (session-shift)
+        fwhm = masker.transform(load("fwhm")).squeeze().astype(np.float32)
+    except FileNotFoundError:                      # fwhm-shift has none
+        fwhm = None
     amp  = masker.transform(load("amplitude")).squeeze().astype(np.float32)
     base = masker.transform(load("baseline")).squeeze().astype(np.float32)
     r2   = pd.Series(masker.transform(load("r2")).squeeze().astype(np.float32))
 
     modes: dict[str, np.ndarray] = {}
+    fwhms: dict[str, np.ndarray] = {}             # per-session (fwhm-shift)
     for desc in ("mode_1", "mode_2"):
         try:
             modes[desc] = masker.transform(load(desc)).squeeze().astype(np.float32)
         except FileNotFoundError:
             pass
-    return fwhm, amp, base, r2, modes
+    for desc in ("fwhm_1", "fwhm_2"):
+        try:
+            fwhms[desc] = masker.transform(load(desc)).squeeze().astype(np.float32)
+        except FileNotFoundError:
+            pass
+    return fwhm, amp, base, r2, modes, fwhms
 
 
 def _simulate_and_decode_legacy(model, pars_df, omega, dof,
@@ -174,15 +183,20 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
     # SessionShiftedLogGaussianPRF; gaussian → aprf-gauss-session-shift +
     # SessionShiftedGaussianValuePRF. Both share the 5-param interface.
     ss_subdir = {"lognormal":  "aprf-session-shift",
-                  "gaussian":   "aprf-gauss-session-shift"}[model_type]
-    out_subdir = {"lognormal":  "aprf-session-shift",
-                   "gaussian":   "aprf-gauss-session-shift"}[model_type]
-    fwhm_arr, amp_arr, base_arr, r2, modes = _load_session_shift_params(
+                  "gaussian":   "aprf-gauss-session-shift",
+                  "fwhm-shift": "aprf-fwhm-shift"}[model_type]
+    out_subdir = ss_subdir
+    fwhm_arr, amp_arr, base_arr, r2, modes, fwhms = _load_session_shift_params(
         subject, smoothed, masker, bids_folder, model_dir=ss_subdir)
 
-    valid = (fwhm_arr > 0) & (amp_arr != 0)
+    valid = (amp_arr != 0)
     for m in modes.values():
         valid &= m > 0
+    if fwhms:                                      # fwhm-shift: per-session fwhm
+        for f in fwhms.values():
+            valid &= f > 0
+    elif fwhm_arr is not None:                      # session-shift: shared fwhm
+        valid &= fwhm_arr > 0
     r2_valid = r2[valid]
 
     # Voxel selection: top-N by joint R², or FDR/p_signal against the
@@ -260,9 +274,10 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
         # Full-voxel param frame; mask gets applied to the model below so
         # init_pseudoWWT + ResidualFitter see consistent shapes (same pattern
         # as compute_fisher_information_aprf.py).
+        fwhm_this = fwhms.get(f"fwhm_{ses_i}", fwhm_arr)   # per-session if fwhm-shift
         pars_full = pd.DataFrame({
             "mode":      modes[mode_desc],
-            "fwhm":      fwhm_arr,
+            "fwhm":      fwhm_this,
             "amplitude": amp_arr,
             "baseline":  base_arr,
         })
@@ -280,7 +295,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None",
               f"value range {float(ses_paradigm['x'].min()):.1f}–"
               f"{float(ses_paradigm['x'].max()):.1f} CHF")
 
-        if model_type == "lognormal":
+        if model_type in ("lognormal", "fwhm-shift"):
             model = LogGaussianPRF(allow_neg_amplitudes=True,
                                     parameterisation="mode_fwhm_natural")
         else:
@@ -366,7 +381,7 @@ if __name__ == "__main__":
                         choices=["fmriprep", "fmriprep-t2w", "fmriprep-flair"])
     parser.add_argument("--smoothed", action="store_true")
     parser.add_argument("--model", default="lognormal",
-                         choices=["lognormal", "gaussian"],
+                         choices=["lognormal", "gaussian", "fwhm-shift"],
                          help="Encoding-model PRF shape. lognormal "
                               "(default) loads aprf-session-shift fits; "
                               "gaussian loads aprf-gauss-session-shift "
