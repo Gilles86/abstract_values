@@ -1,4 +1,4 @@
-$python     = "C:\ExpFiles\researchers\gdehol\psychopy\python.exe"
+$python     = "C:\Users\gdehol\experiments\abstract_values\experiment\.venv\Scripts\python.exe"
 $expDir     = "C:\Users\gdehol\experiments\abstract_values\experiment"
 
 if (-not (Test-Path $python))  { throw "Python not found: $python" }
