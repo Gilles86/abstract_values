@@ -1,0 +1,21 @@
+[project]
+name = "abstract_values"
+version = "0.1.0"
+description = "A new theory of the human condition"
+authors = [{name = "Gilles de Hollander", email = "gilles.dehollander@econ.uzh.ch"}]
+readme = "README.md"
+license = "MIT"
+requires-python = "==3.10.*"
+dependencies = [
+    "exptools2",
+    "psychopy>=2026.1",
+    "seaborn>=0.13.2",
+    "sr-research-pylink>=2.2.596.0",
+]
+
+[build-system]
+requires = ["pdm-backend >= 2.4.0"]
+build-backend = "pdm.backend"
+
+[tool.uv.sources]
+exptools2 = { git = "https://github.com/VU-Cog-Sci/exptools2" }

@@ -1,5 +1,5 @@
 window:
-  size: [1920, 1080]
+  size: [1920, 1200]
   pos: [0, 0]
   color: [0, 0, 0]
   fullscr: True
