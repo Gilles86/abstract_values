@@ -19,6 +19,11 @@ require_complete: true
 # Smoothing variants to fit (0 = unsmoothed, 1 = smoothed) — pipeline runs both
 smoothed_variants: [0, 1]
 
+# Decoding noise model. Vocabulary after eec109b is (spherical|residual);
+# legacy sub-03..14 sentinels named the residual variant "full". Spherical
+# only — full/residual Omega over-regresses to the centre (see notes).
+decode_noise: ["spherical"]
+
 # Decoding ROIs: (desc, hemi). hemi == "None" => no hemi entity in filename.
 decode_rois:
   - {desc: "BensonV1", hemi: "LR"}
