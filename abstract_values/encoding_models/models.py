@@ -1,8 +1,16 @@
 """
 Custom braincoder model classes for the abstract-values project.
+
+Backend-agnostic (keras.ops): runs under TensorFlow, JAX, or PyTorch
+Keras backends. No in-graph session validation — the ``session`` column
+is constructed by our own paradigm-building code (0/1 only), and graph
+asserts are not portable across backends (a tf.debugging assert inside a
+jax-traced prediction is what originally broke these models under jax).
 """
 
-import tensorflow as tf
+import math
+
+from keras import ops
 from braincoder.models.prf_1d import GaussianPRF
 from braincoder.utils.math import lognormal_pdf_mode_fwhm, norm
 
@@ -71,25 +79,20 @@ class SessionShiftedLogGaussianPRF(GaussianPRF):
         x       = paradigm[..., None, 0]   # (batch, n_trials, 1)
         session = paradigm[..., None, 1]   # (batch, n_trials, 1)
 
-        # Session must be exactly 0 or 1 — anything else is a bug.
-        tf.debugging.assert_equal(
-            tf.reduce_all((session == 0.0) | (session == 1.0)), True,
-            message='Session column must contain only 0 and 1')
-
         mode_1    = parameters[:, None, :, 0]  # (batch, 1, n_voxels)
         mode_2    = parameters[:, None, :, 1]
         fwhm      = parameters[:, None, :, 2]
         amplitude = parameters[:, None, :, 3]
         baseline  = parameters[:, None, :, 4]
 
-        mode = tf.where(session < 0.5, mode_1, mode_2)
+        mode = ops.where(session < 0.5, mode_1, mode_2)
 
         return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
 
 
 # ── Symmetric Gaussian variants ─────────────────────────────────────────────
 
-_FWHM_TO_SIGMA = 1.0 / (2.0 * tf.sqrt(2.0 * tf.math.log(2.0)))  # ≈ 0.4247
+_FWHM_TO_SIGMA = 1.0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))  # ≈ 0.4247
 
 
 class GaussianValuePRF(GaussianPRF):
@@ -174,9 +177,6 @@ class FwhmShiftedLogGaussianPRF(GaussianPRF):
     def _session_predict(self, paradigm, parameters):
         x       = paradigm[..., None, 0]
         session = paradigm[..., None, 1]
-        tf.debugging.assert_equal(
-            tf.reduce_all((session == 0.0) | (session == 1.0)), True,
-            message='Session column must contain only 0 and 1')
 
         mode_1 = parameters[:, None, :, 0]
         mode_2 = parameters[:, None, :, 1]
@@ -186,8 +186,8 @@ class FwhmShiftedLogGaussianPRF(GaussianPRF):
         base   = parameters[:, None, :, 5]
 
         is_ses1 = session < 0.5
-        mode = tf.where(is_ses1, mode_1, mode_2)
-        fwhm = tf.where(is_ses1, fwhm_1, fwhm_2)
+        mode = ops.where(is_ses1, mode_1, mode_2)
+        fwhm = ops.where(is_ses1, fwhm_1, fwhm_2)
         return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amp + base
 
 
@@ -235,10 +235,6 @@ class FullyShiftedLogGaussianPRF(GaussianPRF):
         x       = paradigm[..., None, 0]
         session = paradigm[..., None, 1]
 
-        tf.debugging.assert_equal(
-            tf.reduce_all((session == 0.0) | (session == 1.0)), True,
-            message='Session column must contain only 0 and 1')
-
         mode_1    = parameters[:, None, :, 0]
         mode_2    = parameters[:, None, :, 1]
         fwhm_1    = parameters[:, None, :, 2]
@@ -249,10 +245,10 @@ class FullyShiftedLogGaussianPRF(GaussianPRF):
         base_2    = parameters[:, None, :, 7]
 
         is_ses1 = session < 0.5
-        mode      = tf.where(is_ses1, mode_1, mode_2)
-        fwhm      = tf.where(is_ses1, fwhm_1, fwhm_2)
-        amplitude = tf.where(is_ses1, amp_1,  amp_2)
-        baseline  = tf.where(is_ses1, base_1, base_2)
+        mode      = ops.where(is_ses1, mode_1, mode_2)
+        fwhm      = ops.where(is_ses1, fwhm_1, fwhm_2)
+        amplitude = ops.where(is_ses1, amp_1,  amp_2)
+        baseline  = ops.where(is_ses1, base_1, base_2)
 
         return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
 
@@ -303,17 +299,13 @@ class SessionShiftedGaussianValuePRF(GaussianPRF):
         x       = paradigm[..., None, 0]
         session = paradigm[..., None, 1]
 
-        tf.debugging.assert_equal(
-            tf.reduce_all((session == 0.0) | (session == 1.0)), True,
-            message='Session column must contain only 0 and 1')
-
         mode_1    = parameters[:, None, :, 0]
         mode_2    = parameters[:, None, :, 1]
         fwhm      = parameters[:, None, :, 2]
         amplitude = parameters[:, None, :, 3]
         baseline  = parameters[:, None, :, 4]
 
-        mode = tf.where(session < 0.5, mode_1, mode_2)
+        mode = ops.where(session < 0.5, mode_1, mode_2)
         sigma = fwhm * _FWHM_TO_SIGMA
 
         return norm(x, mode, sigma) * amplitude + baseline
