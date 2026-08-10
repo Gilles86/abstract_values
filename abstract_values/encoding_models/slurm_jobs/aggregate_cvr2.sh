@@ -6,6 +6,9 @@
 #SBATCH --mem=8G
 #SBATCH --time=00:10:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Aggregate per-run leave-one-run-out cvR² NIfTIs into a single mean cvR²
 # volume with proper float32 dtype (works around the fmriprep-mask
 # quantisation trap; see abstract_values/encoding_models/aggregate_cvr2.py).

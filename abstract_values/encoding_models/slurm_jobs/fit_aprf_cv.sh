@@ -6,6 +6,9 @@
 #SBATCH --mem=32G
 #SBATCH --time=06:00:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Leave-one-run-out CV for the abstract pRF encoding model.
 # Supports all four model variants from fit_aprf_cv.py:
 #   standard             — LogGaussianPRF

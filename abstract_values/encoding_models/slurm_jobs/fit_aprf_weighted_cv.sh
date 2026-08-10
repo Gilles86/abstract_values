@@ -6,6 +6,9 @@
 #SBATCH --mem=32G
 #SBATCH --time=02:00:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Leave-one-run-out CV for the weighted abstract pRF (log-Gaussian basis set).
 # Always fits jointly across all of a subject's MRI sessions.
 #

@@ -5,6 +5,9 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=06:00:00   # bumped from 30 min — matches decode_value.sh; fdr05
+
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
                           # selections can be large and 30 min runs out
 
 # Bayesian leave-one-run-out gabor orientation decoding.

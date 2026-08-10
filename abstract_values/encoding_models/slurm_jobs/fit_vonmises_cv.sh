@@ -6,6 +6,9 @@
 #SBATCH --mem=16G
 #SBATCH --time=01:30:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Leave-one-run-out CV for the Von Mises basis-set (orientation/Gabor) model.
 # Always fits jointly across all of a subject's MRI sessions.
 #

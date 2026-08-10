@@ -6,6 +6,9 @@
 #SBATCH --mem=32G
 #SBATCH --time=02:00:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Compute Fisher information for abstract value from the aPRF model.
 # Requires fit_aprf (or fit_aprf with MODEL=session-shift) to have completed.
 #

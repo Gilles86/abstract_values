@@ -6,6 +6,9 @@
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Fit Von Mises basis-set encoding model to single-trial GLMsingle betas.
 # Always fits jointly across all of a subject's MRI sessions.
 #

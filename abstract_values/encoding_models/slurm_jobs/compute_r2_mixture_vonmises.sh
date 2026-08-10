@@ -7,6 +7,9 @@
 #SBATCH --time=01:00:00
 #SBATCH --account=zne.uzh
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Fit the whole-brain R² mixture for the vonmises encoding model
 # across all subjects (auto-discovered). Outputs cached at
 #   derivatives/encoding_models/vonmises/sub-XX/sub-XX_desc-p_signal.json

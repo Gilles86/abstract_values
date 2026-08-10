@@ -7,6 +7,9 @@
 #SBATCH --time=00:30:00
 #SBATCH --account=zne.uzh
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Fit null (mean) encoding model and compute CV R².
 # Always fits jointly across all of a subject's MRI sessions.
 #

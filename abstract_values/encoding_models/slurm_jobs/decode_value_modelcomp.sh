@@ -7,6 +7,9 @@
 #SBATCH --time=06:00:00
 #SBATCH --account=zne.uzh
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Out-of-sample VALUE decoding tiebreaker: single vs weighted x joint vs
 # separate, on the union FDR voxel set. CPU-only. Requires
 # select_value_voxels_fdr to have run (union voxel TSV).

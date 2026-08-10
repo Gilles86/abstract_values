@@ -6,6 +6,9 @@
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Fit weighted abstract pRF (log-Gaussian basis set) to all data.
 # Analogous to the Von Mises model but for the abstract value dimension.
 # Always fits jointly across all of a subject's MRI sessions.

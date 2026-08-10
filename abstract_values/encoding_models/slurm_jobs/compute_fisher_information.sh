@@ -6,6 +6,9 @@
 #SBATCH --mem=32G
 #SBATCH --time=02:00:00
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Compute Fisher information for gabor orientation from the Von Mises model.
 # Note: re-fits Von Mises weights internally; does not depend on fit_vonmises output.
 #

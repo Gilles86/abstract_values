@@ -7,6 +7,9 @@
 #SBATCH --time=04:00:00
 #SBATCH --account=zne.uzh
 
+# Project models are TF-native; cluster keras.json defaults to jax — pin TF.
+export KERAS_BACKEND=tensorflow
+
 # Simulate from aPRF session-shift encoding model + Student-t noise, decode,
 # compute per-stimulus expected decoded value, bias, variance, abs error.
 #
