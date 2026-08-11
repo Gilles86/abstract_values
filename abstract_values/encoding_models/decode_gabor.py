@@ -253,6 +253,16 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
                               f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
             else:
                 sel = cv_r2[cv_r2 > 0.0].index
+                if len(sel) == 0:
+                    # No voxel generalizes in this fold → the n-voxels=0
+                    # decoding is undefined for this subject/ROI. Exit
+                    # cleanly (non-zero, so Snakemake writes no .done)
+                    # rather than decode from unselected noise voxels.
+                    raise SystemExit(
+                        f'    0/{data.shape[1]} voxels with nested CV R² > 0 '
+                        f'in fold ses-{test_session} run-{test_run} '
+                        f'(mask {mask_desc}) — n-voxels=0 decoding is '
+                        f'undefined for sub-{subject}; exiting without output.')
                 print(f'    {len(sel)} voxels selected  '
                       f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
         else:
