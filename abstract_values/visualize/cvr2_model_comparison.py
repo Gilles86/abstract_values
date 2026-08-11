@@ -77,6 +77,22 @@ V1_LADDER = [
     ("vonmises",       "vonmises.cv",        "fixed tuning"),
     ("vonmises-shift", "vonmises-shift.cv",  "flexible tuning"),
 ]
+# Orientation vs value dissociation. Applied to both ROIs:
+#   NPCr — does IPS encode the gabor's orientation (low-level visual) or
+#       its CHF value (with PRFs that shift between conditions)?
+#   V1   — symmetric check. Expectation: orientation wins. If value rungs
+#       beat orientation in V1, something's confounded.
+# Per-voxel argmax across the five rungs answers the question voxel-by-
+# voxel; per-subject winning-fraction stacked bar gives the headline.
+DISSOC_LADDER = [
+    ("null",            "aprf-null.cv",       "null"),
+    ("vonmises",        "vonmises.cv",        "orient (fixed)"),
+    ("vonmises-shift",  "vonmises-shift.cv",  "orient (flexible)"),
+    ("aprf",            "aprf.cv",            "value (fixed)"),
+    ("aprf-shift",      "aprf-shift.cv",      "value (shifted)"),
+]
+# Back-compat alias used by older callers.
+NPCR_DISSOC_LADDER = DISSOC_LADDER
 PALETTE = ["#9C9C9C", "#3B5BA5", "#5D8C3F", "#E76F51", "#C44E52", "#8172B2"]
 
 
@@ -203,8 +219,8 @@ def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
     model_order = [m for m, _, _ in ladder]
 
     fig, (ax, ax_frac) = plt.subplots(
-        1, 2, figsize=(9.0, 4.5), constrained_layout=True,
-        gridspec_kw={"width_ratios": [3, 1]})
+        1, 2, figsize=(11.0, 4.6), constrained_layout=True,
+        gridspec_kw={"width_ratios": [3.2, 1]})
 
     # Per-subject points + connecting lines so paired structure is visible
     for s in df.subject.unique():
@@ -245,8 +261,11 @@ def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
              color="0.25", family="monospace")
 
     ax.set_xticks(list(range(len(model_order))))
-    ax.set_xticklabels([f"{m}\n({lbl})" for m, _, lbl in ladder],
-                        fontsize=8)
+    # Skip the parenthetical when it just repeats the model name (null,
+    # standard) — redundant text, and the leading cause of adjacent two-line
+    # labels colliding at this axis width.
+    xtick_labels = [m if lbl == m else f"{m}\n({lbl})" for m, _, lbl in ladder]
+    ax.set_xticklabels(xtick_labels, fontsize=7.5, rotation=18, ha="right")
     ax.set_ylabel("Per-subject median voxel cv-R²  (signal voxels only)")
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
     # Voxel-filter status: report the cohort median fraction of ROI
@@ -256,14 +275,17 @@ def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
         keep_frac = (df.groupby("subject")
                        .apply(lambda g: g["n_voxels"].iloc[0]
                                           / max(g["n_voxels_total"].iloc[0], 1)))
-        filt_note = (f"  ·  signal voxels (median {100*keep_frac.median():.0f}% "
-                      f"of ROI; null-loses filter)")
+        filt_note = (f"signal voxels only ({100*keep_frac.median():.0f}% "
+                      f"of ROI kept, null-loses filter)")
     else:
-        filt_note = "  ·  all ROI voxels (no null filter)"
-    ax.set_title(f"{title_prefix}{roi_label}  ·  cvR² across nested models  "
-                  f"·  {smooth_lbl}  ·  n_subjects={df.subject.nunique()}"
+        filt_note = "all ROI voxels (no null filter)"
+    # Page-level header spans the full figure width (both panels) so it
+    # can't visually run into ax_frac's own title the way a long
+    # ax.set_title() on the narrower left panel would.
+    fig.suptitle(f"{title_prefix}{roi_label}  ·  cvR² across nested models  "
+                  f"·  {smooth_lbl}  ·  n_subjects={df.subject.nunique()}  ·  "
                   f"{filt_note}",
-                  fontsize=10, color="0.15")
+                  fontsize=9.5, color="0.15", x=0.01, ha="left")
 
     # ── Right panel: per-subject stacked bar of % ROI voxels where each
     # ladder model is the per-voxel cvR² argmax. Bars sum to 100% per
@@ -306,6 +328,384 @@ def page(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
                        transform=ax_frac.transAxes,
                        ha="center", va="center", color="0.5", fontsize=8)
     sns.despine(fig=fig, offset=4, trim=False)
+    # sns.despine() resets tick-label rotation as a side effect — always
+    # reapply rotation AFTER despine, never before (see CLAUDE.md note on
+    # this cvr2_model_comparison rendering gotcha).
+    plt.setp(ax.get_xticklabels(), rotation=18, ha="right", fontsize=7.5)
+    if not wins_df.empty:
+        plt.setp(ax_frac.get_xticklabels(), rotation=90, fontsize=7)
+    pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
+def page_signal_winners(ladder, subjects, roi_label, roi, hemi, smoothed, pdf, *,
+                          title_prefix=""):
+    """Dedicated page: per-subject and cohort-mean winning proportions
+    *among signal voxels* (voxels where null does NOT win per-voxel
+    argmax). Slices sum to 100% per subject. For ladders mixing model
+    families (e.g. NPCR_DISSOC_LADDER: orientation vs value PRFs), this
+    answers "of the voxels with real tuning, what % are best fit by
+    each family?".
+    """
+    _, _, wins_df = _collect(ladder, subjects, roi, hemi, smoothed,
+                               filter_null_loses=True)
+    if wins_df.empty:
+        return
+    nonnull = [m for m, _, _ in ladder if m != "null"]
+    if not nonnull:
+        return
+    sig = wins_df[wins_df["model"].isin(nonnull)].copy()
+    totals = sig.groupby("subject")["wins_frac"].sum()
+    sig["signal_pct"] = sig.apply(
+        lambda r: 100 * r["wins_frac"] / totals[r["subject"]]
+                  if totals.get(r["subject"], 0) > 0 else 0,
+        axis=1,
+    )
+    wide = (sig.pivot(index="subject", columns="model", values="signal_pct")
+                .reindex(columns=nonnull).fillna(0.0))
+    # Sort by the dominant model's share — descending — so the most
+    # consistently-X subjects are leftmost.
+    dominant = wide.idxmax(axis=1).value_counts().index[0]
+    wide = wide.sort_values(dominant, ascending=False)
+
+    fig, (ax_sub, ax_mean) = plt.subplots(
+        1, 2, figsize=(11, 5), constrained_layout=True,
+        gridspec_kw={"width_ratios": [4, 1]})
+
+    subs = list(wide.index)
+    # Use palette positions matching the ladder rung index (skip 0=null).
+    color_of = {m: PALETTE[i % len(PALETTE)]
+                  for i, (m, _, _) in enumerate(ladder)}
+    label_of = {m: lbl for m, _, lbl in ladder}
+
+    bottoms = np.zeros(len(subs))
+    for m in nonnull:
+        vals = wide[m].values
+        ax_sub.bar(range(len(subs)), vals, bottom=bottoms,
+                     color=color_of[m], edgecolor="white", linewidth=0.4,
+                     label=f"{m}  ({label_of[m]})")
+        bottoms += vals
+    ax_sub.set_xticks(range(len(subs)))
+    ax_sub.set_xticklabels([f"sub-{s}" for s in subs],
+                              rotation=90, fontsize=7)
+    ax_sub.set_ylim(0, 100)
+    ax_sub.set_ylabel("% of signal voxels (null-loses)")
+    smooth_lbl = "smoothed" if smoothed else "unsmoothed"
+    # Full-figure-width header (not ax_sub.set_title) so a long roi_label
+    # (e.g. "NPCr (orientation vs value)") can't spill into ax_mean's
+    # "Cohort" title sharing the same row.
+    fig.suptitle(
+        f"{title_prefix}{roi_label}  ·  per-subject winning-model proportions "
+        f"·  signal voxels only  ·  {smooth_lbl}  ·  "
+        f"n_subjects={wide.shape[0]}",
+        fontsize=9.5, color="0.15", x=0.01, ha="left")
+    ax_sub.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12),
+                    ncol=len(nonnull), fontsize=8, frameon=False,
+                    handlelength=1.2)
+
+    # Cohort-mean bar
+    mean_vals = wide.mean(axis=0).values
+    bottom = 0.0
+    for i, m in enumerate(nonnull):
+        v = float(mean_vals[i])
+        ax_mean.bar([0], [v], bottom=bottom, color=color_of[m],
+                      edgecolor="white", linewidth=0.4)
+        if v >= 4:                                     # only label slices wide enough
+            ax_mean.text(0, bottom + v / 2, f"{v:.0f}%",
+                            ha="center", va="center", fontsize=9,
+                            color="white", weight="bold")
+        bottom += v
+    ax_mean.set_xticks([0]); ax_mean.set_xticklabels(["cohort mean"])
+    ax_mean.set_ylim(0, 100)
+    ax_mean.set_yticks([])
+    ax_mean.set_title("Cohort", fontsize=9, color="0.2")
+
+    sns.despine(fig=fig, offset=4, trim=False)
+    plt.setp(ax_sub.get_xticklabels(), rotation=90, fontsize=7)
+    pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
+def _fit_dirichlet_multinomial(wins_df, ladder):
+    """Hierarchical Dirichlet-Multinomial across subjects.
+
+    Model
+    -----
+        y_s | p_s, N_s   ~ Multinomial(N_s, p_s)            (per subject)
+        p_s | α           ~ Dirichlet(α)                     (subject draws)
+        α_k               ~ Gamma(2, 1)                      (vague cohort prior)
+        p_cohort_k = α_k / Σ_k α_k                           (deterministic)
+
+    Returns
+    -------
+    (idata, counts) where counts is the per-(subject, non-null model)
+    integer wins matrix actually fed to the model. Returns (None, None)
+    if there's not enough data to fit (≥2 non-null models, ≥3 subjects).
+    """
+    import numpy as np
+    import pymc as pm
+
+    nonnull = [m for m, _, _ in ladder if m != "null"]
+    if len(nonnull) < 2:
+        return None, None
+    counts = (wins_df[wins_df["model"].isin(nonnull)]
+                .pivot(index="subject", columns="model", values="wins_count")
+                .reindex(columns=nonnull).fillna(0).astype(int))
+    counts = counts[counts.sum(axis=1) > 0]                  # drop empty rows
+    if counts.shape[0] < 3:
+        return None, None
+    y = counts.values
+    n_per_sub = y.sum(axis=1)
+    K = len(nonnull)
+
+    coords = {"subject": list(counts.index), "model": nonnull}
+    with pm.Model(coords=coords):
+        # Mildly informative prior on cohort concentration. Gamma(2,1) has
+        # mode 1 and mean 2 — enough to keep α away from 0 (which would
+        # cause label-switching when one component is absent) but lets
+        # the data dominate.
+        alpha = pm.Gamma("alpha", alpha=2.0, beta=1.0, dims="model")
+        p_sub = pm.Dirichlet("p_sub", a=alpha, dims=("subject", "model"))
+        pm.Multinomial("wins_obs", n=n_per_sub, p=p_sub,
+                         observed=y, dims=("subject", "model"))
+        pm.Deterministic("p_cohort", alpha / pm.math.sum(alpha),
+                           dims="model")
+        idata = pm.sample(1500, tune=1500, chains=4, target_accept=0.95,
+                            progressbar=False, random_seed=42)
+    return idata, counts
+
+
+def page_bayes_proportions(ladder, subjects, roi_label, roi, hemi, smoothed,
+                             pdf, *, title_prefix=""):
+    """Bayesian hierarchical winning-model proportions.
+
+    Inputs: per-(subject, non-null model) voxel-win counts among signal
+    voxels (where per-voxel argmax across the ladder ≠ null).
+    Outputs: per-subject observed proportions stacked bar + cohort-level
+    posterior with 50% and 95% HDIs.
+    """
+    import arviz as az
+    import numpy as np
+
+    _, _, wins_df = _collect(ladder, subjects, roi, hemi, smoothed,
+                               filter_null_loses=True)
+    if wins_df.empty:
+        return
+    idata, counts = _fit_dirichlet_multinomial(wins_df, ladder)
+    if idata is None:
+        return
+    nonnull = list(counts.columns)
+    # Flatten (chain, draw) → sample. Resulting shape: (K, n_samples)
+    cohort = (idata.posterior["p_cohort"]
+              .stack(sample=("chain", "draw")).values)
+
+    # Per-subject observed proportions, sorted by dominant component.
+    obs = counts.div(counts.sum(axis=1), axis=0).multiply(100)
+    dominant = obs.idxmax(axis=1).value_counts().index[0]
+    obs = obs.sort_values(dominant, ascending=False)
+
+    color_of = {m: PALETTE[i % len(PALETTE)]
+                  for i, (m, _, _) in enumerate(ladder)}
+    label_of = {m: lbl for m, _, lbl in ladder}
+
+    fig, (ax_sub, ax_post) = plt.subplots(
+        1, 2, figsize=(11.0, 5.0), constrained_layout=True,
+        gridspec_kw={"width_ratios": [3, 1.6]})
+
+    # Per-subject stacked bar (observed)
+    bottoms = np.zeros(obs.shape[0])
+    for m in nonnull:
+        vals = obs[m].values
+        ax_sub.bar(range(obs.shape[0]), vals, bottom=bottoms,
+                     color=color_of[m], edgecolor="white", linewidth=0.4,
+                     label=f"{m}  ({label_of[m]})")
+        bottoms += vals
+    ax_sub.set_xticks(range(obs.shape[0]))
+    ax_sub.set_xticklabels([f"sub-{s}" for s in obs.index],
+                              rotation=90, fontsize=7)
+    ax_sub.set_ylim(0, 100)
+    ax_sub.set_ylabel("% of signal voxels  (observed, per subject)")
+    smooth_lbl = "smoothed" if smoothed else "unsmoothed"
+    fig.suptitle(
+        f"{title_prefix}{roi_label}  ·  Bayesian hierarchical "
+        f"Dirichlet-Multinomial  ·  signal voxels  ·  {smooth_lbl}",
+        fontsize=9.5, color="0.15", x=0.01, ha="left")
+    ax_sub.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12),
+                    ncol=len(nonnull), fontsize=7.5, frameon=False,
+                    handlelength=1.2)
+
+    # Cohort-level posterior: median + 50% + 95% HDI per model
+    K = len(nonnull)
+    medians_c = np.median(cohort, axis=1) * 100
+    hdi95 = np.stack([az.hdi(cohort[k], hdi_prob=0.95) for k in range(K)]) * 100
+    hdi50 = np.stack([az.hdi(cohort[k], hdi_prob=0.50) for k in range(K)]) * 100
+    for i, m in enumerate(nonnull):
+        ax_post.plot([i, i], [hdi95[i, 0], hdi95[i, 1]],
+                       color=color_of[m], lw=2.0, alpha=0.55, solid_capstyle="round")
+        ax_post.plot([i, i], [hdi50[i, 0], hdi50[i, 1]],
+                       color=color_of[m], lw=5.5, solid_capstyle="round")
+        ax_post.plot([i], [medians_c[i]], "o", color="black",
+                       ms=7, mec="white", mew=1.0, zorder=5)
+        ax_post.text(i + 0.18, medians_c[i],
+                       f"{medians_c[i]:.0f}%\n[{hdi95[i, 0]:.0f}–{hdi95[i, 1]:.0f}]",
+                       fontsize=7.5, va="center", ha="left", color="0.2")
+    ax_post.set_xticks(range(K))
+    ax_post.set_xticklabels(nonnull, rotation=35, ha="right", fontsize=7.5)
+    ax_post.set_xlim(-0.6, K - 0.4 + 1.0)                   # room for HDI labels
+    ax_post.set_ylim(0, 100)
+    ax_post.set_ylabel("Cohort proportion (%)\nmedian · 50% · 95% HDI")
+    ax_post.set_title("Cohort-level posterior", fontsize=9, color="0.2")
+
+    sns.despine(fig=fig, offset=4, trim=False)
+    plt.setp(ax_sub.get_xticklabels(), rotation=90, fontsize=7)
+    plt.setp(ax_post.get_xticklabels(), rotation=35, ha="right", fontsize=7.5)
+    pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
+def _rfx_bms(L, n_iter=1000, tol=1e-6, n_samples=20000, seed=42):
+    """SPM-style random-effects Bayesian Model Selection.
+
+    Stephan et al. (2009) NeuroImage 46:1004; Rigoux et al. (2014)
+    NeuroImage 84:971. Variational Bayes inference over per-subject
+    model assignments and cohort-level Dirichlet on model frequencies.
+
+    Parameters
+    ----------
+    L : (S, K) array
+        Per-subject log marginal likelihood per model (S subjects, K models).
+
+    Returns
+    -------
+    dict with:
+      alpha (K,) — Dirichlet posterior on cohort model frequencies
+      g     (S, K) — per-subject posterior model assignments
+      expected_freq (K,) — <r_k> = α_k / Σα
+      ep    (K,) — exceedance probability  P(freq_k > all others)
+      pep   (K,) — protected exceedance probability (Rigoux 2014)
+      bor   float — Bayes omnibus risk (P that all models are equally frequent)
+    """
+    import numpy as np
+    from scipy.special import digamma, gammaln, logsumexp
+
+    L = np.asarray(L, float)
+    S, K = L.shape
+    a0 = np.ones(K)                                # uniform Dirichlet prior
+    alpha = a0.copy()
+
+    # Variational Bayes iteration: alternate updates of subject-level
+    # responsibilities g and cohort Dirichlet α.
+    for _ in range(n_iter):
+        alpha_old = alpha.copy()
+        log_g = L + (digamma(alpha) - digamma(alpha.sum()))[None, :]
+        log_g = log_g - logsumexp(log_g, axis=1, keepdims=True)
+        g = np.exp(log_g)
+        alpha = a0 + g.sum(axis=0)
+        if np.abs(alpha - alpha_old).max() < tol:
+            break
+
+    # Free energies for BOR (Rigoux 2014 Eq. 13–15).
+    # F1 under H1 (different models for different subjects)
+    F1 = (gammaln(alpha.sum()) - gammaln(alpha).sum()
+          - gammaln(a0.sum())  + gammaln(a0).sum()
+          + (g * (L - log_g)).sum())
+    # F0 under H0 (uniform per-subject prior; no RFX structure)
+    F0 = (logsumexp(L, axis=1) - np.log(K)).sum()
+    bor = float(np.clip(1.0 / (1.0 + np.exp(F1 - F0)), 0.0, 1.0))
+
+    # Exceedance probabilities via Monte Carlo from the cohort Dirichlet
+    rng = np.random.default_rng(seed)
+    samples = rng.dirichlet(alpha, size=n_samples)
+    winners = np.argmax(samples, axis=1)
+    ep  = np.array([float(np.mean(winners == k)) for k in range(K)])
+    # Protected EP corrects for chance-under-null
+    pep = (1.0 - bor) * ep + bor / K
+
+    return dict(alpha=alpha, g=g,
+                expected_freq=alpha / alpha.sum(),
+                ep=ep, pep=pep, bor=bor)
+
+
+def page_rfx_bms(ladder, subjects, roi_label, roi, hemi, smoothed, pdf,
+                   n_trials=368, *, title_prefix=""):
+    """SPM-style RFX BMS page for the dissociation ladder.
+
+    Per-subject log-evidence per model = exact Gaussian-residual held-out
+    log-likelihood-ratio over null, averaged across signal voxels:
+        L_sm = (N_test / 2) × mean_voxel(−log(1 − cvR²))
+    This is the *exact* held-out log-likelihood-ratio for OLS with iid
+    Gaussian residuals (not the leading-order N·cvR²/2 Taylor expansion);
+    voxels with cvR² < 0 contribute negatively (model is worse than
+    predicting the test-set mean for that voxel). We take the mean (not
+    sum) across voxels so spatial correlation doesn't inflate the
+    effective sample size.
+    """
+    import numpy as np
+
+    # Signal voxels only: null is excluded as a per-voxel argmax winner,
+    # so the comparison among non-null models isn't drowned by ROI-wide
+    # null background. (BMS over all-ROI mean cvR² with null included
+    # in the ladder mostly tells us "did the ROI contain enough signal
+    # to beat predicting the mean", not "which family wins").
+    df, per_voxel, _ = _collect(ladder, subjects, roi, hemi, smoothed,
+                                  filter_null_loses=True)
+    if df.empty:
+        return
+    models = [m for m, _, _ in ladder if m != "null"]
+
+    # Exact held-out log-likelihood-ratio over null per voxel:
+    #   ΔLL_v = -N_test/2 · log(1 − cvR²_v)
+    # Aggregate by *mean* across signal voxels (not sum — avoid inflating
+    # by spatial correlation). cvR² very close to 1 is clipped to avoid
+    # log(0).
+    rows = []
+    for s in sorted({s for s, _ in per_voxel.keys()}):
+        if not all((s, m) in per_voxel for m in models):
+            continue
+        row = {"subject": s}
+        for m in models:
+            cvr2 = per_voxel[(s, m)]
+            cvr2 = np.clip(cvr2, -np.inf, 0.999)        # avoid log(0)
+            row[m] = float(np.nanmean(-np.log1p(-cvr2)))
+        rows.append(row)
+    if len(rows) < 3:
+        return
+    pivot = pd.DataFrame(rows).set_index("subject")[models]
+    L = (n_trials / 2.0) * pivot.values            # (S, K) log-evidence
+
+    result = _rfx_bms(L)
+    expected = result["expected_freq"] * 100
+    ep, pep  = result["ep"] * 100, result["pep"] * 100
+    bor      = result["bor"]
+    color_of = {m: PALETTE[i % len(PALETTE)]
+                for i, (m, _, _) in enumerate(ladder)}
+
+    fig, ax = plt.subplots(figsize=(8.0, 4.8), constrained_layout=True)
+    K = len(models)
+    x = np.arange(K)
+    w = 0.27
+    cols = [color_of[m] for m in models]
+    ax.bar(x - w, expected, w, color=cols, alpha=0.95,
+              edgecolor="white", label="<r>: expected freq")
+    ax.bar(x,     ep,       w, color=cols, alpha=0.55,
+              edgecolor="white", label="EP: exceedance prob")
+    ax.bar(x + w, pep,      w, color=cols, alpha=0.30,
+              edgecolor="white", label="PEP: protected EP")
+    for i, m in enumerate(models):
+        for xi, v in zip([x[i] - w, x[i], x[i] + w],
+                            [expected[i], ep[i], pep[i]]):
+            ax.text(xi, v + 1.5, f"{v:.0f}", ha="center",
+                       fontsize=7, color="0.2")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(models, rotation=30, ha="right", fontsize=8)
+    ax.set_ylim(0, max(100, max(expected.max(), ep.max(), pep.max()) + 10))
+    ax.set_ylabel("%")
+    smooth_lbl = "smoothed" if smoothed else "unsmoothed"
+    ax.set_title(f"{title_prefix}{roi_label}  ·  SPM-style RFX BMS  ·  "
+                   f"{smooth_lbl}  ·  n={pivot.shape[0]}  ·  "
+                   f"BOR={bor:.3f}",
+                   fontsize=10, color="0.15")
+    ax.legend(loc="upper left", fontsize=8, frameon=False)
+    sns.despine(fig=fig, offset=4, trim=False)
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right", fontsize=8)
     pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
@@ -331,9 +731,43 @@ def run(subjects, out):
             print("  NPCr (value coding)…")
             page(NPCR_LADDER, subjects, "NPCr (value)",
                  "NPCr", None, smoothed, pdf, title_prefix="")
+            page_signal_winners(NPCR_LADDER, subjects, "NPCr (value)",
+                                "NPCr", None, smoothed, pdf)
             print("  V1 (orientation coding)…")
             page(V1_LADDER, subjects, "V1 (orientation)",
                  "BensonV1", "LR", smoothed, pdf, title_prefix="")
+            page_signal_winners(V1_LADDER, subjects, "V1 (orientation)",
+                                "BensonV1", "LR", smoothed, pdf)
+            print("  NPCr (orientation vs value DISSOCIATION)…")
+            page(DISSOC_LADDER, subjects,
+                 "NPCr (orientation vs value)",
+                 "NPCr", None, smoothed, pdf, title_prefix="")
+            page_signal_winners(DISSOC_LADDER, subjects,
+                                "NPCr (orientation vs value)",
+                                "NPCr", None, smoothed, pdf)
+            print("  NPCr Bayesian hierarchical DM…")
+            page_bayes_proportions(DISSOC_LADDER, subjects,
+                                   "NPCr (orientation vs value)",
+                                   "NPCr", None, smoothed, pdf)
+            print("  NPCr SPM-style RFX BMS…")
+            page_rfx_bms(DISSOC_LADDER, subjects,
+                         "NPCr (orientation vs value)",
+                         "NPCr", None, smoothed, pdf)
+            print("  V1 (orientation vs value DISSOCIATION)…")
+            page(DISSOC_LADDER, subjects,
+                 "V1 (orientation vs value)",
+                 "BensonV1", "LR", smoothed, pdf, title_prefix="")
+            page_signal_winners(DISSOC_LADDER, subjects,
+                                "V1 (orientation vs value)",
+                                "BensonV1", "LR", smoothed, pdf)
+            print("  V1 Bayesian hierarchical DM…")
+            page_bayes_proportions(DISSOC_LADDER, subjects,
+                                   "V1 (orientation vs value)",
+                                   "BensonV1", "LR", smoothed, pdf)
+            print("  V1 SPM-style RFX BMS…")
+            page_rfx_bms(DISSOC_LADDER, subjects,
+                         "V1 (orientation vs value)",
+                         "BensonV1", "LR", smoothed, pdf)
     print(f"\nWrote {out}")
 
 
