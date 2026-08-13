@@ -248,24 +248,22 @@ def annotate_onset_offset(ax, offset_xy: tuple, onset_label: str, offset_label: 
     )
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--tsv", default="notes/data/gaze_trajectories_all.tsv")
-    p.add_argument("--out", default="notes/figures/gaze_trajectories.pdf")
-    p.add_argument("--ncols", type=int, default=6)
-    p.add_argument("--epoch-title", default="value estimation",
-                   help="Human-readable epoch name for the figure suptitle, "
-                        "e.g. 'value estimation' or 'gabor presentation'.")
-    p.add_argument("--onset-label", default="Response-bar onset")
-    p.add_argument("--offset-label", default="Feedback onset\n(trial end)")
-    args = p.parse_args()
+def aggregate_df(df: pd.DataFrame, qc_label: str = "") -> dict:
+    """QC-filter -> recentre -> two-stage aggregate an already-loaded
+    gaze_trajectories dataframe (one or more full TSVs, or a subset of
+    one — e.g. filtered to a single `mapping` value). Shared by
+    plot_gaze_trajectories.py and compare_gaze_epochs.py so QC/recentring/
+    averaging can't drift apart between the two scripts.
 
-    df = pd.read_csv(args.tsv, sep="\t", dtype={"subject": str})
+    Returns dict with: df (trial-level, QC'd, recentred), per_subj
+    (subject x orientation x sample_idx mean), grand (orientation x
+    sample_idx mean, subjects weighted equally), subjects (sorted list),
+    n_trials (subject x orientation trial counts, post-QC, pre-MIN_TRIALS).
+    """
     n_before = df.drop_duplicates(TRIAL_KEYS).shape[0]
     df = df[df["frac_valid"] >= MIN_FRAC_VALID]
     n_after = df.drop_duplicates(TRIAL_KEYS).shape[0]
-    print(f"QC: dropped {n_before - n_after}/{n_before} trials with "
+    print(f"QC ({qc_label}): dropped {n_before - n_after}/{n_before} trials with "
           f"frac_valid < {MIN_FRAC_VALID} (mostly blinks/track loss)")
     df = recenter_trials(df)
 
@@ -284,6 +282,32 @@ def main():
                      .mean().reset_index())
 
     subjects = sorted(per_subj["subject"].unique(), key=subject_sort_key)
+    return dict(df=df, per_subj=per_subj, grand=grand, subjects=subjects, n_trials=n_trials, keep=keep)
+
+
+def load_and_aggregate(tsv_path: str) -> dict:
+    df = pd.read_csv(tsv_path, sep="\t", dtype={"subject": str})
+    return aggregate_df(df, qc_label=tsv_path)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--tsv", default="notes/data/gaze_trajectories_all.tsv")
+    p.add_argument("--out", default="notes/figures/gaze_trajectories.pdf")
+    p.add_argument("--ncols", type=int, default=6)
+    p.add_argument("--epoch-title", default="value estimation",
+                   help="Human-readable epoch name for the figure suptitle, "
+                        "e.g. 'value estimation' or 'gabor presentation'.")
+    p.add_argument("--onset-label", default="Response-bar onset")
+    p.add_argument("--offset-label", default="Feedback onset\n(trial end)")
+    args = p.parse_args()
+    args.onset_label = args.onset_label.replace("\\n", "\n")
+    args.offset_label = args.offset_label.replace("\\n", "\n")
+
+    agg = load_and_aggregate(args.tsv)
+    per_subj, grand, subjects, n_trials, keep = (
+        agg["per_subj"], agg["grand"], agg["subjects"], agg["n_trials"], agg["keep"])
     ncols = args.ncols
     nrows_subj = int(np.ceil(len(subjects) / ncols))
     top_rows = 4  # grand-average panel + wheel + gabor-example strip
