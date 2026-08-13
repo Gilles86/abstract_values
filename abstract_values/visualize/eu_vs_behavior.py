@@ -557,6 +557,8 @@ def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
             page_gaze_confound(beh, {
                 "Signal-voxel frac. (NPCr, aprf.cv>null)\n[cvR² count]": npcr_voxels,
                 "Decoded-true r (NPCr)\n[real single trials]": decoded_r,
+                "Signal-voxel frac. (V1, vonmises.cv>null)\n[cvR² count]": v1_voxels,
+                "Decoded-true fidelity, orientation (V1)\n[real single trials]": decoded_r_ori,
             }, gaze, pdf)
 
     if corr_frames:
