@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Extract per-trial gaze trajectories (x/y in degrees of visual angle,
-resampled to a fixed number of points) during the response_bar
-(estimation) phase, for plotting gaze paths coloured by orientation.
+resampled to a fixed number of points) during a configurable trial phase
+window, for plotting gaze paths coloured by orientation.
+
+Epoch is a CLI choice (--epoch-start/--epoch-end, phase names from
+experiment/task.py's TaskTrial.phase_names), not hardcoded — this dataset
+has two natural windows to look at: 'gabor'->'isi' (during stimulus
+presentation, 1.5s, phase_names index 2->3) and 'response_bar'->'feedback'
+(during value estimation, up to 3.5s, index 4->5). Re-run once per epoch
+of interest; each run's --out is a separate TSV.
 
 Sibling of ``extract_gaze_dispersion.py`` (same repo) — reuses its EDF
 parsing helpers (msg/sample .asc parsing, phase-window convention) rather
@@ -80,15 +87,18 @@ import pandas as pd
 import yaml
 
 from abstract_values.eyetracking.extract_gaze_dispersion import (
-    PHASE_FEEDBACK,
-    PHASE_RESPONSE,
     RUN_RE,
     convert,
     parse_phase_onsets,
     parse_samples,
 )
 
-N_RESAMPLE = 20        # points per trial, normalized time 0..1 across the response_bar window
+# Matches experiment/task.py TaskTrial.phase_names exactly — do not reorder
+# without checking that file, phase MSG numbers on disk are baked in as ints.
+PHASE_NAMES = ["green_fixation", "white_fixation", "gabor", "isi",
+               "response_bar", "feedback", "iti"]
+
+N_RESAMPLE = 20         # points per trial, normalized time 0..1 across the chosen epoch
 OFFSCREEN_MARGIN = 0.1  # samples beyond [-10%, 110%] of screen bounds are tracker artifacts, not gaze
 
 
@@ -144,7 +154,7 @@ def resample_trial(t: np.ndarray, x: np.ndarray, y: np.ndarray, n: int = N_RESAM
 
 
 def process_run(edf_path: Path, tmp_dir: Path, subject: str, session: int,
-                run: int, mapping: str) -> list[dict]:
+                run: int, mapping: str, phase_start: int, phase_end: int) -> list[dict]:
     msg_asc, samp_asc = convert(edf_path, tmp_dir)
     rows: list[dict] = []
     try:
@@ -164,10 +174,10 @@ def process_run(edf_path: Path, tmp_dir: Path, subject: str, session: int,
         x_deg = pix2deg(xs - w_px / 2, width_cm, w_px, distance_cm)
         y_deg = pix2deg(h_px / 2 - ys, width_cm, w_px, distance_cm)  # flip: pixel y grows downward
 
-        trial_nrs = sorted({t for t, p in onsets if p == PHASE_RESPONSE})
+        trial_nrs = sorted({t for t, p in onsets if p == phase_start})
         for trial_nr in trial_nrs:
-            t0 = onsets.get((trial_nr, PHASE_RESPONSE))
-            t1 = onsets.get((trial_nr, PHASE_FEEDBACK))
+            t0 = onsets.get((trial_nr, phase_start))
+            t1 = onsets.get((trial_nr, phase_end))
             if t0 is None or t1 is None or t1 <= t0 or trial_nr not in orientations.index:
                 continue
             mask = (times >= t0) & (times < t1)
@@ -197,7 +207,14 @@ def main():
     p.add_argument("--subjects", nargs="+", default=None)
     p.add_argument("--out", required=True)
     p.add_argument("--tmp-dir", default="/tmp/gaze_traj_extract")
+    p.add_argument("--epoch-start", default="response_bar", choices=PHASE_NAMES,
+                   help="Phase whose onset starts the extracted window.")
+    p.add_argument("--epoch-end", default="feedback", choices=PHASE_NAMES,
+                   help="Phase whose onset ends the extracted window (exclusive).")
     args = p.parse_args()
+    phase_start, phase_end = PHASE_NAMES.index(args.epoch_start), PHASE_NAMES.index(args.epoch_end)
+    if phase_end <= phase_start:
+        p.error(f"--epoch-end ({args.epoch_end}) must come after --epoch-start ({args.epoch_start})")
 
     src = Path(args.bids_folder) / "sourcedata" / "behavior"
     tmp_dir = Path(args.tmp_dir)
@@ -206,6 +223,8 @@ def main():
     subjects = args.subjects or sorted(
         d.name.removeprefix("sub-") for d in src.glob("sub-*") if d.is_dir())
 
+    print(f"Epoch: {args.epoch_start} (phase {phase_start}) -> "
+          f"{args.epoch_end} (phase {phase_end})", file=sys.stderr)
     all_rows = []
     for s in subjects:
         edf_files = sorted((src / f"sub-{s}").glob("ses-*/*.edf"))
@@ -217,7 +236,7 @@ def main():
                 continue
             _, session, run, mapping = m.groups()
             all_rows.extend(process_run(edf_path, tmp_dir, s, int(session),
-                                        int(run), mapping))
+                                        int(run), mapping, phase_start, phase_end))
         print(f"  -> {len(all_rows)} sample rows so far", file=sys.stderr, flush=True)
 
     df = pd.DataFrame(all_rows)
