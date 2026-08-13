@@ -17,8 +17,22 @@ Two questions this answers:
    σ_E and 1/σ_E so the flip is visible directly.
 
 2. Across subjects, does behavioral precision (−SD of bid error) predict
-   neural precision (−mean σ_E in NPCr)? Page 2 is the brain-behavior
-   scatter, per condition and pooled.
+   neural precision in NPCr? Tried with three neural measures, since raw
+   posterior SD (σ_E) "tends to not work great" (regression-to-mode bias,
+   see above): −mean σ_E, −mean |decoding error| (same simulated-decoding
+   runs, bias+noise instead of dispersion alone), and the empirical
+   decoded-vs-true Pearson r from REAL single-trial decoding
+   (``decode_value.py`` output — no simulation involved). One
+   brain-behavior scatter page per measure.
+
+3. Neural σ_E and behavioral SD live on very different scales (σ_E is
+   several-fold wider — compare page 1's row 1 vs row 2 y-axes), which
+   confounds a raw-scale between-subject correlation. The condition-
+   difference page instead correlates the *within-subject* cdf −
+   inverse_cdf contrast for behavior against the same contrast for each
+   neural measure — removes each subject's idiosyncratic scale/offset,
+   asks a sharper question: does whichever mapping is behaviorally harder
+   for a subject also look neurally harder to their decoder?
 
 Data sources
 ------------
@@ -51,6 +65,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 
 from abstract_values.behavior.data import get_all_behavioral_data
+from abstract_values.utils.data import BIDS_FOLDER, Subject
 from abstract_values.visualize.npcr_uncertainty_vs_value import _aggregate
 
 DEFAULT_OUT = "notes/figures/eu_vs_behavior.pdf"
@@ -149,15 +164,72 @@ def page_value_profiles(beh: pd.DataFrame, eu: pd.DataFrame, variant: str, pdf: 
     plt.close(fig)
 
 
-def page_brain_behavior(beh: pd.DataFrame, eu: pd.DataFrame, variant: str, pdf: PdfPages):
+def neural_precision_sdE(eu: pd.DataFrame, variant: str) -> pd.DataFrame:
+    """−mean σ_E (NPCr), from the simulated expected-uncertainty pipeline.
+    Known caveat (see module docstring): raw σ_E is inflated by
+    regression-to-mode bias variance near stimulus-density peaks, so this
+    is not a clean noise measure — kept as a reference point, not the
+    primary one.
+    """
     eu = eu[eu["variant"] == variant]
+    return ((-eu.groupby(["subject", "condition"])["sd_E"].mean())
+            .reset_index(name="neu_precision")
+            .rename(columns={"condition": "mapping"}))
 
+
+def neural_precision_mae(eu: pd.DataFrame, variant: str) -> pd.DataFrame:
+    """−mean |decoding error| (NPCr) from the same simulated-decoding runs
+    as σ_E, but using the raw expected absolute error instead of its SD —
+    less sensitive to the regression-to-mode variance-inflation than σ_E,
+    since it's bias+noise combined rather than dispersion alone."""
+    eu = eu[eu["variant"] == variant]
+    return ((-eu.groupby(["subject", "condition"])["mean_abs_error"].mean())
+            .reset_index(name="neu_precision")
+            .rename(columns={"condition": "mapping"}))
+
+
+def neural_precision_decoded_r(subjects: list[str], nvoxels: str = "100",
+                               noise: str = "spherical", smoothed: bool = False,
+                               roi: str = "NPCr") -> pd.DataFrame:
+    """Empirical decoding accuracy: per (subject, mapping) Pearson r between
+    true and decoded (posterior-mean) value on REAL single trials, in NPCr —
+    the actual decode_value.py output, not a simulation. Session ↔ mapping
+    via Subject.get_mapping (deterministic from subject parity + session).
+    """
+    smooth = "_smoothed" if smoothed else ""
+    deriv = Path(BIDS_FOLDER) / "derivatives" / "decoding" / "value"
+    rows = []
+    for s in subjects:
+        stem = f"sub-{s}_mask-{roi}_nvoxels-{nvoxels}_noise-{noise}{smooth}"
+        d = deriv / f"sub-{s}" / "func"
+        hits = sorted(d.glob(f"{stem}_pars.tsv")) or sorted(d.glob(f"{stem}_lambda-*_pars.tsv"))
+        if not hits:
+            continue
+        df = pd.read_csv(hits[0], sep="\t")
+        meta = ["session", "run", "trial_nr", "true_value_chf"]
+        grid_cols = [c for c in df.columns if c not in meta]
+        grid = np.array([float(c) for c in grid_cols])
+        post = df[grid_cols].to_numpy(dtype=float)
+        w = post / np.clip(post.sum(axis=1, keepdims=True), 1e-12, None)
+        df = df.assign(decoded=(w * grid).sum(1))
+        sub = Subject(s, bids_folder=BIDS_FOLDER)
+        for session, g in df.groupby("session"):
+            g = g.dropna(subset=["true_value_chf", "decoded"])
+            if len(g) < 5:
+                continue
+            mapping = sub.get_mapping(session=int(session))
+            r, _ = stats.pearsonr(g["true_value_chf"], g["decoded"])
+            rows.append(dict(subject=s, mapping=mapping,
+                             neu_precision=r, n_trials=len(g)))
+    return pd.DataFrame(rows)
+
+
+def page_brain_behavior(beh: pd.DataFrame, neu: pd.DataFrame, *, neu_label: str,
+                        title: str, pdf: PdfPages):
     beh_prec = ((-beh.groupby(["subject", "mapping"])["error"].std())
                 .reset_index(name="beh_precision"))
-    neu_prec = ((-eu.groupby(["subject", "condition"])["sd_E"].mean())
-                .reset_index(name="neu_precision")
-                .rename(columns={"condition": "mapping"}))
-    merged = beh_prec.merge(neu_prec, on=["subject", "mapping"])
+    merged = beh_prec.merge(neu[["subject", "mapping", "neu_precision"]],
+                            on=["subject", "mapping"])
 
     pooled = (merged.groupby("subject")[["beh_precision", "neu_precision"]]
               .mean().reset_index())
@@ -179,36 +251,116 @@ def page_brain_behavior(beh: pd.DataFrame, eu: pd.DataFrame, variant: str, pdf: 
             ax.plot(xx, b0 + b1 * xx, color="0.2", lw=1.1, zorder=0)
             ax.text(0.04, 0.96, f"n={len(d)}\nr={r:+.2f}, p={p:.3f}",
                     transform=ax.transAxes, va="top", fontsize=8.5)
-        title = mapping if mapping == "pooled (both mappings)" else (
+        panel_title = mapping if mapping == "pooled (both mappings)" else (
             "CDF mapping" if mapping == "cdf" else "Inverse-CDF mapping")
-        ax.set_title(title)
+        ax.set_title(panel_title)
         ax.set_xlabel("Behavioral precision\n(−SD of bid error, CHF)")
-    axes[0].set_ylabel("Neural precision\n(−mean σ_E, NPCr, CHF)")
-    fig.suptitle(
-        "Brain-behavior correlation: are behaviorally-precise subjects "
-        f"also neurally precise in NPCr?  ({variant})",
-        fontsize=9.5, color="0.15")
+    axes[0].set_ylabel(neu_label)
+    fig.suptitle(title, fontsize=9.5, color="0.15")
     sns.despine(fig=fig, offset=5, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
     return plot_df
 
 
-def main(eu_tsv: Path, out: Path, variants: tuple[str, ...]):
+def _condition_delta(df: pd.DataFrame, value_col: str) -> pd.Series:
+    """cdf − inverse_cdf per subject, indexed by subject. Requires both
+    mappings present for a subject (inner join via pivot, NaN otherwise)."""
+    wide = df.pivot(index="subject", columns="mapping", values=value_col)
+    if "cdf" not in wide or "inverse_cdf" not in wide:
+        return pd.Series(dtype=float)
+    return (wide["cdf"] - wide["inverse_cdf"]).dropna()
+
+
+def page_condition_difference(beh: pd.DataFrame, neu_measures: dict[str, pd.DataFrame],
+                              pdf: PdfPages):
+    """Within-subject condition contrast (cdf − inverse_cdf), behavior vs
+    each neural measure. Raw-scale behavior-vs-neural comparisons are
+    confounded by the two modalities living on very different scales
+    (neural σ_E/likelihood width is several-fold larger than behavioral
+    response SD in CHF — compare page 1's row 1 vs row 2 y-axes). Taking
+    the *within-subject* condition difference for each measure separately
+    removes each subject's idiosyncratic overall scale/offset and asks a
+    sharper question: does whichever mapping is behaviorally harder for a
+    subject also look neurally harder to that subject's decoder?
+    """
+    beh_prec = ((-beh.groupby(["subject", "mapping"])["error"].std())
+                .reset_index(name="beh_precision"))
+    beh_delta = _condition_delta(beh_prec, "beh_precision")
+
+    fig, axes = plt.subplots(1, len(neu_measures), figsize=(3.6 * len(neu_measures), 3.6),
+                             constrained_layout=True, sharex=True)
+    if len(neu_measures) == 1:
+        axes = [axes]
+    for ax, (label, neu_df) in zip(axes, neu_measures.items()):
+        neu_delta = _condition_delta(neu_df, "neu_precision")
+        common = beh_delta.index.intersection(neu_delta.index)
+        x, y = beh_delta.loc[common], neu_delta.loc[common]
+        ax.axhline(0, color="0.75", lw=0.7, ls="--", zorder=0)
+        ax.axvline(0, color="0.75", lw=0.7, ls="--", zorder=0)
+        ax.scatter(x, y, s=22, color=COL_NEU, alpha=0.75,
+                  edgecolor="white", linewidth=0.4)
+        if len(common) >= 3:
+            r, p = stats.pearsonr(x, y)
+            b1, b0 = np.polyfit(x, y, 1)
+            xx = np.linspace(x.min(), x.max(), 50)
+            ax.plot(xx, b0 + b1 * xx, color="0.2", lw=1.1, zorder=0)
+            ax.text(0.04, 0.96, f"n={len(common)}\nr={r:+.2f}, p={p:.3f}",
+                    transform=ax.transAxes, va="top", fontsize=8.5)
+        ax.set_title(label, fontsize=9)
+        ax.set_xlabel("Δ behavioral precision\n(cdf − inverse_cdf, CHF)")
+    axes[0].set_ylabel("Δ neural precision\n(cdf − inverse_cdf)")
+    fig.suptitle(
+        "Condition contrast, within subject: does the harder mapping "
+        "match between behavior and neural decoding?",
+        fontsize=9.5, color="0.15")
+    sns.despine(fig=fig, offset=5, trim=True)
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
+def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
+         nvoxels: str, noise: str):
     beh = load_behavior()
     eu = pd.read_csv(eu_tsv, sep="\t")
     eu["subject"] = eu["subject"].astype(str)
+    subjects = sorted(set(beh["subject"]) & set(eu["subject"]))
+    decoded_r = neural_precision_decoded_r(subjects, nvoxels=nvoxels, noise=noise)
 
     out.parent.mkdir(parents=True, exist_ok=True)
+    corr_frames = []
     with PdfPages(out) as pdf:
         for variant in variants:
             page_value_profiles(beh, eu, variant, pdf)
-        corr_df = None
-        for variant in variants:
-            corr_df = page_brain_behavior(beh, eu, variant, pdf)
-    if corr_df is not None:
+
+        variant = variants[0]
+        neu_measures = {
+            "−mean σ_E (NPCr)\n[simulated, SD of posterior]":
+                neural_precision_sdE(eu, variant),
+            "−mean |decoding error| (NPCr)\n[simulated]":
+                neural_precision_mae(eu, variant),
+            "Decoded-true r (NPCr)\n[real single trials]":
+                decoded_r,
+        }
+        titles = {
+            "−mean σ_E (NPCr)\n[simulated, SD of posterior]":
+                "Brain-behavior: −mean σ_E (simulated posterior SD)",
+            "−mean |decoding error| (NPCr)\n[simulated]":
+                "Brain-behavior: −mean |decoding error| (simulated)",
+            "Decoded-true r (NPCr)\n[real single trials]":
+                "Brain-behavior: empirical decoded-vs-true r (real trials)",
+        }
+        for label, neu_df in neu_measures.items():
+            cdf = page_brain_behavior(beh, neu_df, neu_label=label,
+                                      title=f"{titles[label]}  ({variant})", pdf=pdf)
+            cdf["measure"] = label.split("\n")[0]
+            corr_frames.append(cdf)
+
+        page_condition_difference(beh, neu_measures, pdf)
+
+    if corr_frames:
         tsv = out.with_suffix(".tsv")
-        corr_df.to_csv(tsv, sep="\t", index=False)
+        pd.concat(corr_frames, ignore_index=True).to_csv(tsv, sep="\t", index=False)
         print(f"Sidecar: {tsv}")
     print(f"Wrote {out}")
 
@@ -220,6 +372,10 @@ if __name__ == "__main__":
                    help="Sidecar TSV from expected_uncertainty_per_condition.py")
     p.add_argument("--variants", nargs="+", default=["unsmoothed"],
                    choices=["unsmoothed", "smoothed"])
+    p.add_argument("--nvoxels", default="100",
+                   help="nvoxels tag for the real decode_value.py pars TSVs")
+    p.add_argument("--noise", default="spherical", choices=["full", "spherical", "geodesic"])
     p.add_argument("--out", default=DEFAULT_OUT)
     args = p.parse_args()
-    main(Path(args.eu_tsv), Path(args.out), tuple(args.variants))
+    main(Path(args.eu_tsv), Path(args.out), tuple(args.variants),
+         nvoxels=args.nvoxels, noise=args.noise)
