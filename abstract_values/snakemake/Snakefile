@@ -222,15 +222,25 @@ def subject_targets(subject):
 
         # Encoding models (always)
         targets += [aprf_r2(subject, v, sfx) for v in (
-            "aprf", "aprf_cv", "aprf_weighted", "aprf_weighted_cv",
+            "aprf", "aprf_cv", "aprf_null_cv",
+            "aprf_weighted", "aprf_weighted_cv",
             "aprf_gauss", "aprf_gauss_cv",
             "vonmises", "vonmises_cv",
         )]
-        # session-shift only if subject has >= 2 MRI sessions
+        # session-shift only if subject has >= 2 MRI sessions. Includes the
+        # fwhm-shift / fully-shifted / vonmises-shift "ladder" variants used
+        # by cvr2_model_comparison.py — these were historically fit by hand
+        # for a subset of subjects and silently left out of every new
+        # subject's targets; folding them in here keeps that from recurring.
         if len(sessions) >= 2:
             targets += [
                 aprf_r2(subject, "aprf_session_shift", sfx),
                 aprf_r2(subject, "aprf_session_shift_cv", sfx),
+                aprf_r2(subject, "aprf_fwhm_shift", sfx),
+                aprf_r2(subject, "aprf_fwhm_shift_cv", sfx),
+                aprf_r2(subject, "aprf_fully_shifted", sfx),
+                aprf_r2(subject, "aprf_fully_shifted_cv", sfx),
+                aprf_r2(subject, "vonmises_shift_cv", sfx),
                 aprf_r2(subject, "aprf_gauss_session_shift", sfx),
                 aprf_r2(subject, "aprf_gauss_session_shift_cv", sfx),
             ]
@@ -270,6 +280,22 @@ def subject_targets(subject):
                     f"{DERIV}/fisher_information_aprf{sfx}/sub-{subject}/"
                     f"sub-{subject}_roi-{roi['desc']}_ses-{ses}.done"
                 )
+
+        # Per-condition Fisher information (session-shift aPRF model) — feeds
+        # fisher_information_per_condition.py. Only for subjects with >= 2
+        # sessions (the model needs session-varying tuning); no pooled "all"
+        # since mode genuinely differs per session. Historically a manual,
+        # 12-subject-only run — folded into the standard target set so it
+        # keeps pace with new subjects automatically.
+        if len(sessions) >= 2:
+            for roi in FI_ROIS_APRF:
+                for nv in ["100", "fdr05"]:
+                    for ses in sessions:
+                        targets.append(
+                            f"{DERIV}/fisher_information_aprf_session_shift{sfx}/"
+                            f"sub-{subject}/sub-{subject}_roi-{roi['desc']}"
+                            f"_nv-{nv}_ses-{ses}.done"
+                        )
 
         # Expected-decoded-value (aprf-session-shift) — only for subjects
         # with ≥2 MRI sessions, since the model itself requires it.
@@ -465,6 +491,72 @@ rule fit_aprf_session_shift_cv:
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
 
+rule fit_aprf_null_cv:
+    # Parameterless baseline (predicts training mean) — always fitted; used
+    # as the null reference in cvr2_model_comparison.py's model ladders.
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_null_cv", "{smooth}")
+    log: "logs/fit_aprf_null_cv{smooth}_{subject}.log"
+    resources: **_aprf_cv_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=null "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_fwhm_shift:
+    # Mode + fwhm shift per session (warm-starts from session-shift) — feeds
+    # the NPCr model-comparison ladder in cvr2_model_comparison.py.
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_fwhm_shift", "{smooth}")
+    log: "logs/fit_aprf_fwhm_shift{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=fwhm-shift "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_fwhm_shift_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_fwhm_shift_cv", "{smooth}")
+    log: "logs/fit_aprf_fwhm_shift_cv{smooth}_{subject}.log"
+    resources: **_aprf_cv_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=fwhm-shift "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_fully_shifted:
+    # All 4 params shift per session (warm-starts from session-shift) —
+    # feeds the NPCr model-comparison ladder in cvr2_model_comparison.py.
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_fully_shifted", "{smooth}")
+    log: "logs/fit_aprf_fully_shifted{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=fully-shifted "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_fully_shifted_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_fully_shifted_cv", "{smooth}")
+    log: "logs/fit_aprf_fully_shifted_cv{smooth}_{subject}.log"
+    resources: **_aprf_cv_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=fully-shifted "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
 rule fit_aprf_weighted:
     input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
     output: aprf_r2("{subject}", "aprf_weighted", "{smooth}")
@@ -558,6 +650,20 @@ rule fit_vonmises_cv:
     resources: **_aprf_cv_resources()
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_vonmises_shift_cv:
+    # Flexible (per-session) Von Mises tuning — feeds the V1 and
+    # orientation-vs-value ladders in cvr2_model_comparison.py.
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "vonmises_shift_cv", "{smooth}")
+    log: "logs/fit_vonmises_shift_cv{smooth}_{subject}.log"
+    resources: **_aprf_cv_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SESSION_SHIFT=1 "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_vonmises_cv.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
@@ -753,6 +859,37 @@ rule compute_fisher_information_aprf:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "ROI={wildcards.roi} {params.ses_export}"
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule compute_fisher_information_aprf_session_shift:
+    """Per-condition Fisher information for the session-shift aPRF model
+    (mode_1/mode_2 tuning). Feeds fisher_information_per_condition.py,
+    which needs both the top-N (nv=100) and FDR-thresholded (nv=fdr05)
+    voxel-selection variants, per session — no pooled "all" variant since
+    the whole point is that tuning differs per session.
+    """
+    input:
+        aprf = lambda wc: aprf_r2(wc.subject, "aprf_session_shift", wc.smooth),
+        mask = mask_input(FI_ROIS_APRF),
+    output:
+        # Sentinel — actual FI TSVs live at
+        # derivatives/encoding_models/aprf-session-shift/sub-XX/ses-X/func/...
+        # per compute_fisher_information_aprf.py --model session-shift.
+        f"{DERIV}/fisher_information_aprf_session_shift{{smooth}}/sub-{{subject}}/"
+        f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_ses-{{session}}.done",
+    log: "logs/fi_aprf_session_shift{smooth}_{subject}_{roi}_nv{nv}_ses{session}.log"
+    resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
+    wildcard_constraints:
+        session = r"\d+",
+    params:
+        nv_export=lambda wc: (
+            "FDR_ALPHA=0.05 " if wc.nv == "fdr05" else f"N_VOXELS={wc.nv} "),
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "ROI={wildcards.roi} MODEL=session-shift SESSION={wildcards.session} "
+        "{params.nv_export}"
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/compute_fisher_information_aprf.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"

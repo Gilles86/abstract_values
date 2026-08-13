@@ -4,7 +4,10 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=06:00:00
+#SBATCH --time=12:00:00
+# 12h matches the Snakefile's _aprf_cv_resources() budget — the heavier
+# shift-ladder CV variants (fwhm-shift, fully-shifted; ~16 LORO folds each)
+# were timing out at the old 6h default (see backfill 2026-08-12/13).
 
 # Project models are TF-native; cluster keras.json defaults to jax — pin TF.
 export KERAS_BACKEND=tensorflow
