@@ -56,11 +56,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import yaml
 
 ORI_CMAP = "hsv"        # cyclic — orientation wraps at 180 deg
 ORI_PERIOD = 180.0
 MIN_TRIALS = 3           # minimum trials per (subject, orientation) to plot
+MIN_FRAC_VALID = 0.5     # per-trial minimum fraction of non-blink samples, same
+                         # threshold as eu_vs_behavior.py's load_gaze_dispersion()
+ORIGIN_SAMPLES = 3       # average this many leading samples for the recentring
+                         # origin instead of a single (noisier) point
 TRIAL_KEYS = ["subject", "session", "mapping", "run", "trial_nr"]
+REPO_ROOT = Path(__file__).resolve().parents[2]
+GRATING_SETTINGS = REPO_ROOT / "experiment" / "settings" / "sns_fmri.yml"
 
 mpl.rcParams.update({
     "font.family": "Helvetica",
@@ -100,9 +107,15 @@ def subject_sort_key(s: str):
 
 
 def recenter_trials(df: pd.DataFrame) -> pd.DataFrame:
-    """Subtract each trial's own sample_idx==0 position from the whole trial."""
-    origin = (df.loc[df["sample_idx"] == 0, TRIAL_KEYS + ["x_deg", "y_deg"]]
-                .rename(columns={"x_deg": "x0", "y_deg": "y0"}))
+    """Subtract each trial's own early-window position from the whole trial.
+
+    Origin = mean of the first ORIGIN_SAMPLES resampled points (gaze just
+    as the response_bar phase begins), not a single sample — a lone point
+    is noisier and gives every downstream mean an extra jittery offset.
+    """
+    origin = (df[df["sample_idx"] < ORIGIN_SAMPLES]
+                .groupby(TRIAL_KEYS)[["x_deg", "y_deg"]].mean()
+                .rename(columns={"x_deg": "x0", "y_deg": "y0"}).reset_index())
     df = df.merge(origin, on=TRIAL_KEYS, how="left")
     df["x_deg"] = df["x_deg"] - df["x0"]
     df["y_deg"] = df["y_deg"] - df["y0"]
@@ -153,9 +166,72 @@ def plot_orientation_wheel(ax):
     ax_polar.set_title("Orientation", fontsize=9, pad=2)
 
 
-def annotate_onset_offset(ax, offset_xy: tuple):
+def load_grating_params() -> dict:
+    with open(GRATING_SETTINGS) as f:
+        s = yaml.safe_load(f)
+    return s["grating"]
+
+
+def render_gabor(orientation_deg: float, size_deg: float, hole_deg: float,
+                  sf: float, contrast: float = 1.0, res: int = 200, phase: float = 0.25) -> np.ndarray:
+    """Static annular grating patch, same geometry as experiment/stimuli.py's
+    AnnulusGrating (outer circle minus inner hole, raised-cosine-ish edges).
+
+    Orientation convention verified against PsychoPy's own source
+    (psychopy/visual/basevisual.py, BaseVisualStim.ori setter): vertex
+    rotation matrix [[cosθ, -sinθ], [sinθ, cosθ]] applied to a local point
+    (vx, vy) — reproduced here as the grating's spatial-gradient direction
+    (cosθ, -sinθ) rather than derived independently, so a 45° patch is
+    guaranteed to tilt the same way PsychoPy actually renders it (0 =
+    vertical bars, positive = clockwise).
+    """
+    half = size_deg / 2
+    lin = np.linspace(-half, half, res)
+    xx, yy = np.meshgrid(lin, lin)
+    theta = np.radians(orientation_deg)
+    grad = xx * np.cos(theta) - yy * np.sin(theta)
+    grating = np.cos(2 * np.pi * sf * grad + 2 * np.pi * phase)
+    r = np.sqrt(xx ** 2 + yy ** 2)
+    fringe = 0.4  # deg, soft edge
+    outer_mask = np.clip((size_deg / 2 - r) / fringe, 0, 1)
+    inner_mask = np.clip((r - hole_deg / 2) / fringe, 0, 1)
+    mask = outer_mask * inner_mask
+    return 0.5 + 0.5 * contrast * grating * mask
+
+
+def plot_gabor_examples(gs_row, orientations: list, grating_params: dict, cmap_note: bool = True):
+    """One small annular-grating patch per orientation, framed in that
+    orientation's colour, so the colour <-> physical-grating mapping used
+    everywhere else in the figure is unambiguous. Nothing but the grating
+    itself is drawn (no fixation cross, no response bar) — this is a
+    colour legend, not a trial reconstruction."""
+    n = len(orientations)
+    sub_gs = gs_row.subgridspec(1, n)
+    fig = gs_row.get_gridspec().figure
+    for i, ori in enumerate(orientations):
+        ax = fig.add_subplot(sub_gs[0, i])
+        img = render_gabor(ori, size_deg=grating_params["size"], hole_deg=grating_params["hole_size"],
+                            sf=grating_params["spatial_freq"], contrast=1.0)
+        ax.imshow(img, cmap="gray", vmin=0, vmax=1, extent=(-1, 1, -1, 1))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for side in ("top", "bottom", "left", "right"):
+            ax.spines[side].set_visible(True)
+            ax.spines[side].set_color(orientation_color(ori))
+            ax.spines[side].set_linewidth(3)
+        ax.set_title(f"{ori:g}°", fontsize=7.5, pad=2)
+        # Attach the caveat as an xlabel (not a floating fig.text) so
+        # constrained_layout reserves real space for it instead of letting
+        # it drift into whatever panel happens to sit below.
+        if cmap_note and i == 0:
+            ax.set_xlabel("Example gratings — contrast boosted for visibility "
+                           f"(actual stimulus contrast = {grating_params['contrast']:g})",
+                           fontsize=6, labelpad=3, ha="left", x=0)
+
+
+def annotate_onset_offset(ax, offset_xy: tuple, onset_label: str, offset_label: str):
     ax.annotate(
-        "Response-bar onset\n(gaze recentred here)",
+        f"{onset_label}\n(gaze recentred here)",
         xy=(0, 0), xytext=(0.35, 0.92), textcoords="axes fraction",
         fontsize=8, ha="left", va="top",
         arrowprops=dict(arrowstyle="->", connectionstyle="angle3,angleA=0,angleB=70",
@@ -163,7 +239,7 @@ def annotate_onset_offset(ax, offset_xy: tuple):
                          relpos=(0.0, 0.0)),
     )
     ax.annotate(
-        "Feedback onset\n(trial end)",
+        offset_label,
         xy=offset_xy, xytext=(0.05, 0.08), textcoords="axes fraction",
         fontsize=8, ha="left", va="bottom",
         arrowprops=dict(arrowstyle="->", connectionstyle="angle3,angleA=0,angleB=-70",
@@ -178,9 +254,19 @@ def main():
     p.add_argument("--tsv", default="notes/data/gaze_trajectories_all.tsv")
     p.add_argument("--out", default="notes/figures/gaze_trajectories.pdf")
     p.add_argument("--ncols", type=int, default=6)
+    p.add_argument("--epoch-title", default="value estimation",
+                   help="Human-readable epoch name for the figure suptitle, "
+                        "e.g. 'value estimation' or 'gabor presentation'.")
+    p.add_argument("--onset-label", default="Response-bar onset")
+    p.add_argument("--offset-label", default="Feedback onset\n(trial end)")
     args = p.parse_args()
 
     df = pd.read_csv(args.tsv, sep="\t", dtype={"subject": str})
+    n_before = df.drop_duplicates(TRIAL_KEYS).shape[0]
+    df = df[df["frac_valid"] >= MIN_FRAC_VALID]
+    n_after = df.drop_duplicates(TRIAL_KEYS).shape[0]
+    print(f"QC: dropped {n_before - n_after}/{n_before} trials with "
+          f"frac_valid < {MIN_FRAC_VALID} (mostly blinks/track loss)")
     df = recenter_trials(df)
 
     n_trials = (df.drop_duplicates(TRIAL_KEYS + ["orientation"])
@@ -191,13 +277,16 @@ def main():
                   .mean().reset_index().set_index(["subject", "orientation"]))
     per_subj = per_subj.loc[per_subj.index.isin(keep)].reset_index()
 
-    grand = (df.groupby(["orientation", "sample_idx"])[["x_deg", "y_deg"]]
-               .mean().reset_index())
+    # Two-stage average (trial -> subject -> group), each subject weighted
+    # equally, rather than pooling raw trials (which would let subjects
+    # with more usable trials dominate the "grand" mean).
+    grand = (per_subj.groupby(["orientation", "sample_idx"])[["x_deg", "y_deg"]]
+                     .mean().reset_index())
 
     subjects = sorted(per_subj["subject"].unique(), key=subject_sort_key)
     ncols = args.ncols
     nrows_subj = int(np.ceil(len(subjects) / ncols))
-    top_rows = 3  # grand-average panel + wheel occupy this many grid rows
+    top_rows = 4  # grand-average panel + wheel + gabor-example strip
 
     panel_size = 1.7
     fig_w = ncols * panel_size
@@ -205,8 +294,10 @@ def main():
     fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=True)
     gs = fig.add_gridspec(top_rows + nrows_subj, ncols)
 
+    plot_gabor_examples(gs[top_rows - 1, :], [0, 30, 60, 90, 120, 150], load_grating_params())
+
     grand_cols = max(3, ncols // 2)
-    ax_grand = fig.add_subplot(gs[0:top_rows, 0:grand_cols])
+    ax_grand = fig.add_subplot(gs[0:top_rows - 1, 0:grand_cols])
     draw_trajectories(ax_grand, grand, lw=1.8, dot_ms=5)
     lim = symmetric_limits(grand["x_deg"].to_numpy(), grand["y_deg"].to_numpy())
     ax_grand.set_xlim(lim)
@@ -217,10 +308,10 @@ def main():
                         f"mean of {n_trials.loc[n_trials.index.isin(keep)].sum()} trials)",
                         fontsize=9)
     end_xy = (grand.sort_values("sample_idx").groupby("orientation").tail(1)[["x_deg", "y_deg"]].mean())
-    annotate_onset_offset(ax_grand, (end_xy["x_deg"], end_xy["y_deg"]))
+    annotate_onset_offset(ax_grand, (end_xy["x_deg"], end_xy["y_deg"]), args.onset_label, args.offset_label)
     sns.despine(ax=ax_grand, offset=3, trim=True)
 
-    ax_wheel = fig.add_subplot(gs[0:top_rows, grand_cols:grand_cols + 2])
+    ax_wheel = fig.add_subplot(gs[0:top_rows - 1, grand_cols:grand_cols + 2])
     plot_orientation_wheel(ax_wheel)
 
     col_bottom_row = {}
@@ -247,9 +338,10 @@ def main():
         ax.set_yticks(np.linspace(*lim, n_ticks).round(1))
         sns.despine(ax=ax, offset=2, trim=True)
 
-    fig.suptitle("Gaze trajectories during value estimation, by orientation "
-                 "(per-trial recentred on response-bar onset; "
-                 f"per-panel axes, mean of ≥{MIN_TRIALS} trials/orientation)",
+    fig.suptitle(f"Gaze trajectories during {args.epoch_title}, by orientation "
+                 f"(per-trial recentred on {args.onset_label.splitlines()[0].lower()}; "
+                 f"per-panel axes, mean of ≥{MIN_TRIALS} trials/orientation, "
+                 f"frac_valid≥{MIN_FRAC_VALID})",
                  fontsize=9)
 
     out = Path(args.out)
