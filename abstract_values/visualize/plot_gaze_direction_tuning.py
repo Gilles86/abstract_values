@@ -313,20 +313,19 @@ def plot_difference(ax_angle, ax_mag, diff_stats: pd.DataFrame, sig: pd.DataFram
     lo = diff_sorted["angle_lo"].to_numpy() + shift
     hi = diff_sorted["angle_hi"].to_numpy() + shift
 
-    # Only connect/shade contiguous reliable stretches — an unreliable
-    # point (near-zero difference magnitude) gets a bare marker at its raw
-    # angle, not a line implying a trend that isn't statistically there.
+    # Every point gets its own independent error bar — a single point's CI
+    # is just two numbers and needs no unwrap logic across neighbours
+    # (that was only ever a problem for *connecting* noisy points with a
+    # line). Only the connecting line/shaded band is restricted to
+    # contiguous reliable stretches, since THAT implies a trend.
+    ax_angle.errorbar(diff_sorted["orientation"], angle_y, yerr=[angle_y - lo, hi - angle_y],
+                      fmt="none", ecolor=color, elinewidth=1, alpha=0.5, capsize=0, zorder=3)
     line_y = np.where(reliable, angle_y, np.nan)
-    lo_masked = np.where(reliable, lo, np.nan)
-    hi_masked = np.where(reliable, hi, np.nan)
-
-    ax_angle.fill_between(diff_sorted["orientation"], lo_masked, hi_masked,
-                          color=color, alpha=0.2, linewidth=0, zorder=2)
-    ax_angle.plot(diff_sorted["orientation"], line_y, color=color, lw=2, zorder=3)
+    ax_angle.plot(diff_sorted["orientation"], line_y, color=color, lw=2, zorder=4)
     ax_angle.scatter(diff_sorted.loc[reliable, "orientation"], angle_y[reliable],
-                     color=color, s=16, zorder=4)
-    ax_angle.scatter(diff_sorted.loc[~reliable, "orientation"], raw_angle[~reliable],
-                     facecolor="none", edgecolor=color, linewidth=0.8, s=16, zorder=4)
+                     color=color, s=16, zorder=5)
+    ax_angle.scatter(diff_sorted.loc[~reliable, "orientation"], angle_y[~reliable],
+                     facecolor="none", edgecolor=color, linewidth=0.8, s=16, zorder=5)
     annotate_significance(ax_angle, sig, y_pos=-196, color=color)
 
     ax_mag.axhline(0, color="0.7", lw=0.7, ls="--", zorder=0)
@@ -438,7 +437,7 @@ def main():
     ax_dangle.set_xlim(0, 205)
     ax_dangle.set_ylim(-200, 200)
     ax_dangle.set_title("Difference in endpoint direction (95% bootstrap CI)\n"
-                        "filled dots + line = individually significant; open dots = not (shown, not connected)",
+                        "error bars = per-point 95% CI; line connects only individually-significant runs",
                         fontsize=8)
     sns.despine(ax=ax_dangle, offset=3, trim=True)
 
