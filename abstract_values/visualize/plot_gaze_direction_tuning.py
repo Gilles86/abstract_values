@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Gaze-direction tuning curves: endpoint direction angle and displacement
-magnitude as a function of grating orientation, for one or two groups of
-trials (default: gabor presentation vs. response_bar epoch).
+magnitude as a function of grating orientation, for two groups of trials
+(default: gabor presentation vs. response_bar epoch), with uncertainty
+bands, paired per-orientation significance testing, and (optionally)
+theoretical prediction curves for the angle panel.
 
 Distils the "fan" pattern visible in plot_gaze_trajectories.py's grand-
 average panel into an explicit function of orientation — easier to read
@@ -12,7 +14,34 @@ Endpoint = mean of the trajectory's last END_SAMPLES resampled points
 (robust tail estimate, same idea as ORIGIN_SAMPLES in
 plot_gaze_trajectories.recenter_trials). angle_deg = atan2(y, x) of that
 endpoint relative to the recentred trial-onset origin (0 = rightward,
-90 = up, ±180 = left, -90 = down). magnitude_deg = its length.
+90 = up, +-180 = left, -90 = down). magnitude_deg = its length.
+
+Uncertainty
+-----------
+Magnitude: mean +/- 1 SEM across subjects (linear stat, no circular
+issues).
+Angle: circular. The grand-average line is the angle of the mean (x, y)
+endpoint vector across subjects (matches how the "grand" 2D trajectory is
+computed everywhere else in this codebase), not a separate circular mean
+of per-subject angles — the two agree when the resultant vector length R
+is not tiny, and using the same definition keeps every figure in this
+family internally consistent. The shaded band is a subject-level
+bootstrap 95% CI (resample subjects with replacement, recompute the
+resultant-vector angle each time, take the percentile CI of the
+wrapped bootstrap-minus-observed differences — avoids branch-cut
+artifacts from naively percentiling raw angles).
+
+Significance
+------------
+Per orientation, paired across subjects present in BOTH groups: build
+each subject's (x, y) endpoint difference (group A - group B), then run
+a one-sample Hotelling's T^2 test against H0: mean difference = (0, 0).
+This tests direction AND magnitude jointly (they're both derived from
+the same (x, y) vector, so testing them as two separate marginal tests
+would double-count the same underlying difference) — the panels display
+the same per-orientation q-value (Benjamini-Hochberg FDR across
+orientations) as a marker strip in both panels, since it's one test
+about one underlying quantity shown two ways.
 
 Two modes, same as compare_gaze_epochs.py:
   1. Two files (default): different trial epochs.
@@ -29,6 +58,7 @@ Usage (local, no cluster needed):
     python -m abstract_values.visualize.plot_gaze_direction_tuning \\
         --tsv-a notes/data/gaze_trajectories_gabor.tsv --label-a "Gabor presentation" \\
         --tsv-b notes/data/gaze_trajectories_all.tsv   --label-b "Response bar" \\
+        --show-bar-prediction \\
         --out notes/figures/gaze_direction_tuning.pdf
 """
 from __future__ import annotations
@@ -40,10 +70,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy import stats as sps
+from statsmodels.stats.multitest import multipletests
 
 from abstract_values.visualize.plot_gaze_trajectories import aggregate_df, load_and_aggregate
 
 END_SAMPLES = 3
+N_BOOT = 2000
+ALPHA = 0.05
 PALETTE = ["#3B5BA5", "#C44E52"]  # blue, red — hue is free here (x-axis is orientation)
 
 
@@ -64,23 +98,133 @@ def unwrap_by_orientation(sub: pd.DataFrame) -> np.ndarray:
     return np.degrees(np.unwrap(np.radians(sub["angle_deg"].to_numpy())))
 
 
+def circular_mean_deg(angles_deg: np.ndarray) -> float:
+    rad = np.radians(angles_deg)
+    return np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean()))
+
+
+def bootstrap_circular_ci(angles_deg: np.ndarray, n_boot: int = N_BOOT, ci: float = 95,
+                          seed: int = 0) -> tuple:
+    """Subject-level bootstrap CI for the resultant-vector circular mean.
+    Returns (lo, hi) as an offset-corrected pair of angles (deg), safe to
+    unwrap alongside the observed grand-average line."""
+    rng = np.random.default_rng(seed)
+    n = len(angles_deg)
+    rad = np.radians(angles_deg)
+    obs = circular_mean_deg(angles_deg)
+    boot = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        boot[i] = np.degrees(np.arctan2(np.sin(rad[idx]).mean(), np.cos(rad[idx]).mean()))
+    wrapped_diff = ((boot - obs + 180) % 360) - 180  # avoid branch-cut artifacts
+    lo, hi = np.percentile(wrapped_diff, [(100 - ci) / 2, 100 - (100 - ci) / 2])
+    return obs + lo, obs + hi
+
+
+def sem(x: np.ndarray) -> float:
+    x = np.asarray(x)
+    return x.std(ddof=1) / np.sqrt(len(x)) if len(x) > 1 else np.nan
+
+
+def hotelling_t2_1sample_pvalue(diffs: np.ndarray) -> float:
+    """diffs: (n, 2) paired per-subject (dx, dy). p-value for
+    H0: population mean difference vector = (0, 0)."""
+    n, k = diffs.shape
+    if n <= k:
+        return np.nan
+    mean = diffs.mean(axis=0)
+    cov = np.cov(diffs, rowvar=False, ddof=1)
+    try:
+        inv_cov = np.linalg.inv(cov)
+    except np.linalg.LinAlgError:
+        return np.nan
+    t2 = float(n * mean @ inv_cov @ mean)
+    f_stat = t2 * (n - k) / (k * (n - 1))
+    return float(1 - sps.f.cdf(f_stat, k, n - k))
+
+
+def paired_significance(agg_a: dict, agg_b: dict) -> pd.DataFrame:
+    """Per orientation: paired Hotelling's T^2 test on the (x, y) endpoint
+    difference (A - B) across subjects present in both groups. Returns
+    orientation, n (paired subjects), p, q (BH-FDR across orientations)."""
+    end_a = endpoint_stats(agg_a["per_subj"], ["subject"]).set_index(["orientation", "subject"])
+    end_b = endpoint_stats(agg_b["per_subj"], ["subject"]).set_index(["orientation", "subject"])
+    rows = []
+    for ori in sorted(set(end_a.index.get_level_values(0)) & set(end_b.index.get_level_values(0))):
+        a = end_a.loc[ori][["x_deg", "y_deg"]]
+        b = end_b.loc[ori][["x_deg", "y_deg"]]
+        common = a.index.intersection(b.index)
+        if len(common) < 5:
+            rows.append(dict(orientation=ori, n=len(common), p=np.nan))
+            continue
+        diffs = (a.loc[common] - b.loc[common]).to_numpy()
+        rows.append(dict(orientation=ori, n=len(common), p=hotelling_t2_1sample_pvalue(diffs)))
+    res = pd.DataFrame(rows)
+    q = np.full(len(res), np.nan)
+    valid = res["p"].notna().to_numpy()
+    if valid.sum() > 0:
+        q[valid] = multipletests(res.loc[valid, "p"], method="fdr_bh")[1]
+    res["q"] = q
+    return res
+
+
+def annotate_significance(ax, sig: pd.DataFrame, y_pos: float, color: str):
+    hit = sig[sig["q"] < ALPHA]
+    miss = sig[sig["q"] >= ALPHA]
+    ax.scatter(miss["orientation"], np.full(len(miss), y_pos), marker=".", s=10,
+              color="0.8", zorder=1, clip_on=False)
+    ax.scatter(hit["orientation"], np.full(len(hit), y_pos), marker="*", s=30,
+              color=color, zorder=4, clip_on=False)
+
+
+def bar_prediction_deg(orientation: np.ndarray, perpendicular: bool = False) -> np.ndarray:
+    """Predicted gaze-direction angle if gaze were biased along the
+    grating bars themselves (default) or, for contrast, along the
+    perpendicular / motion-energy axis. Orientation convention verified
+    against PsychoPy's own rotation matrix — see extract_gaze_trajectories.py
+    and plot_gaze_trajectories.render_gabor()."""
+    theta = np.radians(orientation)
+    if perpendicular:
+        return np.degrees(np.arctan2(-np.sin(theta), np.cos(theta)))
+    return np.degrees(np.arctan2(np.cos(theta), np.sin(theta)))
+
+
 def plot_group(ax_angle, ax_mag, agg: dict, label: str, color: str):
     grand_end = endpoint_stats(agg["grand"], group_cols=[]).sort_values("orientation")
     subj_end = endpoint_stats(agg["per_subj"], group_cols=["subject"])
 
-    ax_angle.scatter(subj_end["orientation"], subj_end["angle_deg"], s=6, color=color,
-                      alpha=0.25, linewidth=0, zorder=2)
+    orientations = grand_end["orientation"].to_numpy()
     angle_y = unwrap_by_orientation(grand_end)
-    ax_angle.plot(grand_end["orientation"], angle_y, color=color, lw=2, marker="o", ms=4, zorder=3)
-    ax_angle.annotate(label, xy=(grand_end["orientation"].iloc[-1], angle_y[-1]),
+    ci_lo, ci_hi = [], []
+    mag_mean, mag_sem = [], []
+    for ori, ay in zip(orientations, angle_y):
+        sub = subj_end.loc[subj_end["orientation"] == ori]
+        lo, hi = bootstrap_circular_ci(sub["angle_deg"].to_numpy())
+        # re-anchor the bootstrap CI (computed near the observed circular
+        # mean) onto this point's *unwrapped* value so the band doesn't
+        # jump across the unwrap's branch cut
+        obs = circular_mean_deg(sub["angle_deg"].to_numpy())
+        ci_lo.append(ay + ((lo - obs + 180) % 360 - 180))
+        ci_hi.append(ay + ((hi - obs + 180) % 360 - 180))
+        mag_mean.append(sub["magnitude_deg"].mean())
+        mag_sem.append(sem(sub["magnitude_deg"].to_numpy()))
+    ci_lo, ci_hi = np.array(ci_lo), np.array(ci_hi)
+    mag_mean, mag_sem = np.array(mag_mean), np.array(mag_sem)
+
+    ax_angle.scatter(subj_end["orientation"], subj_end["angle_deg"], s=6, color=color,
+                      alpha=0.2, linewidth=0, zorder=2)
+    ax_angle.fill_between(orientations, ci_lo, ci_hi, color=color, alpha=0.2, linewidth=0, zorder=2)
+    ax_angle.plot(orientations, angle_y, color=color, lw=2, marker="o", ms=4, zorder=3)
+    ax_angle.annotate(label, xy=(orientations[-1], angle_y[-1]),
                       xytext=(6, 0), textcoords="offset points", color=color,
                       fontsize=7.5, ha="left", va="center", fontweight="bold")
 
     ax_mag.scatter(subj_end["orientation"], subj_end["magnitude_deg"], s=6, color=color,
-                   alpha=0.25, linewidth=0, zorder=2)
-    ax_mag.plot(grand_end["orientation"], grand_end["magnitude_deg"],
-               color=color, lw=2, marker="o", ms=4, zorder=3)
-    ax_mag.annotate(label, xy=(grand_end["orientation"].iloc[-1], grand_end["magnitude_deg"].iloc[-1]),
+                   alpha=0.2, linewidth=0, zorder=2)
+    ax_mag.fill_between(orientations, mag_mean - mag_sem, mag_mean + mag_sem,
+                        color=color, alpha=0.2, linewidth=0, zorder=2)
+    ax_mag.plot(orientations, mag_mean, color=color, lw=2, marker="o", ms=4, zorder=3)
+    ax_mag.annotate(label, xy=(orientations[-1], mag_mean[-1]),
                     xytext=(6, 0), textcoords="offset points", color=color,
                     fontsize=7.5, ha="left", va="center", fontweight="bold")
 
@@ -96,6 +240,9 @@ def main():
                    help="Instead of comparing --tsv-a vs --tsv-b, split --tsv-a's trials "
                         "by this column (must have exactly 2 unique values), e.g. 'mapping'.")
     p.add_argument("--title", default=None)
+    p.add_argument("--show-bar-prediction", action="store_true",
+                   help="Overlay the theoretical angle-vs-orientation curves predicted if gaze "
+                        "is biased parallel / perpendicular to the grating bars.")
     p.add_argument("--out", default="notes/figures/gaze_direction_tuning.pdf")
     args = p.parse_args()
 
@@ -115,11 +262,32 @@ def main():
         title = args.title or "Gaze-direction tuning by trial epoch"
 
     n_subj = len(set(agg_a["subjects"]) & set(agg_b["subjects"]))
+    sig = paired_significance(agg_a, agg_b)
+    n_sig = int((sig["q"] < ALPHA).sum())
+    print(f"Paired Hotelling's T^2 per orientation (n={len(sig)} orientations tested, "
+          f"FDR q<{ALPHA}): {n_sig}/{len(sig)} significant")
 
-    fig, (ax_angle, ax_mag) = plt.subplots(1, 2, figsize=(9, 3.6), constrained_layout=True)
+    fig, (ax_angle, ax_mag) = plt.subplots(1, 2, figsize=(9, 4), constrained_layout=True)
 
     plot_group(ax_angle, ax_mag, agg_a, label_a, PALETTE[0])
     plot_group(ax_angle, ax_mag, agg_b, label_b, PALETTE[1])
+
+    if args.show_bar_prediction:
+        ori_grid = np.linspace(1, 179, 200)
+        ax_angle.plot(ori_grid, bar_prediction_deg(ori_grid), color="0.3", lw=1.1, ls="--", zorder=1)
+        ax_angle.annotate("Predicted: parallel to bars", xy=(20, bar_prediction_deg(np.array([20]))[0]),
+                          xytext=(-8, 55), textcoords="offset points", fontsize=6.5, color="0.3",
+                          ha="left",
+                          arrowprops=dict(arrowstyle="->", connectionstyle="angle3,angleA=0,angleB=70",
+                                          color="0.3", lw=0.8, mutation_scale=9, shrinkA=2, shrinkB=6))
+        ax_angle.plot(ori_grid, bar_prediction_deg(ori_grid, perpendicular=True),
+                      color="0.6", lw=1.1, ls=":", zorder=1)
+        ax_angle.annotate("Predicted: perpendicular (motion axis)",
+                          xy=(20, bar_prediction_deg(np.array([20]), perpendicular=True)[0]),
+                          xytext=(-8, -60), textcoords="offset points", fontsize=6.5, color="0.6",
+                          ha="left",
+                          arrowprops=dict(arrowstyle="->", connectionstyle="angle3,angleA=0,angleB=-70",
+                                          color="0.6", lw=0.8, mutation_scale=9, shrinkA=2, shrinkB=6))
 
     ori_ticks = [0, 45, 90, 135, 180]
     ax_angle.set_xticks(ori_ticks)
@@ -129,20 +297,26 @@ def main():
     for y, ref in ((0, "Right"), (90, "Up"), (-90, "Down"), (180, "Left")):
         ax_angle.axhline(y, color="0.75", lw=0.6, ls="--", zorder=0)
         ax_angle.text(182, y, ref, fontsize=6.5, color="0.4", va="center", ha="left")
+    annotate_significance(ax_angle, sig, y_pos=-196, color="0.15")
     ax_angle.set_xlim(0, 205)
     ax_angle.set_ylim(-200, 200)
-    ax_angle.set_title("Endpoint direction", fontsize=9)
+    ax_angle.set_title("Endpoint direction (shaded: 95% bootstrap CI)", fontsize=9)
     sns.despine(ax=ax_angle, offset=3, trim=True)
 
     ax_mag.set_xticks(ori_ticks)
     ax_mag.set_xlim(0, 205)
+    y0, y1 = ax_mag.get_ylim()
+    y_sig = -0.06 * (y1 - y0)
+    annotate_significance(ax_mag, sig, y_pos=y_sig, color="0.15")
+    ax_mag.set_ylim(bottom=y_sig - 0.02 * (y1 - y0))
     ax_mag.set_xlabel("Grating orientation (deg)")
     ax_mag.set_ylabel("Endpoint displacement (deg)")
-    ax_mag.set_title("Endpoint magnitude", fontsize=9)
+    ax_mag.set_title("Endpoint magnitude (shaded: +-1 SEM)", fontsize=9)
     sns.despine(ax=ax_mag, offset=3, trim=True)
 
     fig.suptitle(f"{title} (N={n_subj} subjects in both; dots = individual subjects, "
-                 "line = grand average)", fontsize=8.5)
+                 f"line = grand average; * = FDR q<{ALPHA}, paired Hotelling's T^2 per orientation, "
+                 f"{n_sig}/{len(sig)} orientations)", fontsize=8.2)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
