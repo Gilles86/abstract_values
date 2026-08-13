@@ -66,7 +66,7 @@ from scipy import stats
 
 import nibabel as nib
 from nilearn import image as nli
-from pingouin import circ_r
+from pingouin import circ_r, partial_corr
 
 from abstract_values.behavior.data import get_all_behavioral_data
 from abstract_values.utils.data import BIDS_FOLDER, Subject
@@ -405,8 +405,89 @@ def _broadcast_to_mappings(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([df.assign(mapping=m) for m in CONDITIONS], ignore_index=True)
 
 
+def load_gaze_dispersion(gaze_tsv: Path, min_frac_valid: float = 0.5) -> pd.DataFrame:
+    """Per-trial gaze dispersion (sqrt(var_x + var_y), px, EyeLink screen
+    pixels) during the response_bar/estimation phase -> per-subject mean
+    log-dispersion (log because raw dispersion is heavily right-skewed —
+    a few long fixation excursions dominate a linear mean). Trials with
+    <50% valid (non-blink) samples are dropped. Subject-level trait,
+    pooled across both mapping sessions (same rationale as the voxel-count
+    measures — one number per subject, not per condition)."""
+    df = pd.read_csv(gaze_tsv, sep="\t")
+    df["subject"] = df["subject"].apply(lambda s: f"{int(s):02d}")
+    df = df[(df["frac_valid"] >= min_frac_valid) & df["gaze_dispersion"].notna()
+             & (df["gaze_dispersion"] > 0)]
+    df["log_gaze_dispersion"] = np.log(df["gaze_dispersion"])
+    return (df.groupby("subject")["log_gaze_dispersion"].mean()
+            .reset_index(name="gaze_precision")
+            .assign(gaze_precision=lambda d: -d["gaze_precision"]))  # sign: higher = steadier gaze
+
+
+def page_gaze_confound(beh: pd.DataFrame, neu_measures: dict[str, pd.DataFrame],
+                       gaze: pd.DataFrame, pdf: PdfPages):
+    """Does eye movement during the estimation phase explain the
+    brain-behavior correlations? For each subject-level neural measure,
+    shows: neural measure vs gaze steadiness, behavioral precision vs gaze
+    steadiness, and the behavioral-vs-neural correlation with gaze
+    steadiness partialled out (pingouin.partial_corr) next to the raw one.
+    """
+    beh_prec = ((-beh.groupby(["subject", "mapping"])["error"].std())
+                .reset_index(name="beh_precision"))
+    beh_pooled = beh_prec.groupby("subject")["beh_precision"].mean().reset_index()
+
+    n_measures = len(neu_measures)
+    fig, axes = plt.subplots(2, n_measures, figsize=(3.6 * n_measures, 7.0),
+                             constrained_layout=True)
+    if n_measures == 1:
+        axes = axes.reshape(2, 1)
+
+    for col, (label, neu_df) in enumerate(neu_measures.items()):
+        neu_pooled = (neu_df.groupby("subject")["neu_precision"].mean()
+                      .reset_index())
+        d = (beh_pooled.merge(neu_pooled, on="subject")
+             .merge(gaze, on="subject").dropna())
+
+        ax = axes[0, col]
+        ax.scatter(d["gaze_precision"], d["neu_precision"], s=20,
+                  color=COL_DENS, alpha=0.8, edgecolor="white", linewidth=0.4)
+        if len(d) >= 3:
+            r, p = stats.pearsonr(d["gaze_precision"], d["neu_precision"])
+            ax.text(0.04, 0.96, f"r={r:+.2f}, p={p:.3f}", transform=ax.transAxes,
+                    va="top", fontsize=8)
+        ax.set_title(label.split("\n")[0], fontsize=8.5)
+        ax.set_ylabel("Neural precision")
+        if col == 0:
+            ax.set_xlabel("")
+
+        ax = axes[1, col]
+        ax.scatter(d["beh_precision"], d["neu_precision"], s=20,
+                  color=COL_NEU, alpha=0.4, edgecolor="white", linewidth=0.4,
+                  label="raw")
+        if len(d) >= 4:
+            raw_r, raw_p = stats.pearsonr(d["beh_precision"], d["neu_precision"])
+            pc = partial_corr(data=d, x="beh_precision", y="neu_precision",
+                             covar="gaze_precision", method="pearson")
+            part_r, part_p = float(pc["r"].iloc[0]), float(pc["p-val"].iloc[0])
+            ax.text(0.04, 0.96,
+                    f"raw:      r={raw_r:+.2f}, p={raw_p:.3f}\n"
+                    f"|gaze:  r={part_r:+.2f}, p={part_p:.3f}",
+                    transform=ax.transAxes, va="top", fontsize=8)
+        ax.set_xlabel("Behavioral precision\n(−SD bid error, CHF)")
+        if col == 0:
+            ax.set_ylabel("Neural precision")
+
+    fig.suptitle(
+        "Eye-movement confound check — steadier gaze during estimation "
+        "(top row), and brain-behavior r with gaze steadiness partialled "
+        "out (bottom row, \"|gaze\")",
+        fontsize=9.5, color="0.15")
+    sns.despine(fig=fig, offset=5, trim=True)
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
-         nvoxels: str, noise: str):
+         nvoxels: str, noise: str, gaze_tsv: Path | None = None):
     beh = load_behavior()
     eu = pd.read_csv(eu_tsv, sep="\t")
     eu["subject"] = eu["subject"].astype(str)
@@ -470,6 +551,13 @@ def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
                     "Decoded-true fidelity, orientation (V1)\n[real single trials]")
         }, pdf)
 
+        if gaze_tsv is not None:
+            gaze = load_gaze_dispersion(gaze_tsv)
+            page_gaze_confound(beh, {
+                "Signal-voxel frac. (NPCr, aprf.cv>null)\n[cvR² count]": npcr_voxels,
+                "Decoded-true r (NPCr)\n[real single trials]": decoded_r,
+            }, gaze, pdf)
+
     if corr_frames:
         tsv = out.with_suffix(".tsv")
         pd.concat(corr_frames, ignore_index=True).to_csv(tsv, sep="\t", index=False)
@@ -487,7 +575,12 @@ if __name__ == "__main__":
     p.add_argument("--nvoxels", default="100",
                    help="nvoxels tag for the real decode_value.py pars TSVs")
     p.add_argument("--noise", default="spherical", choices=["full", "spherical", "geodesic"])
+    p.add_argument("--gaze-tsv", default=None,
+                   help="Per-trial gaze-dispersion TSV (subject, session, mapping, "
+                        "run, trial_nr, gaze_dispersion, n_samples, frac_valid) from "
+                        "extract_gaze_dispersion.py. Adds the eye-movement confound page.")
     p.add_argument("--out", default=DEFAULT_OUT)
     args = p.parse_args()
     main(Path(args.eu_tsv), Path(args.out), tuple(args.variants),
-         nvoxels=args.nvoxels, noise=args.noise)
+         nvoxels=args.nvoxels, noise=args.noise,
+         gaze_tsv=Path(args.gaze_tsv) if args.gaze_tsv else None)
