@@ -89,18 +89,61 @@ DEFAULT_CVR2_MODELS = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv", "aprf-gauss
 PYCORTEX_FSAVG_SUBJECT = "fsaverage"
 
 
-def _save_png(vtx, out, *, label, cmap, vmin, vmax, cbar_label="R²"):
+def _roi_contour(fig, roi_names, *, subject=PYCORTEX_FSAVG_SUBJECT,
+                 color="cyan", linewidth=1.3):
+    """Draw an ROI boundary on top of an existing quickflat figure, without
+    going through pycortex's own ``with_rois=True`` (which shells out to
+    Inkscape to rasterize the ROI SVG — not installed here, and broken in
+    the current Homebrew cask). Instead: pull the ROI's vertex indices,
+    rasterize a 0/1 membership map to the *same* flatmap projection via
+    ``make_flatmap_image`` (pure numpy/pycortex, no Inkscape), and contour
+    it on the figure's existing flatmap axis — same pixel grid, so no
+    alignment step is needed.
+
+    ``fsaverage``'s pycortex ROI database already has NPC_L/NPC_R (and
+    NPC1-3, NF1-2, NTO, NINS) from prior numerical-cognition work — the
+    same NPC naming this project's volumetric masks use.
+    """
+    roi_verts = cortex.get_roi_verts(subject, roi=list(roi_names))
+    # fsaverage's full bilateral vertex count (163842/hemi); using the
+    # canonical count rather than max-referenced-index avoids silently
+    # truncating the flatmap projection if an ROI happens to miss the
+    # last few vertices.
+    n_verts = cortex.db.get_surfinfo(subject).data.shape[0]
+    mask = np.zeros(n_verts, dtype=np.float32)
+    for idx in roi_verts.values():
+        mask[idx] = 1.0
+    mask = np.zeros(n_verts, dtype=np.float32)
+    for idx in roi_verts.values():
+        mask[idx] = 1.0
+    vtx_mask = cortex.Vertex(mask, subject, vmin=0, vmax=1)
+    im, extents = cortex.quickflat.make_flatmap_image(vtx_mask, height=1024)
+    ax = fig.axes[0]
+    ax.contour(np.nan_to_num(im), levels=[0.5], extent=extents,
+              colors=color, linewidths=linewidth, origin="upper")
+
+
+def _save_png(vtx, out, *, label, cmap, vmin, vmax, cbar_label="R²",
+              roi_overlay=None):
     """Render the flatmap to a static PNG with its own colorbar (pycortex's
     ``with_colorbar=True`` is meaningless here — ``blend_curvature`` returns
     plain RGB with no scalar cmap/vmin/vmax) and the dataset label — which
     already carries n= — burned into the image itself as a title, so the
     subject count survives outside the interactive-only webgl viewer.
+
+    ``roi_overlay``: optional list of pycortex ROI names (e.g. ``["NPC_R"]``)
+    to outline — see :func:`_roi_contour`. A cyan outline locating rIPS/NPCr
+    is far more informative than chasing a threshold that makes it "light
+    up": aPRF whole-cortex R² is dominated by V1's stimulus-driven response,
+    so NPCr rarely wins the colorbar regardless of threshold.
     """
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig = cortex.quickflat.make_figure(vtx, with_curvature=True,
                                        with_colorbar=False, with_rois=False,
                                        with_labels=False)
+    if roi_overlay:
+        _roi_contour(fig, roi_overlay)
     fig.suptitle(label, fontsize=8.5, color="0.15", y=0.99)
     cax = fig.add_axes([0.36, 0.06, 0.28, 0.020])
     cb = ColorbarBase(cax, cmap=plt.get_cmap(cmap),
@@ -437,7 +480,8 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
          smoothing: tuple[str, ...] = ("", "_smoothed"),
          fdr_alpha: float | None = None,
          fdr_mode: str = "empirical_null",
-         static_png: str | None = None) -> None:
+         static_png: str | None = None,
+         roi_overlay: list[str] | None = None) -> None:
     """Build one pycortex dataset per (model, smoothing) combination present
     on disk. By default both unsmoothed and smoothed variants are shown side
     by side; the smoothed variant is loaded from `desc-<desc>_smoothed`.
@@ -569,7 +613,8 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
                 n_combos = len(models) * len(smoothing)
                 out_path = _static_png_path(static_png, n_combos, model, full_desc)
                 _save_png(vtx, out_path, label=label,
-                          cmap=R2_CMAP, vmin=cohort_thr, vmax=vmax)
+                          cmap=R2_CMAP, vmin=cohort_thr, vmax=vmax,
+                          roi_overlay=roi_overlay)
 
     if not ds:
         raise SystemExit("Nothing to show — run sample_r2_to_surface.py first.")
@@ -657,6 +702,14 @@ if __name__ == "__main__":
                         "A single file path when exactly one (model, "
                         "smoothing) combination is requested; otherwise "
                         "treated as an output directory.")
+    p.add_argument("--roi-overlay", nargs="*", default=None,
+                   help="pycortex ROI name(s) to outline on --static-png "
+                        "output (e.g. --roi-overlay NPC_R NPC_L). aPRF "
+                        "whole-cortex R² is dominated by V1, so NPCr/IPS "
+                        "rarely 'lights up' regardless of threshold — an "
+                        "outline locates it independent of color. No "
+                        "argument (bare --roi-overlay) draws none; omitting "
+                        "the flag entirely also draws none.")
     args = p.parse_args()
 
     if args.agg == "prevalence" and args.desc != "cvr2":
@@ -690,4 +743,4 @@ if __name__ == "__main__":
              args.r2_thr, args.r2_sigma, desc=args.desc,
              smoothing=tuple(args.smoothing),
              fdr_alpha=fdr_alpha, fdr_mode=args.fdr_mode,
-             static_png=args.static_png)
+             static_png=args.static_png, roi_overlay=args.roi_overlay)
