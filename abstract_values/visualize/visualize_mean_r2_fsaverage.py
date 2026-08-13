@@ -37,9 +37,11 @@ import argparse
 from pathlib import Path
 
 import cortex
+import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colorbar import ColorbarBase
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 from scipy.stats import norm
 
 # Register a pure-orange ramp with pycortex once at import time. Pycortex
@@ -77,7 +79,7 @@ ORANGE_CMAP = R2_CMAP                            # backward-compat alias
 
 # BIDS_FOLDER is just a Path constant — abstract_values.utils.data imports
 # pandas + numpy but no nilearn, so it's safe in pycortex2.
-from abstract_values.utils.data import BIDS_FOLDER
+from abstract_values.utils.data import BIDS_FOLDER, cvr2_prevalence, DEFAULT_NULL_MODEL
 
 # Full-fit defaults — the encoder dirs whose `desc-r2` maps anchor downstream
 # visualisations. The CV counterparts (aprf.cv, vonmises.cv, ...) are
@@ -85,6 +87,43 @@ from abstract_values.utils.data import BIDS_FOLDER
 DEFAULT_MODELS = ["aprf", "vonmises", "aprf-weighted", "aprf-gauss"]
 DEFAULT_CVR2_MODELS = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv", "aprf-gauss.cv"]
 PYCORTEX_FSAVG_SUBJECT = "fsaverage"
+
+
+def _save_png(vtx, out, *, label, cmap, vmin, vmax, cbar_label="R²"):
+    """Render the flatmap to a static PNG with its own colorbar (pycortex's
+    ``with_colorbar=True`` is meaningless here — ``blend_curvature`` returns
+    plain RGB with no scalar cmap/vmin/vmax) and the dataset label — which
+    already carries n= — burned into the image itself as a title, so the
+    subject count survives outside the interactive-only webgl viewer.
+    """
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig = cortex.quickflat.make_figure(vtx, with_curvature=True,
+                                       with_colorbar=False, with_rois=False,
+                                       with_labels=False)
+    fig.suptitle(label, fontsize=8.5, color="0.15", y=0.99)
+    cax = fig.add_axes([0.36, 0.06, 0.28, 0.020])
+    cb = ColorbarBase(cax, cmap=plt.get_cmap(cmap),
+                      norm=Normalize(vmin=vmin, vmax=vmax),
+                      orientation="horizontal")
+    cb.set_label(cbar_label, fontsize=9, labelpad=3)
+    cb.outline.set_linewidth(0.5)
+    cb.ax.tick_params(labelsize=8, width=0.5, length=2.5)
+    fig.savefig(str(out), dpi=200, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Saved flatmap PNG → {out}")
+
+
+def _static_png_path(static_png, n_combos, model, full_desc):
+    """A single explicit --static-png path is used as-is only when there's
+    exactly one (model, smoothing) combination being rendered; otherwise
+    --static-png is treated as a directory and each combo gets its own
+    auto-named file inside it."""
+    p = Path(static_png)
+    if n_combos == 1:
+        return p
+    p.mkdir(parents=True, exist_ok=True)
+    return p / f"mean_{model}_{full_desc}_fsaverage.png"
 
 
 def fsaverage_r2_path(subject: str, model: str, hemi: str,
@@ -308,11 +347,97 @@ def _per_subject_fdr_threshold(subject: str, model: str, bids_folder: Path,
     return None if not np.isfinite(thr) else float(thr)
 
 
+def _prevalence_cmap(name: str = "prevalence_warm") -> str:
+    """Sequential ramp for the 0–1 prevalence (proportion-of-subjects) map.
+    Reuses the same magma-derived warm palette as the R² map so the two
+    visualisations read consistently."""
+    return _register_r2_cmap(name)
+
+
+PREVALENCE_CMAP = _prevalence_cmap()
+
+
+def main_prevalence(subjects: list[str], models: list[str], bids_folder: Path,
+                    cv_thr: float, min_prevalence: float,
+                    baseline_model: str | None = DEFAULT_NULL_MODEL,
+                    smoothing: tuple[str, ...] = ("", "_smoothed"),
+                    sigma: float = 0.08,
+                    static_png: str | None = None) -> None:
+    """Cross-model-comparable consistency map: per vertex, the *proportion of
+    subjects* where the model's cross-validated R² beats the per-vertex null.
+
+    Rationale
+    ---------
+    The per-voxel signal test is ``cvR² > cvR²_null`` (the null-null model
+    predicts the training-set mean), NOT ``cvR² > 0``: a silent voxel scores a
+    slightly negative cvR² on held-out data (train/test mean mismatch), so the
+    proper baseline is negative and ``> 0`` discards real-but-modest voxels
+    (empirically ~11× fewer survive). cvR² is parameter-count-fair, so the same
+    criterion is comparable across models. Binarising per subject before pooling
+    discards the very-negative noise-voxel magnitudes (cvR² reaches ≈ −0.5) that
+    would otherwise dominate a cross-subject average.
+
+    The actual per-subject comparison lives in
+    :func:`abstract_values.utils.data.cvr2_prevalence` so other scripts can
+    reuse it. Here we just colour the resulting proportion (0–1) and fade alpha
+    in at ``min_prevalence``. Because the base rate of "wins" is small, a
+    binomial prevalence test is hyper-sensitive; we threshold on a *fixed
+    prevalence* and print the binomial p at that count as a sanity check only.
+    """
+    from scipy.stats import binom
+
+    ds: dict[str, cortex.Vertex] = {}
+    for model in models:
+        for smooth in smoothing:
+            smoothed = (smooth == "_smoothed")
+            res = cvr2_prevalence(subjects, model, baseline_model=baseline_model,
+                                  cv_thr=cv_thr, smoothed=smoothed,
+                                  bids_folder=bids_folder)
+            if res is None:
+                print(f"{model}{smooth}: no subjects with fsaverage cvr2 — skipping")
+                continue
+
+            prop, n, p0 = res['prop'], res['n'], res['p0']
+            k_thr = int(np.ceil(min_prevalence * n))
+            p_binom = float(binom.sf(k_thr - 1, n, p0)) if n else float("nan")
+            alpha = soft_alpha(prop, min_prevalence, sigma)
+            frac_surv = float((prop >= min_prevalence).mean()) * 100
+            ref = baseline_model if baseline_model else f"{cv_thr:g}"
+
+            v = cortex.Vertex(np.nan_to_num(prop).astype(np.float32),
+                              PYCORTEX_FSAVG_SUBJECT,
+                              vmin=min_prevalence, vmax=1.0, cmap=PREVALENCE_CMAP)
+            label = (f"prev_{model}{smooth}  (n={n}, cvR² > {ref}; "
+                     f"≥{min_prevalence:.0%}={k_thr}/{n} subj)")
+            vtx = v.blend_curvature(alpha)
+            ds[label] = vtx
+            print(f"{model}{smooth}: n={n} [{', '.join(res['subjects'])}], "
+                  f"baseline={ref}, base rate p0={p0:.4f}, "
+                  f"max prevalence={prop.max():.2f}, "
+                  f"surviving ≥{min_prevalence:.0%}: {frac_surv:.2f}% of vertices "
+                  f"(binomial P(X≥{k_thr}|n={n},p0)={p_binom:.1e})")
+            if static_png:
+                n_combos = len(models) * len(smoothing)
+                out_path = _static_png_path(static_png, n_combos, model,
+                                            f"cvr2{smooth}")
+                _save_png(vtx, out_path, label=label, cmap=PREVALENCE_CMAP,
+                          vmin=min_prevalence, vmax=1.0, cbar_label="Prevalence")
+
+    if not ds:
+        raise SystemExit("Nothing to show — need fsaverage cvr2 files "
+                         "(run aggregate_cvr2.py + sample_r2_to_surface.py --desc cvr2).")
+
+    if not static_png:
+        print(f"\nLaunching pycortex viewer with {len(ds)} dataset(s)...")
+        cortex.webgl.show(ds)
+
+
 def main(subjects: list[str], models: list[str], bids_folder: Path,
          r2_thr: float, r2_sigma: float, desc: str = "r2",
          smoothing: tuple[str, ...] = ("", "_smoothed"),
          fdr_alpha: float | None = None,
-         fdr_mode: str = "empirical_null") -> None:
+         fdr_mode: str = "empirical_null",
+         static_png: str | None = None) -> None:
     """Build one pycortex dataset per (model, smoothing) combination present
     on disk. By default both unsmoothed and smoothed variants are shown side
     by side; the smoothed variant is loaded from `desc-<desc>_smoothed`.
@@ -435,16 +560,23 @@ def main(subjects: list[str], models: list[str], bids_folder: Path,
                               PYCORTEX_FSAVG_SUBJECT,
                               vmin=cohort_thr, vmax=vmax, cmap=R2_CMAP)
             label = f"mean_{model}_{full_desc}  (n={len(used)}){thr_note}"
-            ds[label] = v.blend_curvature(alpha)
+            vtx = v.blend_curvature(alpha)
+            ds[label] = vtx
             print(f"{model} {full_desc}: n={len(used)} "
                   f"[{', '.join(used)}], range [{mean_r2.min():.3f}, {mean_r2.max():.3f}], "
                   f"colorbar [{cohort_thr:.3f}, {vmax:.3f}]{thr_note}")
+            if static_png:
+                n_combos = len(models) * len(smoothing)
+                out_path = _static_png_path(static_png, n_combos, model, full_desc)
+                _save_png(vtx, out_path, label=label,
+                          cmap=R2_CMAP, vmin=cohort_thr, vmax=vmax)
 
     if not ds:
         raise SystemExit("Nothing to show — run sample_r2_to_surface.py first.")
 
-    print(f"\nLaunching pycortex viewer with {len(ds)} dataset(s)...")
-    cortex.webgl.show(ds)
+    if not static_png:
+        print(f"\nLaunching pycortex viewer with {len(ds)} dataset(s)...")
+        cortex.webgl.show(ds)
 
 
 if __name__ == "__main__":
@@ -495,7 +627,42 @@ if __name__ == "__main__":
                         "(default: both unsmoothed and smoothed). "
                         "Pass `--smoothing ''` for unsmoothed only or "
                         "`--smoothing _smoothed` for smoothed only.")
+    p.add_argument("--agg", default="mean", choices=["mean", "prevalence"],
+                   help="How to combine subjects. 'mean' (default): "
+                        "group-mean R² map with an FDR/empirical-null alpha "
+                        "mask. 'prevalence': cross-model-comparable "
+                        "consistency map — per vertex, the proportion of "
+                        "subjects with cvR² > --cv-thr. Forces --desc cvr2 "
+                        "(cvR²>0 is the parameter-count-fair, zero-anchored "
+                        "criterion); binarising per subject discards the "
+                        "very-negative noise voxels that corrupt a mean.")
+    p.add_argument("--cv-thr", type=float, default=0.0,
+                   help="Per-subject cvR² positivity threshold for "
+                        "--agg prevalence (default 0.0 = held-out fit beats "
+                        "the mean).")
+    p.add_argument("--min-prevalence", type=float, default=0.5,
+                   help="Display/alpha threshold for --agg prevalence: "
+                        "fraction of subjects that must be positive "
+                        "(default 0.5 = majority).")
+    p.add_argument("--baseline-model", default=DEFAULT_NULL_MODEL,
+                   help="Per-vertex cvR² null reference for --agg prevalence "
+                        f"(default {DEFAULT_NULL_MODEL!r}, the 'predict "
+                        "training mean' model). A voxel is a 'win' where the "
+                        "model's cvR² exceeds this model's cvR² at the same "
+                        "vertex. Pass 'none' to compare against the scalar "
+                        "--cv-thr (i.e. cvR² > 0) instead.")
+    p.add_argument("--static-png", default=None,
+                   help="If set, save static flatmap PNG(s) (n= burned into "
+                        "the title) instead of launching the webgl viewer. "
+                        "A single file path when exactly one (model, "
+                        "smoothing) combination is requested; otherwise "
+                        "treated as an output directory.")
     args = p.parse_args()
+
+    if args.agg == "prevalence" and args.desc != "cvr2":
+        print("note: --agg prevalence requires cross-validated R²; "
+              "forcing --desc cvr2")
+        args.desc = "cvr2"
 
     if args.models is None:
         args.models = DEFAULT_CVR2_MODELS if args.desc == "cvr2" else DEFAULT_MODELS
@@ -509,9 +676,18 @@ if __name__ == "__main__":
         raise SystemExit("No subjects found — pass --subjects or run "
                          "sample_r2_to_surface.py first.")
 
-    # --fdr-alpha 0 (or negative) is the explicit "disable" sentinel.
-    fdr_alpha = args.fdr_alpha if (args.fdr_alpha and args.fdr_alpha > 0) else None
-    main(subjects, args.models, Path(args.bids_folder),
-         args.r2_thr, args.r2_sigma, desc=args.desc,
-         smoothing=tuple(args.smoothing),
-         fdr_alpha=fdr_alpha, fdr_mode=args.fdr_mode)
+    if args.agg == "prevalence":
+        baseline = (None if str(args.baseline_model).lower() == "none"
+                    else args.baseline_model)
+        main_prevalence(subjects, args.models, Path(args.bids_folder),
+                        cv_thr=args.cv_thr, min_prevalence=args.min_prevalence,
+                        baseline_model=baseline, smoothing=tuple(args.smoothing),
+                        static_png=args.static_png)
+    else:
+        # --fdr-alpha 0 (or negative) is the explicit "disable" sentinel.
+        fdr_alpha = args.fdr_alpha if (args.fdr_alpha and args.fdr_alpha > 0) else None
+        main(subjects, args.models, Path(args.bids_folder),
+             args.r2_thr, args.r2_sigma, desc=args.desc,
+             smoothing=tuple(args.smoothing),
+             fdr_alpha=fdr_alpha, fdr_mode=args.fdr_mode,
+             static_png=args.static_png)

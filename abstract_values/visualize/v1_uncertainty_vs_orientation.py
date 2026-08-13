@@ -149,7 +149,8 @@ def page(subjects, sel_tag, smoothed, noise, ori_dist, pdf):
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
     fig.suptitle(
         f"V1 discriminability (1/SD) vs orientation\n"
-        f"({sel_tag}  ·  {smooth_lbl}  ·  noise: {noise.upper()})",
+        f"({sel_tag}  ·  {smooth_lbl}  ·  noise: {noise.upper()}  ·  "
+        f"n={df['subject'].nunique()})",
         fontsize=10, y=1.04, color="0.15")
 
     # ── Top: 1/SD vs orientation ──────────────────────────────────────────

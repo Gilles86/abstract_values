@@ -156,7 +156,8 @@ def page(subjects, sel_tag, smoothed, noise, stim_dist, pdf):
     fig.suptitle(
         f"NPCr discriminability (1/SD) vs CHF — efficient coding predicts "
         f"this tracks stimulus density\n"
-        f"({sel_tag}  ·  {smooth_lbl}  ·  noise: {noise.upper()})",
+        f"({sel_tag}  ·  {smooth_lbl}  ·  noise: {noise.upper()}  ·  "
+        f"n={df['subject'].nunique()})",
         fontsize=10, y=1.04, color="0.15")
 
     # ── Top: 1/SD vs CHF, per condition (median + IQR band, robust) ──────

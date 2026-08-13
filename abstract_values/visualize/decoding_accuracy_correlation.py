@@ -221,10 +221,11 @@ def page_decoder(df, decoder_label, value_unit, pdf):
                    f"λ={r['lambda']}", axis=1)
     cfgs = sorted(df["cfg"].unique())
     n = len(cfgs)
+    n_subjects = df["subject"].nunique()
     fig, axes = plt.subplots(n, 2, figsize=(11.0, 2.6 * n + 0.8),
                               constrained_layout=True, squeeze=False)
     fig.suptitle(f"Real-trial decoding accuracy — {decoder_label}  "
-                 f"(noise: full ‖ spherical)",
+                 f"(noise: full ‖ spherical)  ·  n={n_subjects}",
                  fontsize=10, y=1.02, color="0.15")
     hue_arg = "noise" if df["noise"].nunique() > 1 else None
     for i, cfg in enumerate(cfgs):
