@@ -272,18 +272,55 @@ def plot_group(ax_angle, ax_mag, agg: dict, label: str, color: str):
                     fontsize=7.5, ha="left", va="center", fontweight="bold")
 
 
+def unwrap_reliable_runs(angle_deg: np.ndarray, reliable: np.ndarray) -> np.ndarray:
+    """np.unwrap only within contiguous reliable stretches. np.unwrap
+    assumes a *continuously drifting* underlying signal — applied across
+    points that are actually independent noise (unreliable, near-zero
+    difference magnitude), it accumulates spurious +-360 deg corrections
+    from essentially random consecutive jumps and can drift the line
+    arbitrarily far from the true (-180, 180] range before it gets clipped
+    at the axis limits. Unreliable points are left at their raw (already
+    principal-range, atan2 output) value instead."""
+    out = angle_deg.copy()
+    n = len(out)
+    i = 0
+    while i < n:
+        if reliable[i]:
+            j = i
+            while j < n and reliable[j]:
+                j += 1
+            out[i:j] = np.degrees(np.unwrap(np.radians(out[i:j])))
+            i = j
+        else:
+            i += 1
+    return out
+
+
 def plot_difference(ax_angle, ax_mag, diff_stats: pd.DataFrame, sig: pd.DataFrame,
                     label_a: str, label_b: str, color: str = "0.15"):
-    orientations = diff_stats["orientation"].to_numpy()
-    diff_sorted = diff_stats.sort_values("orientation")
-    angle_y = np.degrees(np.unwrap(np.radians(diff_sorted["angle_deg"].to_numpy())))
-    # shift the CI bounds by the same unwrap correction applied to the centre line
-    shift = angle_y - diff_sorted["angle_deg"].to_numpy()
+    diff_sorted = diff_stats.merge(sig[["orientation", "q"]], on="orientation", how="left").sort_values("orientation")
+    reliable = (diff_sorted["q"] < ALPHA).to_numpy()
+    raw_angle = diff_sorted["angle_deg"].to_numpy()  # atan2 output, already in (-180, 180]
+
+    angle_y = unwrap_reliable_runs(raw_angle, reliable)
+    shift = angle_y - raw_angle  # zero outside reliable runs, by construction
     lo = diff_sorted["angle_lo"].to_numpy() + shift
     hi = diff_sorted["angle_hi"].to_numpy() + shift
 
-    ax_angle.fill_between(diff_sorted["orientation"], lo, hi, color=color, alpha=0.2, linewidth=0, zorder=2)
-    ax_angle.plot(diff_sorted["orientation"], angle_y, color=color, lw=2, marker="o", ms=4, zorder=3)
+    # Only connect/shade contiguous reliable stretches — an unreliable
+    # point (near-zero difference magnitude) gets a bare marker at its raw
+    # angle, not a line implying a trend that isn't statistically there.
+    line_y = np.where(reliable, angle_y, np.nan)
+    lo_masked = np.where(reliable, lo, np.nan)
+    hi_masked = np.where(reliable, hi, np.nan)
+
+    ax_angle.fill_between(diff_sorted["orientation"], lo_masked, hi_masked,
+                          color=color, alpha=0.2, linewidth=0, zorder=2)
+    ax_angle.plot(diff_sorted["orientation"], line_y, color=color, lw=2, zorder=3)
+    ax_angle.scatter(diff_sorted.loc[reliable, "orientation"], angle_y[reliable],
+                     color=color, s=16, zorder=4)
+    ax_angle.scatter(diff_sorted.loc[~reliable, "orientation"], raw_angle[~reliable],
+                     facecolor="none", edgecolor=color, linewidth=0.8, s=16, zorder=4)
     annotate_significance(ax_angle, sig, y_pos=-196, color=color)
 
     ax_mag.axhline(0, color="0.7", lw=0.7, ls="--", zorder=0)
@@ -395,7 +432,7 @@ def main():
     ax_dangle.set_xlim(0, 205)
     ax_dangle.set_ylim(-200, 200)
     ax_dangle.set_title("Difference in endpoint direction (95% bootstrap CI)\n"
-                        "-- unreliable where |difference magnitude| is near 0, right panel --",
+                        "filled dots + line = individually significant; open dots = not (shown, not connected)",
                         fontsize=8)
     sns.despine(ax=ax_dangle, offset=3, trim=True)
 
