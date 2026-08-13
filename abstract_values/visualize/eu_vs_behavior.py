@@ -413,8 +413,9 @@ def load_gaze_dispersion(gaze_tsv: Path, min_frac_valid: float = 0.5) -> pd.Data
     <50% valid (non-blink) samples are dropped. Subject-level trait,
     pooled across both mapping sessions (same rationale as the voxel-count
     measures — one number per subject, not per condition)."""
-    df = pd.read_csv(gaze_tsv, sep="\t")
-    df["subject"] = df["subject"].apply(lambda s: f"{int(s):02d}")
+    df = pd.read_csv(gaze_tsv, sep="\t", dtype={"subject": str})
+    df["subject"] = df["subject"].apply(
+        lambda s: f"{int(s):02d}" if s.isdigit() else s)
     df = df[(df["frac_valid"] >= min_frac_valid) & df["gaze_dispersion"].notna()
              & (df["gaze_dispersion"] > 0)]
     df["log_gaze_dispersion"] = np.log(df["gaze_dispersion"])
