@@ -64,9 +64,14 @@ import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 
+import nibabel as nib
+from nilearn import image as nli
+from pingouin import circ_r
+
 from abstract_values.behavior.data import get_all_behavioral_data
 from abstract_values.utils.data import BIDS_FOLDER, Subject
 from abstract_values.visualize.npcr_uncertainty_vs_value import _aggregate
+from abstract_values.visualize.cvr2_model_comparison import _cvr2_path, _load_roi_mask
 
 DEFAULT_OUT = "notes/figures/eu_vs_behavior.pdf"
 COL_BEH = "#3B5BA5"   # blue — behavior
@@ -224,6 +229,80 @@ def neural_precision_decoded_r(subjects: list[str], nvoxels: str = "100",
     return pd.DataFrame(rows)
 
 
+def neural_precision_decoded_r_orientation(subjects: list[str], nvoxels: str = "100",
+                                           noise: str = "spherical", smoothed: bool = False,
+                                           roi: str = "BensonV1") -> pd.DataFrame:
+    """Empirical orientation-decoding fidelity in V1, per (subject, mapping),
+    from REAL single-trial decode_gabor.py output — circular analogue of
+    :func:`neural_precision_decoded_r`. Uses the doubled-angle error
+    resultant (not circular-circular correlation — see
+    decoding_quality_scatter.py's ``_circular_fidelity`` docstring for why:
+    a decode that straddles the 0/180° wrap can spuriously drag a plain
+    circular correlation negative).
+    """
+    smooth = "_smoothed" if smoothed else ""
+    deriv = Path(BIDS_FOLDER) / "derivatives" / "decoding" / "gabor"
+    rows = []
+    for s in subjects:
+        stem = f"sub-{s}_mask-{roi}_nvoxels-{nvoxels}_noise-{noise}{smooth}"
+        d = deriv / f"sub-{s}" / "func"
+        hits = sorted(d.glob(f"{stem}_pars.tsv")) or sorted(d.glob(f"{stem}_lambda-*_pars.tsv"))
+        if not hits:
+            continue
+        df = pd.read_csv(hits[0], sep="\t")
+        meta = ["session", "run", "trial_nr", "true_orientation_rad"]
+        grid_cols = [c for c in df.columns if c not in meta]
+        grid = np.array([float(c) for c in grid_cols])
+        post = df[grid_cols].to_numpy(dtype=float)
+        w = post / np.clip(post.sum(axis=1, keepdims=True), 1e-12, None)
+        ang = 2.0 * grid
+        dec = 0.5 * np.arctan2((w * np.sin(ang)).sum(1), (w * np.cos(ang)).sum(1)) % np.pi
+        df = df.assign(decoded=dec)
+        sub = Subject(s, bids_folder=BIDS_FOLDER)
+        for session, g in df.groupby("session"):
+            g = g.dropna(subset=["true_orientation_rad", "decoded"])
+            if len(g) < 5:
+                continue
+            mapping = sub.get_mapping(session=int(session))
+            err2 = np.angle(np.exp(2j * (g["decoded"].to_numpy() - g["true_orientation_rad"].to_numpy())))
+            fidelity = float(circ_r(err2))
+            rows.append(dict(subject=s, mapping=mapping,
+                             neu_precision=fidelity, n_trials=len(g)))
+    return pd.DataFrame(rows)
+
+
+def neural_n_signal_voxels(subjects: list[str], model_cv: str, roi: str, hemi: str | None,
+                           baseline_cv: str = "aprf-null.cv",
+                           smoothed: bool = False) -> pd.DataFrame:
+    """Per-subject count (and fraction) of ROI voxels where ``model_cv``'s
+    cvR² beats ``baseline_cv``'s cvR² at that voxel (the project's standard
+    "signal voxel" test — cvR² > cvR²_null, not > 0; see CLAUDE.md /
+    project_cvr2_null_baseline memory). Subject-level trait, not per-mapping
+    (the CV fit pools both mapping sessions).
+    """
+    rows = []
+    for s in subjects:
+        p_model = _cvr2_path(model_cv, s, smoothed)
+        p_base = _cvr2_path(baseline_cv, s, smoothed)
+        if not (p_model.exists() and p_base.exists()):
+            continue
+        try:
+            mask_img = _load_roi_mask(s, roi, hemi)
+        except Exception:
+            continue
+        mask_arr = np.squeeze(mask_img.get_fdata()) > 0.5
+        model_vals = nli.resample_to_img(nib.load(str(p_model)), mask_img,
+                                         interpolation="nearest").get_fdata()[mask_arr]
+        base_vals = nli.resample_to_img(nib.load(str(p_base)), mask_img,
+                                        interpolation="nearest").get_fdata()[mask_arr]
+        finite = np.isfinite(model_vals) & np.isfinite(base_vals)
+        n_signal = int((model_vals[finite] > base_vals[finite]).sum())
+        n_total = int(finite.sum())
+        rows.append(dict(subject=s, n_signal=n_signal, n_total=n_total,
+                         neu_precision=n_signal / n_total if n_total else np.nan))
+    return pd.DataFrame(rows)
+
+
 def page_brain_behavior(beh: pd.DataFrame, neu: pd.DataFrame, *, neu_label: str,
                         title: str, pdf: PdfPages):
     beh_prec = ((-beh.groupby(["subject", "mapping"])["error"].std())
@@ -319,6 +398,13 @@ def page_condition_difference(beh: pd.DataFrame, neu_measures: dict[str, pd.Data
     plt.close(fig)
 
 
+def _broadcast_to_mappings(df: pd.DataFrame) -> pd.DataFrame:
+    """Duplicate a subject-level (subject, neu_precision) trait across both
+    mapping rows, so it plugs into the same per-condition/pooled scatter
+    machinery as the genuinely per-mapping measures."""
+    return pd.concat([df.assign(mapping=m) for m in CONDITIONS], ignore_index=True)
+
+
 def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
          nvoxels: str, noise: str):
     beh = load_behavior()
@@ -326,6 +412,11 @@ def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
     eu["subject"] = eu["subject"].astype(str)
     subjects = sorted(set(beh["subject"]) & set(eu["subject"]))
     decoded_r = neural_precision_decoded_r(subjects, nvoxels=nvoxels, noise=noise)
+    decoded_r_ori = neural_precision_decoded_r_orientation(subjects, nvoxels=nvoxels, noise=noise)
+    npcr_voxels = _broadcast_to_mappings(
+        neural_n_signal_voxels(subjects, "aprf.cv", "NPCr", None))
+    v1_voxels = _broadcast_to_mappings(
+        neural_n_signal_voxels(subjects, "vonmises.cv", "BensonV1", "LR"))
 
     out.parent.mkdir(parents=True, exist_ok=True)
     corr_frames = []
@@ -341,6 +432,12 @@ def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
                 neural_precision_mae(eu, variant),
             "Decoded-true r (NPCr)\n[real single trials]":
                 decoded_r,
+            "Signal-voxel frac. (NPCr, aprf.cv>null)\n[cvR² count]":
+                npcr_voxels,
+            "Signal-voxel frac. (V1, vonmises.cv>null)\n[cvR² count]":
+                v1_voxels,
+            "Decoded-true fidelity, orientation (V1)\n[real single trials]":
+                decoded_r_ori,
         }
         titles = {
             "−mean σ_E (NPCr)\n[simulated, SD of posterior]":
@@ -349,6 +446,12 @@ def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
                 "Brain-behavior: −mean |decoding error| (simulated)",
             "Decoded-true r (NPCr)\n[real single trials]":
                 "Brain-behavior: empirical decoded-vs-true r (real trials)",
+            "Signal-voxel frac. (NPCr, aprf.cv>null)\n[cvR² count]":
+                "Brain-behavior: fraction of NPCr voxels beating the null (cvR²)",
+            "Signal-voxel frac. (V1, vonmises.cv>null)\n[cvR² count]":
+                "Specificity check — V1: fraction of V1 voxels beating the null (cvR²)",
+            "Decoded-true fidelity, orientation (V1)\n[real single trials]":
+                "Specificity check — V1: empirical orientation-decoding fidelity",
         }
         for label, neu_df in neu_measures.items():
             cdf = page_brain_behavior(beh, neu_df, neu_label=label,
@@ -356,7 +459,16 @@ def main(eu_tsv: Path, out: Path, variants: tuple[str, ...],
             cdf["measure"] = label.split("\n")[0]
             corr_frames.append(cdf)
 
-        page_condition_difference(beh, neu_measures, pdf)
+        # Condition-difference is only meaningful for genuinely per-mapping
+        # measures — voxel-count traits are identical across mappings by
+        # construction (Δ≡0), so they're excluded here.
+        page_condition_difference(beh, {
+            k: v for k, v in neu_measures.items()
+            if k in ("−mean σ_E (NPCr)\n[simulated, SD of posterior]",
+                    "−mean |decoding error| (NPCr)\n[simulated]",
+                    "Decoded-true r (NPCr)\n[real single trials]",
+                    "Decoded-true fidelity, orientation (V1)\n[real single trials]")
+        }, pdf)
 
     if corr_frames:
         tsv = out.with_suffix(".tsv")
