@@ -98,27 +98,31 @@ def unwrap_by_orientation(sub: pd.DataFrame) -> np.ndarray:
     return np.degrees(np.unwrap(np.radians(sub["angle_deg"].to_numpy())))
 
 
-def circular_mean_deg(angles_deg: np.ndarray) -> float:
-    rad = np.radians(angles_deg)
-    return np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean()))
+def bootstrap_vector_angle_ci(x: np.ndarray, y: np.ndarray, n_boot: int = N_BOOT, ci: float = 95,
+                              seed: int = 0) -> tuple:
+    """Subject-level bootstrap CI for atan2(mean(y), mean(x)) — the EXACT
+    estimator the plotted grand-average direction line uses (mean of the
+    actual (x, y) endpoint vectors across subjects, then its angle).
 
-
-def bootstrap_circular_ci(angles_deg: np.ndarray, n_boot: int = N_BOOT, ci: float = 95,
-                          seed: int = 0) -> tuple:
-    """Subject-level bootstrap CI for the resultant-vector circular mean.
-    Returns (lo, hi) as an offset-corrected pair of angles (deg), safe to
-    unwrap alongside the observed grand-average line."""
+    Deliberately NOT a circular mean of pre-computed per-subject angles
+    (atan2(mean(sin theta_i), mean(cos theta_i))) — that discards each
+    subject's magnitude and is a *different* estimator from the
+    magnitude-weighted one used for the centre line. Mixing a magnitude-
+    weighted line with a magnitude-blind CI is internally inconsistent;
+    resampling the raw vectors keeps both on the same definition, so
+    `obs` returned here matches the plotted line to floating-point
+    precision, with no separate re-anchoring step needed.
+    """
     rng = np.random.default_rng(seed)
-    n = len(angles_deg)
-    rad = np.radians(angles_deg)
-    obs = circular_mean_deg(angles_deg)
+    n = len(x)
+    obs = float(np.degrees(np.arctan2(y.mean(), x.mean())))
     boot = np.empty(n_boot)
     for i in range(n_boot):
         idx = rng.integers(0, n, size=n)
-        boot[i] = np.degrees(np.arctan2(np.sin(rad[idx]).mean(), np.cos(rad[idx]).mean()))
+        boot[i] = np.degrees(np.arctan2(y[idx].mean(), x[idx].mean()))
     wrapped_diff = ((boot - obs + 180) % 360) - 180  # avoid branch-cut artifacts
     lo, hi = np.percentile(wrapped_diff, [(100 - ci) / 2, 100 - (100 - ci) / 2])
-    return obs + lo, obs + hi
+    return obs, obs + lo, obs + hi
 
 
 def sem(x: np.ndarray) -> float:
@@ -242,13 +246,15 @@ def plot_group(ax_angle, ax_mag, agg: dict, label: str, color: str):
     mag_mean, mag_sem = [], []
     for ori, ay in zip(orientations, angle_y):
         sub = subj_end.loc[subj_end["orientation"] == ori]
-        lo, hi = bootstrap_circular_ci(sub["angle_deg"].to_numpy())
-        # re-anchor the bootstrap CI (computed near the observed circular
-        # mean) onto this point's *unwrapped* value so the band doesn't
-        # jump across the unwrap's branch cut
-        obs = circular_mean_deg(sub["angle_deg"].to_numpy())
-        ci_lo.append(ay + ((lo - obs + 180) % 360 - 180))
-        ci_hi.append(ay + ((hi - obs + 180) % 360 - 180))
+        # bootstrap the raw (x, y) vectors, not pre-computed angles — obs
+        # is guaranteed to equal ay (both are atan2(mean_y, mean_x) over
+        # the same subject set), so no separate re-anchoring is needed,
+        # just the unwrap-continuity shift (ay - obs, wrapped) also
+        # applied to the raw grand line above.
+        obs, lo, hi = bootstrap_vector_angle_ci(sub["x_deg"].to_numpy(), sub["y_deg"].to_numpy())
+        shift = ((ay - obs + 180) % 360) - 180
+        ci_lo.append(lo + shift)
+        ci_hi.append(hi + shift)
         mag_mean.append(sub["magnitude_deg"].mean())
         mag_sem.append(sem(sub["magnitude_deg"].to_numpy()))
     ci_lo, ci_hi = np.array(ci_lo), np.array(ci_hi)
