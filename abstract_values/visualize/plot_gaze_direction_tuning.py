@@ -143,22 +143,32 @@ def hotelling_t2_1sample_pvalue(diffs: np.ndarray) -> float:
     return float(1 - sps.f.cdf(f_stat, k, n - k))
 
 
-def paired_significance(agg_a: dict, agg_b: dict) -> pd.DataFrame:
-    """Per orientation: paired Hotelling's T^2 test on the (x, y) endpoint
-    difference (A - B) across subjects present in both groups. Returns
-    orientation, n (paired subjects), p, q (BH-FDR across orientations)."""
+def paired_diff_vectors(agg_a: dict, agg_b: dict) -> dict:
+    """Per orientation: (n_paired_subjects, 2) array of each subject's
+    (x, y) endpoint difference (A - B), restricted to subjects with usable
+    trials in both groups at that orientation. Shared by paired_significance
+    (Hotelling's T^2 needs these) and difference_tuning (the CI band needs
+    the same paired set, not the full per_subj table)."""
     end_a = endpoint_stats(agg_a["per_subj"], ["subject"]).set_index(["orientation", "subject"])
     end_b = endpoint_stats(agg_b["per_subj"], ["subject"]).set_index(["orientation", "subject"])
-    rows = []
+    out = {}
     for ori in sorted(set(end_a.index.get_level_values(0)) & set(end_b.index.get_level_values(0))):
         a = end_a.loc[ori][["x_deg", "y_deg"]]
         b = end_b.loc[ori][["x_deg", "y_deg"]]
         common = a.index.intersection(b.index)
-        if len(common) < 5:
-            rows.append(dict(orientation=ori, n=len(common), p=np.nan))
-            continue
-        diffs = (a.loc[common] - b.loc[common]).to_numpy()
-        rows.append(dict(orientation=ori, n=len(common), p=hotelling_t2_1sample_pvalue(diffs)))
+        out[ori] = (a.loc[common] - b.loc[common]).to_numpy()
+    return out
+
+
+def paired_significance(diff_vectors: dict) -> pd.DataFrame:
+    """Per orientation: paired Hotelling's T^2 test on the (x, y) endpoint
+    difference vectors against H0: mean = (0, 0). Returns orientation,
+    n (paired subjects), p, q (BH-FDR across orientations)."""
+    rows = []
+    for ori, diffs in diff_vectors.items():
+        n = len(diffs)
+        p = hotelling_t2_1sample_pvalue(diffs) if n >= 5 else np.nan
+        rows.append(dict(orientation=ori, n=n, p=p))
     res = pd.DataFrame(rows)
     q = np.full(len(res), np.nan)
     valid = res["p"].notna().to_numpy()
@@ -166,6 +176,39 @@ def paired_significance(agg_a: dict, agg_b: dict) -> pd.DataFrame:
         q[valid] = multipletests(res.loc[valid, "p"], method="fdr_bh")[1]
     res["q"] = q
     return res
+
+
+def difference_tuning(diff_vectors: dict, n_boot: int = N_BOOT, ci: float = 95,
+                      seed: int = 1) -> pd.DataFrame:
+    """Per orientation: angle and magnitude of the mean per-subject (x, y)
+    difference vector (A - B), each with a subject-level bootstrap CI.
+    mean(a_i - b_i) == mean(a_i) - mean(b_i), so this is exactly the
+    "grand_a minus grand_b" difference restricted to paired subjects —
+    same quantity plot_group's two lines would subtract, computed once
+    with its own uncertainty rather than read off two separate bands."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for ori in sorted(diff_vectors):
+        d = diff_vectors[ori]
+        n = len(d)
+        if n < 5:
+            continue
+        mean_vec = d.mean(axis=0)
+        angle = float(np.degrees(np.arctan2(mean_vec[1], mean_vec[0])))
+        mag = float(np.hypot(*mean_vec))
+        boot_angle = np.empty(n_boot)
+        boot_mag = np.empty(n_boot)
+        for i in range(n_boot):
+            idx = rng.integers(0, n, size=n)
+            bm = d[idx].mean(axis=0)
+            boot_angle[i] = np.degrees(np.arctan2(bm[1], bm[0]))
+            boot_mag[i] = np.hypot(*bm)
+        wrapped = ((boot_angle - angle + 180) % 360) - 180
+        a_lo, a_hi = np.percentile(wrapped, [(100 - ci) / 2, 100 - (100 - ci) / 2])
+        m_lo, m_hi = np.percentile(boot_mag, [(100 - ci) / 2, 100 - (100 - ci) / 2])
+        rows.append(dict(orientation=ori, n=n, angle_deg=angle, angle_lo=angle + a_lo,
+                          angle_hi=angle + a_hi, magnitude_deg=mag, mag_lo=m_lo, mag_hi=m_hi))
+    return pd.DataFrame(rows)
 
 
 def annotate_significance(ax, sig: pd.DataFrame, y_pos: float, color: str):
@@ -229,6 +272,29 @@ def plot_group(ax_angle, ax_mag, agg: dict, label: str, color: str):
                     fontsize=7.5, ha="left", va="center", fontweight="bold")
 
 
+def plot_difference(ax_angle, ax_mag, diff_stats: pd.DataFrame, sig: pd.DataFrame,
+                    label_a: str, label_b: str, color: str = "0.15"):
+    orientations = diff_stats["orientation"].to_numpy()
+    diff_sorted = diff_stats.sort_values("orientation")
+    angle_y = np.degrees(np.unwrap(np.radians(diff_sorted["angle_deg"].to_numpy())))
+    # shift the CI bounds by the same unwrap correction applied to the centre line
+    shift = angle_y - diff_sorted["angle_deg"].to_numpy()
+    lo = diff_sorted["angle_lo"].to_numpy() + shift
+    hi = diff_sorted["angle_hi"].to_numpy() + shift
+
+    ax_angle.fill_between(diff_sorted["orientation"], lo, hi, color=color, alpha=0.2, linewidth=0, zorder=2)
+    ax_angle.plot(diff_sorted["orientation"], angle_y, color=color, lw=2, marker="o", ms=4, zorder=3)
+    annotate_significance(ax_angle, sig, y_pos=-196, color=color)
+
+    ax_mag.axhline(0, color="0.7", lw=0.7, ls="--", zorder=0)
+    ax_mag.fill_between(diff_sorted["orientation"], diff_sorted["mag_lo"], diff_sorted["mag_hi"],
+                        color=color, alpha=0.2, linewidth=0, zorder=2)
+    ax_mag.plot(diff_sorted["orientation"], diff_sorted["magnitude_deg"], color=color, lw=2,
+               marker="o", ms=4, zorder=3)
+    y0, y1 = ax_mag.get_ylim()
+    annotate_significance(ax_mag, sig, y_pos=min(0, y0) - 0.06 * (y1 - y0), color=color)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -262,12 +328,15 @@ def main():
         title = args.title or "Gaze-direction tuning by trial epoch"
 
     n_subj = len(set(agg_a["subjects"]) & set(agg_b["subjects"]))
-    sig = paired_significance(agg_a, agg_b)
+    diff_vectors = paired_diff_vectors(agg_a, agg_b)
+    sig = paired_significance(diff_vectors)
+    diff_stats = difference_tuning(diff_vectors)
     n_sig = int((sig["q"] < ALPHA).sum())
     print(f"Paired Hotelling's T^2 per orientation (n={len(sig)} orientations tested, "
           f"FDR q<{ALPHA}): {n_sig}/{len(sig)} significant")
 
-    fig, (ax_angle, ax_mag) = plt.subplots(1, 2, figsize=(9, 4), constrained_layout=True)
+    fig, ((ax_angle, ax_mag), (ax_dangle, ax_dmag)) = plt.subplots(
+        2, 2, figsize=(9, 8), constrained_layout=True)
 
     plot_group(ax_angle, ax_mag, agg_a, label_a, PALETTE[0])
     plot_group(ax_angle, ax_mag, agg_b, label_b, PALETTE[1])
@@ -313,6 +382,31 @@ def main():
     ax_mag.set_ylabel("Endpoint displacement (deg)")
     ax_mag.set_title("Endpoint magnitude (shaded: +-1 SEM)", fontsize=9)
     sns.despine(ax=ax_mag, offset=3, trim=True)
+
+    plot_difference(ax_dangle, ax_dmag, diff_stats, sig, label_a, label_b)
+
+    ax_dangle.set_xticks(ori_ticks)
+    ax_dangle.set_xlabel("Grating orientation (deg)")
+    ax_dangle.set_ylabel(f"{label_a} minus {label_b} (deg)")
+    ax_dangle.set_yticks([-180, -90, 0, 90, 180])
+    for y, ref in ((0, "Right"), (90, "Up"), (-90, "Down"), (180, "Left")):
+        ax_dangle.axhline(y, color="0.75", lw=0.6, ls="--", zorder=0)
+        ax_dangle.text(182, y, ref, fontsize=6.5, color="0.4", va="center", ha="left")
+    ax_dangle.set_xlim(0, 205)
+    ax_dangle.set_ylim(-200, 200)
+    ax_dangle.set_title("Difference in endpoint direction (95% bootstrap CI)\n"
+                        "-- unreliable where |difference magnitude| is near 0, right panel --",
+                        fontsize=8)
+    sns.despine(ax=ax_dangle, offset=3, trim=True)
+
+    ax_dmag.set_xticks(ori_ticks)
+    ax_dmag.set_xlim(0, 205)
+    dy0, dy1 = ax_dmag.get_ylim()
+    ax_dmag.set_ylim(bottom=min(0, dy0) - 0.08 * (dy1 - dy0))  # room for the significance markers
+    ax_dmag.set_xlabel("Grating orientation (deg)")
+    ax_dmag.set_ylabel(f"|{label_a} - {label_b}| (deg)")
+    ax_dmag.set_title("Difference vector magnitude (95% bootstrap CI)", fontsize=9)
+    sns.despine(ax=ax_dmag, offset=3, trim=True)
 
     fig.suptitle(f"{title} (N={n_subj} subjects in both; dots = individual subjects, "
                  f"line = grand average; * = FDR q<{ALPHA}, paired Hotelling's T^2 per orientation, "
