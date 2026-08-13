@@ -31,17 +31,40 @@ resultant-vector angle each time, take the percentile CI of the
 wrapped bootstrap-minus-observed differences — avoids branch-cut
 artifacts from naively percentiling raw angles).
 
-Significance
-------------
-Per orientation, paired across subjects present in BOTH groups: build
-each subject's (x, y) endpoint difference (group A - group B), then run
-a one-sample Hotelling's T^2 test against H0: mean difference = (0, 0).
-This tests direction AND magnitude jointly (they're both derived from
-the same (x, y) vector, so testing them as two separate marginal tests
-would double-count the same underlying difference) — the panels display
-the same per-orientation q-value (Benjamini-Hochberg FDR across
-orientations) as a marker strip in both panels, since it's one test
-about one underlying quantity shown two ways.
+Difference panels: difference of the means, not the mean of the vector
+difference
+--------------------------------------------------------------------------
+Per orientation, paired across subjects present in BOTH groups, each
+subject contributes their OWN direction (angle_a_i, angle_b_i) and
+magnitude (mag_a_i, mag_b_i) — one well-defined number per condition —
+and the difference is taken PER SUBJECT: delta_angle_i = angle_a_i -
+angle_b_i (wrapped), delta_mag_i = mag_a_i - mag_b_i. The panels show the
+mean of these per-subject differences (circular mean for angle, plain
+mean for magnitude), not the angle/magnitude of the mean (x, y)
+DIFFERENCE VECTOR.
+
+This distinction matters a lot in practice: the difference-VECTOR
+approach (an earlier version of this script) degenerates whenever the
+two conditions are similar — the difference vector shrinks toward (0, 0),
+and the angle of a near-zero vector is essentially uniform noise on the
+circle, regardless of how well-defined each condition's own direction
+is. The difference-of-MEANS approach stays well-behaved as long as each
+subject's own per-condition direction is reasonably reliable, which is
+usually true even when the two conditions barely differ.
+
+Two independent tests, each its own FDR family across orientations
+(they ask genuinely different questions — do NOT pool their p-values):
+  - Direction: bootstrap two-sided test (resample subjects, recompute
+    the circular mean of delta_angle_i, compare the bootstrap
+    distribution's position relative to 0 deg) against H0: mean
+    direction difference = 0 deg.
+  - Magnitude: same bootstrap logic on delta_mag_i (a plain linear
+    scalar, no circular machinery needed) against H0: mean magnitude
+    difference = 0.
+A point's own 95% CI (error bar) is shown regardless of significance —
+only the CONNECTING LINE in the direction panel is restricted to
+contiguous significant runs, since a line implies a trend the
+non-significant points don't support.
 
 Two modes, same as compare_gaze_epochs.py:
   1. Two files (default): different trial epochs.
@@ -70,7 +93,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy import stats as sps
 from statsmodels.stats.multitest import multipletests
 
 from abstract_values.visualize.plot_gaze_trajectories import aggregate_df, load_and_aggregate
@@ -130,89 +152,115 @@ def sem(x: np.ndarray) -> float:
     return x.std(ddof=1) / np.sqrt(len(x)) if len(x) > 1 else np.nan
 
 
-def hotelling_t2_1sample_pvalue(diffs: np.ndarray) -> float:
-    """diffs: (n, 2) paired per-subject (dx, dy). p-value for
-    H0: population mean difference vector = (0, 0)."""
-    n, k = diffs.shape
-    if n <= k:
-        return np.nan
-    mean = diffs.mean(axis=0)
-    cov = np.cov(diffs, rowvar=False, ddof=1)
-    try:
-        inv_cov = np.linalg.inv(cov)
-    except np.linalg.LinAlgError:
-        return np.nan
-    t2 = float(n * mean @ inv_cov @ mean)
-    f_stat = t2 * (n - k) / (k * (n - 1))
-    return float(1 - sps.f.cdf(f_stat, k, n - k))
-
-
-def paired_diff_vectors(agg_a: dict, agg_b: dict) -> dict:
-    """Per orientation: (n_paired_subjects, 2) array of each subject's
-    (x, y) endpoint difference (A - B), restricted to subjects with usable
-    trials in both groups at that orientation. Shared by paired_significance
-    (Hotelling's T^2 needs these) and difference_tuning (the CI band needs
-    the same paired set, not the full per_subj table)."""
+def paired_per_subject_diffs(agg_a: dict, agg_b: dict) -> pd.DataFrame:
+    """Per orientation, per subject present in both groups: each subject's
+    OWN direction and magnitude in each group, plus their difference
+    (A - B). This is the "difference of the mean directions, not the mean
+    of the differences" quantity per subject: delta_angle_i is the
+    difference between subject i's own well-defined direction in each
+    condition, not the angle of a (possibly tiny, noise-dominated)
+    difference vector. delta_mag_i is a plain scalar difference — no
+    circular concerns for magnitude."""
     end_a = endpoint_stats(agg_a["per_subj"], ["subject"]).set_index(["orientation", "subject"])
     end_b = endpoint_stats(agg_b["per_subj"], ["subject"]).set_index(["orientation", "subject"])
-    out = {}
-    for ori in sorted(set(end_a.index.get_level_values(0)) & set(end_b.index.get_level_values(0))):
-        a = end_a.loc[ori][["x_deg", "y_deg"]]
-        b = end_b.loc[ori][["x_deg", "y_deg"]]
-        common = a.index.intersection(b.index)
-        out[ori] = (a.loc[common] - b.loc[common]).to_numpy()
-    return out
-
-
-def paired_significance(diff_vectors: dict) -> pd.DataFrame:
-    """Per orientation: paired Hotelling's T^2 test on the (x, y) endpoint
-    difference vectors against H0: mean = (0, 0). Returns orientation,
-    n (paired subjects), p, q (BH-FDR across orientations)."""
     rows = []
-    for ori, diffs in diff_vectors.items():
-        n = len(diffs)
-        p = hotelling_t2_1sample_pvalue(diffs) if n >= 5 else np.nan
-        rows.append(dict(orientation=ori, n=n, p=p))
-    res = pd.DataFrame(rows)
-    q = np.full(len(res), np.nan)
-    valid = res["p"].notna().to_numpy()
+    for ori in sorted(set(end_a.index.get_level_values(0)) & set(end_b.index.get_level_values(0))):
+        a, b = end_a.loc[ori], end_b.loc[ori]
+        for subj in a.index.intersection(b.index):
+            aa, bb = a.loc[subj], b.loc[subj]
+            delta_angle = ((aa["angle_deg"] - bb["angle_deg"] + 180) % 360) - 180
+            rows.append(dict(orientation=ori, subject=subj,
+                              angle_a=aa["angle_deg"], angle_b=bb["angle_deg"],
+                              mag_a=aa["magnitude_deg"], mag_b=bb["magnitude_deg"],
+                              delta_angle=delta_angle, delta_mag=aa["magnitude_deg"] - bb["magnitude_deg"]))
+    return pd.DataFrame(rows)
+
+
+def circular_diff_stats(deltas_deg: np.ndarray, n_boot: int = N_BOOT, ci: float = 95,
+                        seed: int = 1) -> tuple:
+    """Circular mean of per-subject angular differences, bootstrap CI, and
+    a bootstrap two-sided p-value against H0: mean = 0 deg. Also returns R
+    (mean resultant length, 0-1) as a reliability diagnostic — small R
+    means the per-subject differences are scattered around the circle
+    rather than agreeing on a rotation, so the mean itself is noisy (same
+    role the endpoint-magnitude played for the old vector-difference
+    approach, but now a direct property of the angles themselves rather
+    than a side effect of a shrinking vector)."""
+    n = len(deltas_deg)
+    rad = np.radians(deltas_deg)
+    c, s = np.cos(rad).mean(), np.sin(rad).mean()
+    mean_deg = float(np.degrees(np.arctan2(s, c)))
+    R = float(np.hypot(c, s))
+    rng = np.random.default_rng(seed)
+    boot = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        boot[i] = np.degrees(np.arctan2(np.sin(rad[idx]).mean(), np.cos(rad[idx]).mean()))
+    wrapped = ((boot - mean_deg + 180) % 360) - 180  # CI around the observed mean
+    lo_off, hi_off = np.percentile(wrapped, [(100 - ci) / 2, 100 - (100 - ci) / 2])
+    signed_vs_zero = ((boot + 180) % 360) - 180       # p-value: bootstrap distribution vs the fixed value 0
+    p = float(min(1.0, 2 * min((signed_vs_zero <= 0).mean(), (signed_vs_zero >= 0).mean())))
+    return mean_deg, mean_deg + lo_off, mean_deg + hi_off, R, p
+
+
+def linear_diff_stats(deltas: np.ndarray, n_boot: int = N_BOOT, ci: float = 95, seed: int = 2) -> tuple:
+    """Mean of per-subject scalar differences, bootstrap CI, bootstrap
+    two-sided p-value against H0: mean = 0. No circular handling needed —
+    magnitude is a plain non-negative linear quantity."""
+    n = len(deltas)
+    mean_val = float(np.mean(deltas))
+    rng = np.random.default_rng(seed)
+    boot = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        boot[i] = deltas[idx].mean()
+    lo, hi = np.percentile(boot, [(100 - ci) / 2, 100 - (100 - ci) / 2])
+    p = float(min(1.0, 2 * min((boot <= 0).mean(), (boot >= 0).mean())))
+    return mean_val, float(lo), float(hi), p
+
+
+def _fdr(p: pd.Series) -> np.ndarray:
+    q = np.full(len(p), np.nan)
+    valid = p.notna().to_numpy()
     if valid.sum() > 0:
-        q[valid] = multipletests(res.loc[valid, "p"], method="fdr_bh")[1]
-    res["q"] = q
+        q[valid] = multipletests(p[valid], method="fdr_bh")[1]
+    return q
+
+
+def direction_difference_tuning(per_subj_diffs: pd.DataFrame, n_boot: int = N_BOOT,
+                                ci: float = 95) -> pd.DataFrame:
+    """Per orientation: circular mean of each subject's OWN direction
+    difference (A - B) — i.e. the difference of the mean directions,
+    not the angle of the mean difference vector (see module docstring).
+    Well-defined even when the two conditions are nearly identical, unlike
+    the vector-difference approach this replaced, which degenerated to
+    noise whenever the difference vector shrank toward zero."""
+    rows = []
+    for ori, g in per_subj_diffs.groupby("orientation"):
+        if len(g) < 5:
+            continue
+        mean_deg, lo, hi, R, p = circular_diff_stats(g["delta_angle"].to_numpy(), n_boot, ci, seed=1)
+        rows.append(dict(orientation=ori, n=len(g), delta_deg=mean_deg,
+                          delta_lo=lo, delta_hi=hi, R=R, p=p))
+    res = pd.DataFrame(rows)
+    res["q"] = _fdr(res["p"]) if len(res) else []
     return res
 
 
-def difference_tuning(diff_vectors: dict, n_boot: int = N_BOOT, ci: float = 95,
-                      seed: int = 1) -> pd.DataFrame:
-    """Per orientation: angle and magnitude of the mean per-subject (x, y)
-    difference vector (A - B), each with a subject-level bootstrap CI.
-    mean(a_i - b_i) == mean(a_i) - mean(b_i), so this is exactly the
-    "grand_a minus grand_b" difference restricted to paired subjects —
-    same quantity plot_group's two lines would subtract, computed once
-    with its own uncertainty rather than read off two separate bands."""
-    rng = np.random.default_rng(seed)
+def magnitude_difference_tuning(per_subj_diffs: pd.DataFrame, n_boot: int = N_BOOT,
+                                ci: float = 95) -> pd.DataFrame:
+    """Per orientation: mean of each subject's own magnitude difference
+    (A - B), bootstrap CI and bootstrap p-value. A plain paired
+    comparison of a linear scalar — no circular machinery needed."""
     rows = []
-    for ori in sorted(diff_vectors):
-        d = diff_vectors[ori]
-        n = len(d)
-        if n < 5:
+    for ori, g in per_subj_diffs.groupby("orientation"):
+        if len(g) < 5:
             continue
-        mean_vec = d.mean(axis=0)
-        angle = float(np.degrees(np.arctan2(mean_vec[1], mean_vec[0])))
-        mag = float(np.hypot(*mean_vec))
-        boot_angle = np.empty(n_boot)
-        boot_mag = np.empty(n_boot)
-        for i in range(n_boot):
-            idx = rng.integers(0, n, size=n)
-            bm = d[idx].mean(axis=0)
-            boot_angle[i] = np.degrees(np.arctan2(bm[1], bm[0]))
-            boot_mag[i] = np.hypot(*bm)
-        wrapped = ((boot_angle - angle + 180) % 360) - 180
-        a_lo, a_hi = np.percentile(wrapped, [(100 - ci) / 2, 100 - (100 - ci) / 2])
-        m_lo, m_hi = np.percentile(boot_mag, [(100 - ci) / 2, 100 - (100 - ci) / 2])
-        rows.append(dict(orientation=ori, n=n, angle_deg=angle, angle_lo=angle + a_lo,
-                          angle_hi=angle + a_hi, magnitude_deg=mag, mag_lo=m_lo, mag_hi=m_hi))
-    return pd.DataFrame(rows)
+        mean_val, lo, hi, p = linear_diff_stats(g["delta_mag"].to_numpy(), n_boot, ci, seed=2)
+        rows.append(dict(orientation=ori, n=len(g), delta_mag=mean_val, mag_lo=lo, mag_hi=hi, p=p))
+    res = pd.DataFrame(rows)
+    res["q"] = _fdr(res["p"]) if len(res) else []
+    return res
 
 
 def annotate_significance(ax, sig: pd.DataFrame, y_pos: float, color: str):
@@ -302,39 +350,39 @@ def unwrap_reliable_runs(angle_deg: np.ndarray, reliable: np.ndarray) -> np.ndar
     return out
 
 
-def plot_difference(ax_angle, ax_mag, diff_stats: pd.DataFrame, sig: pd.DataFrame,
-                    label_a: str, label_b: str, color: str = "0.15"):
-    diff_sorted = diff_stats.merge(sig[["orientation", "q"]], on="orientation", how="left").sort_values("orientation")
-    reliable = (diff_sorted["q"] < ALPHA).to_numpy()
-    raw_angle = diff_sorted["angle_deg"].to_numpy()  # atan2 output, already in (-180, 180]
+def plot_direction_difference(ax, dstats: pd.DataFrame, color: str = "0.15"):
+    d = dstats.sort_values("orientation")
+    reliable = (d["q"] < ALPHA).to_numpy()
+    raw_angle = d["delta_deg"].to_numpy()  # already in (-180, 180]
 
     angle_y = unwrap_reliable_runs(raw_angle, reliable)
     shift = angle_y - raw_angle  # zero outside reliable runs, by construction
-    lo = diff_sorted["angle_lo"].to_numpy() + shift
-    hi = diff_sorted["angle_hi"].to_numpy() + shift
+    lo = d["delta_lo"].to_numpy() + shift
+    hi = d["delta_hi"].to_numpy() + shift
 
     # Every point gets its own independent error bar — a single point's CI
     # is just two numbers and needs no unwrap logic across neighbours
     # (that was only ever a problem for *connecting* noisy points with a
-    # line). Only the connecting line/shaded band is restricted to
-    # contiguous reliable stretches, since THAT implies a trend.
-    ax_angle.errorbar(diff_sorted["orientation"], angle_y, yerr=[angle_y - lo, hi - angle_y],
-                      fmt="none", ecolor=color, elinewidth=1, alpha=0.5, capsize=0, zorder=3)
+    # line). Only the connecting line is restricted to contiguous
+    # reliable (individually-significant) stretches, since that implies
+    # a trend the data may not actually support.
+    ax.errorbar(d["orientation"], angle_y, yerr=[angle_y - lo, hi - angle_y],
+               fmt="none", ecolor=color, elinewidth=1, alpha=0.5, capsize=0, zorder=3)
     line_y = np.where(reliable, angle_y, np.nan)
-    ax_angle.plot(diff_sorted["orientation"], line_y, color=color, lw=2, zorder=4)
-    ax_angle.scatter(diff_sorted.loc[reliable, "orientation"], angle_y[reliable],
-                     color=color, s=16, zorder=5)
-    ax_angle.scatter(diff_sorted.loc[~reliable, "orientation"], angle_y[~reliable],
-                     facecolor="none", edgecolor=color, linewidth=0.8, s=16, zorder=5)
-    annotate_significance(ax_angle, sig, y_pos=-196, color=color)
+    ax.plot(d["orientation"], line_y, color=color, lw=2, zorder=4)
+    ax.scatter(d.loc[reliable, "orientation"], angle_y[reliable], color=color, s=16, zorder=5)
+    ax.scatter(d.loc[~reliable, "orientation"], angle_y[~reliable],
+              facecolor="none", edgecolor=color, linewidth=0.8, s=16, zorder=5)
+    annotate_significance(ax, dstats, y_pos=-196, color=color)
 
-    ax_mag.axhline(0, color="0.7", lw=0.7, ls="--", zorder=0)
-    ax_mag.fill_between(diff_sorted["orientation"], diff_sorted["mag_lo"], diff_sorted["mag_hi"],
-                        color=color, alpha=0.2, linewidth=0, zorder=2)
-    ax_mag.plot(diff_sorted["orientation"], diff_sorted["magnitude_deg"], color=color, lw=2,
-               marker="o", ms=4, zorder=3)
-    y0, y1 = ax_mag.get_ylim()
-    annotate_significance(ax_mag, sig, y_pos=min(0, y0) - 0.06 * (y1 - y0), color=color)
+
+def plot_magnitude_difference(ax, mstats: pd.DataFrame, color: str = "0.15"):
+    d = mstats.sort_values("orientation")
+    ax.axhline(0, color="0.7", lw=0.7, ls="--", zorder=0)
+    ax.errorbar(d["orientation"], d["delta_mag"], yerr=[d["delta_mag"] - d["mag_lo"], d["mag_hi"] - d["delta_mag"]],
+               fmt="o-", color=color, lw=2, ms=4, ecolor=color, elinewidth=1, capsize=0, zorder=3)
+    y0, y1 = ax.get_ylim()
+    annotate_significance(ax, mstats, y_pos=min(0, y0) - 0.06 * (y1 - y0), color=color)
 
 
 def main():
@@ -370,12 +418,15 @@ def main():
         title = args.title or "Gaze-direction tuning by trial epoch"
 
     n_subj = len(set(agg_a["subjects"]) & set(agg_b["subjects"]))
-    diff_vectors = paired_diff_vectors(agg_a, agg_b)
-    sig = paired_significance(diff_vectors)
-    diff_stats = difference_tuning(diff_vectors)
-    n_sig = int((sig["q"] < ALPHA).sum())
-    print(f"Paired Hotelling's T^2 per orientation (n={len(sig)} orientations tested, "
-          f"FDR q<{ALPHA}): {n_sig}/{len(sig)} significant")
+    per_subj_diffs = paired_per_subject_diffs(agg_a, agg_b)
+    dir_stats = direction_difference_tuning(per_subj_diffs)
+    mag_stats = magnitude_difference_tuning(per_subj_diffs)
+    n_sig_dir = int((dir_stats["q"] < ALPHA).sum())
+    n_sig_mag = int((mag_stats["q"] < ALPHA).sum())
+    print(f"Direction difference, bootstrap test per orientation (n={len(dir_stats)} tested, "
+          f"FDR q<{ALPHA}): {n_sig_dir}/{len(dir_stats)} significant")
+    print(f"Magnitude difference, bootstrap test per orientation (n={len(mag_stats)} tested, "
+          f"FDR q<{ALPHA}): {n_sig_mag}/{len(mag_stats)} significant")
 
     fig, ((ax_angle, ax_mag), (ax_dangle, ax_dmag)) = plt.subplots(
         2, 2, figsize=(9, 8), constrained_layout=True)
@@ -408,7 +459,7 @@ def main():
     for y, ref in ((0, "Right"), (90, "Up"), (-90, "Down"), (180, "Left")):
         ax_angle.axhline(y, color="0.75", lw=0.6, ls="--", zorder=0)
         ax_angle.text(182, y, ref, fontsize=6.5, color="0.4", va="center", ha="left")
-    annotate_significance(ax_angle, sig, y_pos=-196, color="0.15")
+    annotate_significance(ax_angle, dir_stats, y_pos=-196, color="0.15")
     ax_angle.set_xlim(0, 205)
     ax_angle.set_ylim(-200, 200)
     ax_angle.set_title("Endpoint direction (shaded: 95% bootstrap CI)", fontsize=9)
@@ -418,14 +469,15 @@ def main():
     ax_mag.set_xlim(0, 205)
     y0, y1 = ax_mag.get_ylim()
     y_sig = -0.06 * (y1 - y0)
-    annotate_significance(ax_mag, sig, y_pos=y_sig, color="0.15")
+    annotate_significance(ax_mag, mag_stats, y_pos=y_sig, color="0.15")
     ax_mag.set_ylim(bottom=y_sig - 0.02 * (y1 - y0))
     ax_mag.set_xlabel("Grating orientation (deg)")
     ax_mag.set_ylabel("Endpoint displacement (deg)")
     ax_mag.set_title("Endpoint magnitude (shaded: +-1 SEM)", fontsize=9)
     sns.despine(ax=ax_mag, offset=3, trim=True)
 
-    plot_difference(ax_dangle, ax_dmag, diff_stats, sig, label_a, label_b)
+    plot_direction_difference(ax_dangle, dir_stats)
+    plot_magnitude_difference(ax_dmag, mag_stats)
 
     ax_dangle.set_xticks(ori_ticks)
     ax_dangle.set_xlabel("Grating orientation (deg)")
@@ -436,8 +488,8 @@ def main():
         ax_dangle.text(182, y, ref, fontsize=6.5, color="0.4", va="center", ha="left")
     ax_dangle.set_xlim(0, 205)
     ax_dangle.set_ylim(-200, 200)
-    ax_dangle.set_title("Difference in endpoint direction (95% bootstrap CI)\n"
-                        "error bars = per-point 95% CI; line connects only individually-significant runs",
+    ax_dangle.set_title("Difference of mean directions (bootstrap 95% CI)\n"
+                        "error bars = per-point CI; line connects only individually-significant runs",
                         fontsize=8)
     sns.despine(ax=ax_dangle, offset=3, trim=True)
 
@@ -446,13 +498,14 @@ def main():
     dy0, dy1 = ax_dmag.get_ylim()
     ax_dmag.set_ylim(bottom=min(0, dy0) - 0.08 * (dy1 - dy0))  # room for the significance markers
     ax_dmag.set_xlabel("Grating orientation (deg)")
-    ax_dmag.set_ylabel(f"|{label_a} - {label_b}| (deg)")
-    ax_dmag.set_title("Difference vector magnitude (95% bootstrap CI)", fontsize=9)
+    ax_dmag.set_ylabel(f"{label_a} minus {label_b} (deg)")
+    ax_dmag.set_title("Difference of mean magnitudes (bootstrap 95% CI)", fontsize=9)
     sns.despine(ax=ax_dmag, offset=3, trim=True)
 
     fig.suptitle(f"{title} (N={n_subj} subjects in both; dots = individual subjects, "
-                 f"line = grand average; * = FDR q<{ALPHA}, paired Hotelling's T^2 per orientation, "
-                 f"{n_sig}/{len(sig)} orientations)", fontsize=8.2)
+                 f"line = grand average; * = FDR q<{ALPHA}, bootstrap test per orientation — "
+                 f"direction {n_sig_dir}/{len(dir_stats)}, magnitude {n_sig_mag}/{len(mag_stats)})",
+                 fontsize=8.2)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
