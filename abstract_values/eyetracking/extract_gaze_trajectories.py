@@ -31,6 +31,22 @@ screen centre:
     deg = degrees(arctan((offset_px * width_cm / window_width_px) / distance_cm))
 
 y is flipped (EyeLink pixel y grows downward; plots want up = positive).
+Verified against this dataset's own ``DISPLAY_COORDS``/``GAZE_COORDS`` .asc
+messages (``0 0 1920 1080``, top-left origin) rather than assumed.
+
+Sample-level QC
+----------------
+EyeLink occasionally emits numeric (non-``.``) samples during partial
+blinks/track loss that are wildly outside the physical display — this
+dataset had raw pixel x in [-1130, 3270] against a 1920 px wide screen.
+``reject_offscreen`` NaNs out anything outside [-10%, 110%] of the screen
+bounds before interpolation, so a track-loss artifact can't drag a
+straight-line spike across an otherwise-clean trajectory. Per-trial
+``n_samples``/``frac_valid`` are also written out (same convention as
+extract_gaze_dispersion.py) so a downstream min-validity filter (e.g.
+frac_valid >= 0.5) can drop trials that were mostly blinks — filtering
+happens at load time, not here, matching how eu_vs_behavior.py's
+load_gaze_dispersion() does it for the dispersion TSV.
 
 Orientation is read from the sibling events.tsv (edf stem + ``_events.tsv``),
 column ``orientation`` — constant per trial_nr (see CLAUDE.md "clean
@@ -72,13 +88,32 @@ from abstract_values.eyetracking.extract_gaze_dispersion import (
     parse_samples,
 )
 
-N_RESAMPLE = 20  # points per trial, normalized time 0..1 across the response_bar window
+N_RESAMPLE = 20        # points per trial, normalized time 0..1 across the response_bar window
+OFFSCREEN_MARGIN = 0.1  # samples beyond [-10%, 110%] of screen bounds are tracker artifacts, not gaze
 
 
 def pix2deg(offset_px: np.ndarray, width_cm: float, width_px: int, distance_cm: float) -> np.ndarray:
     """Visual angle (deg) of a pixel offset from screen centre (flat-screen exact formula)."""
     offset_cm = offset_px * (width_cm / width_px)
     return np.degrees(np.arctan(offset_cm / distance_cm))
+
+
+def reject_offscreen(xs: np.ndarray, ys: np.ndarray, w_px: int, h_px: int) -> tuple:
+    """NaN-out samples physically impossible on the actual screen.
+
+    EyeLink occasionally emits numeric (non-'.') samples during partial
+    blinks / track loss that are wildly outside the display — e.g. a real
+    file in this dataset had x in [-1130, 3270] against a 1920 px wide
+    screen. These are not gaze, and unlike '.' (already NaN) they were
+    silently passing through resample_trial's interpolation, dragging
+    straight-line artifacts across otherwise-clean trajectories.
+    """
+    x_lo, x_hi = -OFFSCREEN_MARGIN * w_px, w_px * (1 + OFFSCREEN_MARGIN)
+    y_lo, y_hi = -OFFSCREEN_MARGIN * h_px, h_px * (1 + OFFSCREEN_MARGIN)
+    bad = (xs < x_lo) | (xs > x_hi) | (ys < y_lo) | (ys > y_hi)
+    xs, ys = xs.copy(), ys.copy()
+    xs[bad], ys[bad] = np.nan, np.nan
+    return xs, ys
 
 
 def load_geometry(expsettings_path: Path) -> tuple[float, float, int, int]:
@@ -125,6 +160,7 @@ def process_run(edf_path: Path, tmp_dir: Path, subject: str, session: int,
 
         onsets = parse_phase_onsets(msg_asc)
         times, xs, ys = parse_samples(samp_asc)
+        xs, ys = reject_offscreen(xs, ys, w_px, h_px)
         x_deg = pix2deg(xs - w_px / 2, width_cm, w_px, distance_cm)
         y_deg = pix2deg(h_px / 2 - ys, width_cm, w_px, distance_cm)  # flip: pixel y grows downward
 
@@ -135,6 +171,9 @@ def process_run(edf_path: Path, tmp_dir: Path, subject: str, session: int,
             if t0 is None or t1 is None or t1 <= t0 or trial_nr not in orientations.index:
                 continue
             mask = (times >= t0) & (times < t1)
+            n = int(mask.sum())
+            valid = np.isfinite(x_deg[mask]) & np.isfinite(y_deg[mask])
+            frac_valid = float(valid.mean()) if n else 0.0
             resampled = resample_trial(times[mask].astype(float), x_deg[mask], y_deg[mask])
             if resampled is None:
                 continue
@@ -143,7 +182,8 @@ def process_run(edf_path: Path, tmp_dir: Path, subject: str, session: int,
             for i in range(N_RESAMPLE):
                 rows.append(dict(subject=subject, session=session, mapping=mapping, run=run,
                                   trial_nr=trial_nr, orientation=orientation,
-                                  sample_idx=i, x_deg=x_rs[i], y_deg=y_rs[i]))
+                                  sample_idx=i, x_deg=x_rs[i], y_deg=y_rs[i],
+                                  n_samples=n, frac_valid=frac_valid))
     finally:
         msg_asc.unlink(missing_ok=True)
         samp_asc.unlink(missing_ok=True)
