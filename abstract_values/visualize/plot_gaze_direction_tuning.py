@@ -227,20 +227,61 @@ def _fdr(p: pd.Series) -> np.ndarray:
     return q
 
 
+ORI_PERIOD = 180.0  # grating orientation is axis-symmetric (0 deg == 180 deg)
+
+
+def circular_mean_deg(values_deg: np.ndarray) -> float:
+    rad = np.radians(values_deg)
+    return float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())))
+
+
+def circular_orientation_distance(a: np.ndarray, b: float, period: float = ORI_PERIOD) -> np.ndarray:
+    d = np.abs(a - b) % period
+    return np.minimum(d, period - d)
+
+
+def _pooled_per_subject(per_subj_diffs: pd.DataFrame, ori: float, col: str,
+                        orientation_window_deg: float, circular: bool) -> pd.Series:
+    """Values of `col` at a single orientation, or — if orientation_window_deg > 0 —
+    pooled across neighbouring orientations within that window (circular
+    distance, wrapped at ORI_PERIOD, so 172.5 and 7.5 deg count as close).
+    Averaged WITHIN subject first so each subject contributes exactly one
+    value regardless of how many orientations fell in the window — pooling
+    without this step would let subjects with more usable orientations
+    dominate the bootstrap (pseudoreplication)."""
+    if orientation_window_deg > 0:
+        dist = circular_orientation_distance(per_subj_diffs["orientation"].to_numpy(), ori)
+        window = per_subj_diffs.loc[dist <= orientation_window_deg]
+        if circular:
+            return window.groupby("subject")[col].apply(lambda x: circular_mean_deg(x.to_numpy()))
+        return window.groupby("subject")[col].mean()
+    g = per_subj_diffs.loc[per_subj_diffs["orientation"] == ori]
+    return g.set_index("subject")[col]
+
+
 def direction_difference_tuning(per_subj_diffs: pd.DataFrame, n_boot: int = N_BOOT,
-                                ci: float = 95) -> pd.DataFrame:
+                                ci: float = 95, orientation_window_deg: float = 0.0) -> pd.DataFrame:
     """Per orientation: circular mean of each subject's OWN direction
     difference (A - B) — i.e. the difference of the mean directions,
     not the angle of the mean difference vector (see module docstring).
     Well-defined even when the two conditions are nearly identical, unlike
     the vector-difference approach this replaced, which degenerated to
-    noise whenever the difference vector shrank toward zero."""
+    noise whenever the difference vector shrank toward zero.
+
+    orientation_window_deg > 0 pools neighbouring orientations (circular
+    distance, mod ORI_PERIOD) before averaging — each independent
+    per-orientation point has substantial sampling noise (n~25 subjects,
+    ~15 trials each), which can obscure a real, smooth trend across
+    orientation; 0 (default) reproduces the original unsmoothed behaviour.
+    """
     rows = []
-    for ori, g in per_subj_diffs.groupby("orientation"):
-        if len(g) < 5:
+    for ori in sorted(per_subj_diffs["orientation"].unique()):
+        per_subject = _pooled_per_subject(per_subj_diffs, ori, "delta_angle",
+                                          orientation_window_deg, circular=True)
+        if len(per_subject) < 5:
             continue
-        mean_deg, lo, hi, R, p = circular_diff_stats(g["delta_angle"].to_numpy(), n_boot, ci, seed=1)
-        rows.append(dict(orientation=ori, n=len(g), delta_deg=mean_deg,
+        mean_deg, lo, hi, R, p = circular_diff_stats(per_subject.to_numpy(), n_boot, ci, seed=1)
+        rows.append(dict(orientation=ori, n=len(per_subject), delta_deg=mean_deg,
                           delta_lo=lo, delta_hi=hi, R=R, p=p))
     res = pd.DataFrame(rows)
     res["q"] = _fdr(res["p"]) if len(res) else []
@@ -248,16 +289,19 @@ def direction_difference_tuning(per_subj_diffs: pd.DataFrame, n_boot: int = N_BO
 
 
 def magnitude_difference_tuning(per_subj_diffs: pd.DataFrame, n_boot: int = N_BOOT,
-                                ci: float = 95) -> pd.DataFrame:
+                                ci: float = 95, orientation_window_deg: float = 0.0) -> pd.DataFrame:
     """Per orientation: mean of each subject's own magnitude difference
     (A - B), bootstrap CI and bootstrap p-value. A plain paired
-    comparison of a linear scalar — no circular machinery needed."""
+    comparison of a linear scalar — no circular machinery needed.
+    orientation_window_deg: see direction_difference_tuning."""
     rows = []
-    for ori, g in per_subj_diffs.groupby("orientation"):
-        if len(g) < 5:
+    for ori in sorted(per_subj_diffs["orientation"].unique()):
+        per_subject = _pooled_per_subject(per_subj_diffs, ori, "delta_mag",
+                                          orientation_window_deg, circular=False)
+        if len(per_subject) < 5:
             continue
-        mean_val, lo, hi, p = linear_diff_stats(g["delta_mag"].to_numpy(), n_boot, ci, seed=2)
-        rows.append(dict(orientation=ori, n=len(g), delta_mag=mean_val, mag_lo=lo, mag_hi=hi, p=p))
+        mean_val, lo, hi, p = linear_diff_stats(per_subject.to_numpy(), n_boot, ci, seed=2)
+        rows.append(dict(orientation=ori, n=len(per_subject), delta_mag=mean_val, mag_lo=lo, mag_hi=hi, p=p))
     res = pd.DataFrame(rows)
     res["q"] = _fdr(res["p"]) if len(res) else []
     return res
@@ -399,6 +443,10 @@ def main():
     p.add_argument("--show-bar-prediction", action="store_true",
                    help="Overlay the theoretical angle-vs-orientation curves predicted if gaze "
                         "is biased parallel / perpendicular to the grating bars.")
+    p.add_argument("--orientation-smooth-deg", type=float, default=0.0,
+                   help="Pool neighbouring orientations within this circular distance (deg) before "
+                        "computing the difference-of-directions/magnitude curves. 0 (default) = "
+                        "no smoothing (independent per-orientation points, as before).")
     p.add_argument("--out", default="notes/figures/gaze_direction_tuning.pdf")
     args = p.parse_args()
 
@@ -419,8 +467,8 @@ def main():
 
     n_subj = len(set(agg_a["subjects"]) & set(agg_b["subjects"]))
     per_subj_diffs = paired_per_subject_diffs(agg_a, agg_b)
-    dir_stats = direction_difference_tuning(per_subj_diffs)
-    mag_stats = magnitude_difference_tuning(per_subj_diffs)
+    dir_stats = direction_difference_tuning(per_subj_diffs, orientation_window_deg=args.orientation_smooth_deg)
+    mag_stats = magnitude_difference_tuning(per_subj_diffs, orientation_window_deg=args.orientation_smooth_deg)
     n_sig_dir = int((dir_stats["q"] < ALPHA).sum())
     n_sig_mag = int((mag_stats["q"] < ALPHA).sum())
     print(f"Direction difference, bootstrap test per orientation (n={len(dir_stats)} tested, "
@@ -488,7 +536,9 @@ def main():
         ax_dangle.text(182, y, ref, fontsize=6.5, color="0.4", va="center", ha="left")
     ax_dangle.set_xlim(0, 205)
     ax_dangle.set_ylim(-200, 200)
-    ax_dangle.set_title("Difference of mean directions (bootstrap 95% CI)\n"
+    smooth_note = (f", {args.orientation_smooth_deg:g} deg orientation-pooled"
+                   if args.orientation_smooth_deg > 0 else "")
+    ax_dangle.set_title(f"Difference of mean directions (bootstrap 95% CI{smooth_note})\n"
                         "error bars = per-point CI; line connects only individually-significant runs",
                         fontsize=8)
     sns.despine(ax=ax_dangle, offset=3, trim=True)
@@ -499,7 +549,7 @@ def main():
     ax_dmag.set_ylim(bottom=min(0, dy0) - 0.08 * (dy1 - dy0))  # room for the significance markers
     ax_dmag.set_xlabel("Grating orientation (deg)")
     ax_dmag.set_ylabel(f"{label_a} minus {label_b} (deg)")
-    ax_dmag.set_title("Difference of mean magnitudes (bootstrap 95% CI)", fontsize=9)
+    ax_dmag.set_title(f"Difference of mean magnitudes (bootstrap 95% CI{smooth_note})", fontsize=9)
     sns.despine(ax=ax_dmag, offset=3, trim=True)
 
     fig.suptitle(f"{title} (N={n_subj} subjects in both; dots = individual subjects, "
