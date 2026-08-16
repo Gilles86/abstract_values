@@ -37,12 +37,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy.ndimage import gaussian_filter1d
 
 from abstract_values.visualize.plot_gaze_direction_tuning import circular_diff_stats, linear_diff_stats
 
 MAX_AMPLITUDE_DEG = 1.0   # standard micro- vs regular-saccade cutoff
 MIN_EVENTS_PER_CELL = 5   # minimum microsaccades for a subject x condition mean direction to count
-N_BINS = 24               # 15 deg polar-histogram bins
+N_BINS = 72               # fine base resolution (5 deg/bin) for the histogram BEFORE smoothing
+SMOOTH_DEG = 20.0         # circular Gaussian smoothing bandwidth (SD, in degrees)
 PALETTE = ["#3B5BA5", "#C44E52"]
 
 
@@ -62,16 +64,35 @@ def per_subject_condition_stats(df: pd.DataFrame, cond_col: str) -> pd.DataFrame
     return pd.DataFrame(rows)
 
 
-def polar_histogram(ax, directions_deg: np.ndarray, color: str, label: str, n_bins: int = N_BINS):
+def circular_smoothed_density(directions_deg: np.ndarray, n_bins: int = N_BINS,
+                              smooth_deg: float = SMOOTH_DEG) -> tuple:
+    """Fine-grained circular histogram (n_bins over 360 deg) smoothed with
+    a wrap-around Gaussian (scipy's mode='wrap' handles the branch cut at
+    +-180 deg correctly — a raw bar histogram at 15 deg/bin is too choppy
+    to see broad structure like an up/down asymmetry against per-bin
+    sampling noise). Returns (bin_centre_theta_rad, density) where density
+    integrates to 1 over the circle (still a proper density, not just a
+    smoothed count)."""
     edges = np.linspace(-180, 180, n_bins + 1)
     counts, _ = np.histogram(directions_deg, bins=edges)
-    density = counts / counts.sum()  # proportion, comparable across conditions with different N
+    bin_width_deg = 360.0 / n_bins
+    sigma_bins = smooth_deg / bin_width_deg
+    smoothed = gaussian_filter1d(counts.astype(float), sigma=sigma_bins, mode="wrap")
+    density = smoothed / (smoothed.sum() * np.radians(bin_width_deg))  # density per radian
     theta = np.radians((edges[:-1] + edges[1:]) / 2)
-    width = np.radians(edges[1] - edges[0]) * 0.85
-    ax.bar(theta, density, width=width, color=color, alpha=0.55, edgecolor="none",
-          label=f"{label} (n={len(directions_deg)})", zorder=2)
+    return theta, density
+
+
+def polar_density(ax, directions_deg: np.ndarray, color: str, label: str, smooth_deg: float = SMOOTH_DEG):
+    theta, density = circular_smoothed_density(directions_deg, smooth_deg=smooth_deg)
+    # close the curve (wrap last point back to first) so fill/plot don't leave a gap at the seam
+    theta_closed = np.append(theta, theta[0])
+    density_closed = np.append(density, density[0])
+    ax.plot(theta_closed, density_closed, color=color, lw=1.8, zorder=3,
+           label=f"{label} (n={len(directions_deg)})")
+    ax.fill(theta_closed, density_closed, color=color, alpha=0.25, zorder=2)
     mean_dir = np.radians(circular_mean_deg(directions_deg))
-    ax.plot([mean_dir, mean_dir], [0, density.max() * 1.15], color=color, lw=2.2, zorder=3)
+    ax.plot([mean_dir, mean_dir], [0, density.max() * 1.15], color=color, lw=2.2, zorder=4)
 
 
 def main():
@@ -82,6 +103,8 @@ def main():
     p.add_argument("--label-a", default="cdf")
     p.add_argument("--label-b", default="inverse_cdf")
     p.add_argument("--max-amplitude", type=float, default=MAX_AMPLITUDE_DEG)
+    p.add_argument("--smooth-deg", type=float, default=SMOOTH_DEG,
+                   help="Circular Gaussian smoothing bandwidth (SD, degrees) for the direction density.")
     p.add_argument("--out", default="notes/figures/microsaccade_directions_mapping.pdf")
     args = p.parse_args()
 
@@ -112,13 +135,14 @@ def main():
     ax_hist.set_theta_direction(1)
     dir_a = df.loc[df[args.cond_col] == args.label_a, "direction_deg"].to_numpy()
     dir_b = df.loc[df[args.cond_col] == args.label_b, "direction_deg"].to_numpy()
-    polar_histogram(ax_hist, dir_a, PALETTE[0], args.label_a)
-    polar_histogram(ax_hist, dir_b, PALETTE[1], args.label_b)
+    polar_density(ax_hist, dir_a, PALETTE[0], args.label_a, smooth_deg=args.smooth_deg)
+    polar_density(ax_hist, dir_b, PALETTE[1], args.label_b, smooth_deg=args.smooth_deg)
     ax_hist.set_xticks(np.radians([0, 90, 180, 270]))
     ax_hist.set_xticklabels(["Right", "Up", "Left", "Down"], fontsize=8)
     ax_hist.set_yticklabels([])
     ax_hist.legend(loc="upper right", bbox_to_anchor=(1.35, 1.15), fontsize=7.5, frameon=False)
-    ax_hist.set_title("Microsaccade directions\n(pooled trials/orientations; radial line = group mean)",
+    ax_hist.set_title(f"Microsaccade directions (circular Gaussian smoothed, SD={args.smooth_deg:g} deg)\n"
+                      "(pooled trials/orientations; radial line = group mean)",
                       fontsize=9)
 
     ax_scatter = fig.add_subplot(1, 2, 2)
