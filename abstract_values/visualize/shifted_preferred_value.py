@@ -74,7 +74,6 @@ sns.set_context("paper")
 DERIV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf-session-shift"
 DERIV_SHIFT_CV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf-shift.cv"
 DERIV_NULL_CV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf-null.cv"
-DERIV_STANDARD_CV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf.cv"
 DEFAULT_OUT = Path(BIDS_FOLDER) / "derivatives" / "qa" / "shifted_preferred_value.pdf"
 
 # Condition palette — matches behavior notebook
