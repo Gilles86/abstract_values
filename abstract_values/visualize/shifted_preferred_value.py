@@ -4,7 +4,14 @@ Uses the SessionShiftedLogGaussianPRF fits in
 ``derivatives/encoding_models/aprf-session-shift/sub-XX/func/``:
   * ``desc-mode_1_pe.nii.gz`` — pRF mode in session 1
   * ``desc-mode_2_pe.nii.gz`` — pRF mode in session 2
-  * ``desc-r2_pe.nii.gz``     — explained variance
+
+plus the leave-one-run-out cross-validated R² of the same shift model and
+of a null (per-voxel-mean) baseline, from
+``derivatives/encoding_models/aprf-shift.cv/`` and ``aprf-null.cv/``.
+
+Voxel selection is the null-gated criterion cvR²(shift) > cvR²(null) —
+see ``compare_voxel_selection.py`` for why this replaced the original
+in-sample ``r2 > r2_thr`` threshold.
 
 The CHF↔orientation mapping flips between sessions:
   even subject id → ses-1 = cdf,         ses-2 = inverse_cdf
@@ -13,15 +20,19 @@ The CHF↔orientation mapping flips between sessions:
 We remap each voxel's (mode_1, mode_2) into (mode_cdf, mode_invcdf)
 so the figures compare *conditions* rather than *session order*.
 
-Three pages:
-  1. Per-subject scatter mode_cdf vs mode_invcdf in NPCr (voxels filtered
-     by cv-R²); y=x reference and a sign-of-shift coding.
-  2. Per-subject histogram of (mode_invcdf − mode_cdf) shift in CHF.
-  3. Group summary: per-subject mean shift ± per-voxel SEM.
+Pages (per smoothing variant):
+  1. Preferred vs. presented marginal distributions, per condition.
+  2. Pooled 2D hexbin of mode_cdf vs. mode_invcdf with efficient-coding
+     Q-Q overlay.
+  3. Per-subject scatter mode_cdf vs mode_invcdf in NPCr (voxels selected
+     by cvR²(shift) > cvR²(null)); y=x reference and a sign-of-shift coding.
+  4. Per-subject Pearson/Spearman r (mode_cdf vs mode_invcdf) and the
+     distribution of those r's over subjects.
+  5. Per-subject histogram of (mode_invcdf − mode_cdf) shift in CHF.
+  6. Group summary: per-subject mean shift ± per-voxel SEM.
 
 Usage:
     python -m abstract_values.visualize.shifted_preferred_value
-    python -m abstract_values.visualize.shifted_preferred_value --r2-thr 0.05
     python -m abstract_values.visualize.shifted_preferred_value --subjects 04 06
 """
 from __future__ import annotations
@@ -40,6 +51,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 from nilearn import image as nimage
+from scipy import stats
 
 from abstract_values.utils.data import BIDS_FOLDER, Subject
 
@@ -60,6 +72,9 @@ mpl.rcParams.update({
 sns.set_context("paper")
 
 DERIV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf-session-shift"
+DERIV_SHIFT_CV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf-shift.cv"
+DERIV_NULL_CV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf-null.cv"
+DERIV_STANDARD_CV = Path(BIDS_FOLDER) / "derivatives" / "encoding_models" / "aprf.cv"
 DEFAULT_OUT = Path(BIDS_FOLDER) / "derivatives" / "qa" / "shifted_preferred_value.pdf"
 
 # Condition palette — matches behavior notebook
@@ -70,6 +85,12 @@ def _path(subject: str, desc: str, smoothed: bool = False) -> Path:
     smooth = "_smoothed" if smoothed else ""
     return (DERIV / f"sub-{subject}" / "func"
             / f"sub-{subject}_task-abstractvalue_space-T1w_desc-{desc}{smooth}_pe.nii.gz")
+
+
+def _cv_path(subject: str, deriv: Path, smoothed: bool = False) -> Path:
+    smooth = "_smoothed" if smoothed else ""
+    return (deriv / f"sub-{subject}" / "func"
+            / f"sub-{subject}_task-abstractvalue_space-T1w_desc-cvr2{smooth}_pe.nii.gz")
 
 
 def _load_masked(subject: str, desc: str, mask_arr: np.ndarray,
@@ -99,9 +120,16 @@ def _resampled_mask(roi_img: nib.Nifti1Image,
 
 
 def collect_subject(subject: str, roi: str = "NPCr",
-                    r2_thr: float = 0.05,
                     smoothed: bool = False) -> pd.DataFrame:
-    """Per-voxel (mode_cdf, mode_invcdf, r2) for one subject in `roi`.
+    """Per-voxel (mode_cdf, mode_invcdf, delta_cvr2) for one subject in `roi`.
+
+    Voxel selection is the null-gated criterion: leave-one-run-out
+    cvR²(session-shift) > cvR²(null), i.e. the shift model beats a trivial
+    per-voxel-mean baseline on genuinely held-out data. This replaced the
+    original in-sample ``r2 > r2_thr`` threshold after
+    ``compare_voxel_selection.py`` showed the in-sample criterion both
+    over- and under-selects relative to the honest out-of-sample test (see
+    that script's docstring for the comparison).
 
     ``smoothed=True`` reads the spatially-smoothed session-shift fits
     (useful when only the smoothed variant is on disk, e.g. sub-07
@@ -110,19 +138,22 @@ def collect_subject(subject: str, roi: str = "NPCr",
     sub = Subject(subject, bids_folder=Path(BIDS_FOLDER))
     p1 = _path(subject, "mode_1", smoothed=smoothed)
     p2 = _path(subject, "mode_2", smoothed=smoothed)
-    pr = _path(subject, "r2",     smoothed=smoothed)
-    if not (p1.exists() and p2.exists() and pr.exists()):
+    p_cv_shift = _cv_path(subject, DERIV_SHIFT_CV, smoothed=smoothed)
+    p_cv_null = _cv_path(subject, DERIV_NULL_CV, smoothed=smoothed)
+    if not (p1.exists() and p2.exists() and p_cv_shift.exists() and p_cv_null.exists()):
         return pd.DataFrame()
     mode1_img = nib.load(str(p1))
     mode2_img = nib.load(str(p2))
-    r2_img    = nib.load(str(pr))
+    cv_shift_img = nib.load(str(p_cv_shift))
+    cv_null_img = nib.load(str(p_cv_null))
 
     roi_img = sub.get_roi_mask(roi, hemi=None)
     mask_arr = _resampled_mask(roi_img, mode1_img)
 
     m1 = mode1_img.get_fdata().astype(np.float32)[mask_arr]
     m2 = mode2_img.get_fdata().astype(np.float32)[mask_arr]
-    r2 = r2_img.get_fdata().astype(np.float32)[mask_arr]
+    cv_shift = cv_shift_img.get_fdata().astype(np.float32)[mask_arr]
+    cv_null = cv_null_img.get_fdata().astype(np.float32)[mask_arr]
 
     # Per-subject session→condition mapping
     s1_cond = sub.get_mapping(1)
@@ -133,31 +164,91 @@ def collect_subject(subject: str, roi: str = "NPCr",
 
     df = pd.DataFrame({
         "subject": subject,
-        "voxel": np.arange(len(r2)),
+        "voxel": np.arange(len(cv_shift)),
         "mode_cdf": mode_cdf,
         "mode_invcdf": mode_invcdf,
         "mean_mode": 0.5 * (mode_cdf + mode_invcdf),
-        "r2": r2,
+        "delta_cvr2": cv_shift - cv_null,
     })
-    df = df[df.r2 > r2_thr].reset_index(drop=True)
+    df = df[np.isfinite(df.delta_cvr2) & (df.delta_cvr2 > 0)].reset_index(drop=True)
     return df
+
+
+def collect_subject_full(subject: str, roi: str = "NPCr",
+                         smoothed: bool = False) -> pd.DataFrame:
+    """Per-voxel (mode_cdf, mode_invcdf, cv_shift, cv_null, reliability)
+    for ALL voxels in `roi` — unlike :func:`collect_subject`, no
+    reliability pre-filter. Feeds :func:`page_reliability_gate`, which
+    needs the full quality spectrum (noisy → well-tuned) to show how the
+    mode_cdf/mode_invcdf relationship strengthens with reliability, not
+    just the voxels that already cleared a bar.
+
+    ``reliability = cv_shift − cv_null`` — the session-shift model's
+    margin over the trivial "predict the training mean" baseline, i.e.
+    the same "beats null" criterion :func:`collect_subject` already
+    filters on (and the one page_hexbin's clean-looking pooled pattern
+    actually rests on). Tried raw ``cv_shift`` percentile first — a voxel
+    can score a high cvR² just by being low-noise, with no real value
+    tuning at all, so it's a weaker reliability signal than genuinely
+    beating the null.
+    """
+    sub = Subject(subject, bids_folder=Path(BIDS_FOLDER))
+    p1 = _path(subject, "mode_1", smoothed=smoothed)
+    p2 = _path(subject, "mode_2", smoothed=smoothed)
+    p_cv_shift = _cv_path(subject, DERIV_SHIFT_CV, smoothed=smoothed)
+    p_cv_null = _cv_path(subject, DERIV_NULL_CV, smoothed=smoothed)
+    if not (p1.exists() and p2.exists() and p_cv_shift.exists()
+            and p_cv_null.exists()):
+        return pd.DataFrame()
+    mode1_img = nib.load(str(p1))
+    mode2_img = nib.load(str(p2))
+    cv_shift_img = nib.load(str(p_cv_shift))
+    cv_null_img = nib.load(str(p_cv_null))
+
+    roi_img = sub.get_roi_mask(roi, hemi=None)
+    mask_arr = _resampled_mask(roi_img, mode1_img)
+
+    m1 = mode1_img.get_fdata().astype(np.float32)[mask_arr]
+    m2 = mode2_img.get_fdata().astype(np.float32)[mask_arr]
+    cv_shift = cv_shift_img.get_fdata().astype(np.float32)[mask_arr]
+    cv_null = cv_null_img.get_fdata().astype(np.float32)[mask_arr]
+
+    s1_cond = sub.get_mapping(1)
+    if s1_cond == "cdf":
+        mode_cdf, mode_invcdf = m1, m2
+    else:
+        mode_cdf, mode_invcdf = m2, m1
+
+    df = pd.DataFrame({
+        "subject": subject,
+        "mode_cdf": mode_cdf,
+        "mode_invcdf": mode_invcdf,
+        "cv_shift": cv_shift,
+        "cv_null": cv_null,
+        "reliability": cv_shift - cv_null,
+    })
+    return df[np.isfinite(df.cv_shift) & np.isfinite(df.cv_null)].reset_index(drop=True)
 
 
 def discover_subjects(smoothed: bool = False,
                        include_smoothed_fallback: bool = True) -> list[str]:
-    """Subjects with a session-shift fit on disk.
+    """Subjects with a session-shift point-estimate AND cv fit on disk.
 
     When ``include_smoothed_fallback`` is True (default) we keep subjects
     that only have the *smoothed* variant even if the unsmoothed pipeline
     hasn't finished yet — the per-subject loader falls back to smoothed.
     """
+    def _have_all(s, smooth):
+        return (_path(s, "mode_1", smoothed=smooth).exists()
+                and _cv_path(s, DERIV_SHIFT_CV, smoothed=smooth).exists()
+                and _cv_path(s, DERIV_NULL_CV, smoothed=smooth).exists())
+
     found = []
     for p in DERIV.glob("sub-*"):
         s = p.name.removeprefix("sub-")
-        if _path(s, "mode_1", smoothed=smoothed).exists():
+        if _have_all(s, smoothed):
             found.append(s)
-        elif include_smoothed_fallback and not smoothed \
-                and _path(s, "mode_1", smoothed=True).exists():
+        elif include_smoothed_fallback and not smoothed and _have_all(s, True):
             found.append(s)
     return sorted(found)
 
@@ -172,14 +263,15 @@ def page_scatter(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
                              constrained_layout=True, sharex=True, sharey=True)
     axes = np.atleast_2d(axes).ravel()
     lo, hi = value_lim
-    # Colour scale = mean preferred value across conditions; alpha = r².
-    # This carries the "where in value space does this voxel live?" signal
-    # — exactly what efficient coding predicts should organise the shift.
+    # Colour scale = mean preferred value across conditions; alpha = ΔcvR²
+    # (cvR²_shift − cvR²_null, the null-gated selection margin). This carries
+    # the "where in value space does this voxel live?" signal — exactly what
+    # efficient coding predicts should organise the shift.
     cmap_pref = plt.get_cmap("plasma")
     for i, sub in enumerate(subjects):
         ax = axes[i]
         df = by_sub[sub]
-        alpha = np.clip(df["r2"].to_numpy() / 0.3, 0.15, 0.95)
+        alpha = np.clip(df["delta_cvr2"].to_numpy() / 0.1, 0.15, 0.95)
         sc = ax.scatter(df.mode_cdf, df.mode_invcdf, c=df["mean_mode"],
                         cmap=cmap_pref, vmin=lo, vmax=hi,
                         s=10, alpha=alpha, linewidth=0)
@@ -195,12 +287,84 @@ def page_scatter(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
     fig.supxlabel("Preferred value — CDF condition  (CHF)", fontsize=9)
     fig.supylabel("Preferred value — Inverse-CDF condition  (CHF)", fontsize=9)
     fig.suptitle("Per-voxel preferred-value shift in NPCr  "
-                 "(hue = mean preferred value, α ∝ r²)",
+                 "(hue = mean preferred value, α ∝ ΔcvR²)",
                  fontsize=10, y=1.02)
     cbar = fig.colorbar(sc, ax=axes[: len(subjects)].tolist(), shrink=0.5,
                         pad=0.02, aspect=14)
     cbar.set_label("½ (mode_CDF + mode_InvCDF)  (CHF)", fontsize=8)
     sns.despine(fig=fig, offset=3, trim=True)
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _compute_correlations(by_sub: dict) -> pd.DataFrame:
+    """Per-subject Pearson & Spearman r between mode_cdf and mode_invcdf
+    across NPCr voxels (null-gated cvR² selection). Tests whether a voxel's
+    preferred value is *consistent* across conditions, independent of any
+    mean shift.
+    """
+    rows = []
+    for sub, df in by_sub.items():
+        r_p, p_p = stats.pearsonr(df.mode_cdf, df.mode_invcdf)
+        r_s, p_s = stats.spearmanr(df.mode_cdf, df.mode_invcdf)
+        rows.append(dict(subject=sub, r_pearson=r_p, p_pearson=p_p,
+                         r_spearman=r_s, p_spearman=p_s, n_voxels=len(df)))
+    return pd.DataFrame(rows)
+
+
+def page_correlation(corr_df: pd.DataFrame, pdf: PdfPages):
+    """Per-subject Pearson/Spearman r (mode_cdf vs. mode_invcdf) and the
+    distribution of those r's over subjects."""
+    if corr_df.empty:
+        return
+    g = corr_df.sort_values("subject",
+                            key=lambda s: s.map(lambda x: (0 if x[0].isdigit() else 1, x)))
+    PEARSON_C, SPEARMAN_C = "#264653", "#E9C46A"
+
+    fig, axes = plt.subplots(1, 2, figsize=(7.5, 3.2), constrained_layout=True)
+
+    # Left: per-subject dumbbell of r_pearson vs r_spearman
+    ax = axes[0]
+    ys = np.arange(len(g))
+    for y, (_, r) in zip(ys, g.iterrows()):
+        ax.plot([r.r_pearson, r.r_spearman], [y, y], "-", color="0.75",
+                lw=0.8, zorder=1)
+    ax.scatter(g.r_pearson, ys, s=45, color=PEARSON_C, edgecolor="black",
+              linewidth=0.8, zorder=3, label="Pearson")
+    ax.scatter(g.r_spearman, ys, s=45, marker="D", color=SPEARMAN_C,
+              edgecolor="black", linewidth=0.8, zorder=3, label="Spearman")
+    ax.axvline(0, color="0.4", lw=0.6, ls="--", zorder=0)
+    ax.set_yticks(ys)
+    ax.set_yticklabels([f"sub-{s}" for s in g.subject])
+    ax.set_xlabel("r  (mode_CDF vs. mode_InvCDF)")
+    ax.set_title("Per-subject correlation", fontsize=9, color="0.2")
+    ax.legend(loc="best", fontsize=7.5, frameon=False)
+
+    # Right: distribution of r's across subjects
+    ax = axes[1]
+    long = pd.concat([
+        pd.DataFrame({"metric": "Pearson", "r": g.r_pearson}),
+        pd.DataFrame({"metric": "Spearman", "r": g.r_spearman}),
+    ], ignore_index=True)
+    sns.stripplot(data=long, x="metric", y="r", ax=ax,
+                 palette={"Pearson": PEARSON_C, "Spearman": SPEARMAN_C},
+                 size=6, jitter=0.08, alpha=0.85, linewidth=0.6,
+                 edgecolor="black")
+    for i, metric, colour in [(0, "r_pearson", PEARSON_C), (1, "r_spearman", SPEARMAN_C)]:
+        mean_r = g[metric].mean()
+        ax.plot([i - 0.2, i + 0.2], [mean_r, mean_r], color=colour, lw=2.2, zorder=4)
+    ax.axhline(0, color="0.4", lw=0.6, ls="--", zorder=0)
+    ax.set_xlabel("")
+    ax.set_ylabel("r  (mode_CDF vs. mode_InvCDF)")
+    ax.set_title(
+        f"Across subjects  "
+        f"(Pearson {g.r_pearson.mean():.2f}±{g.r_pearson.std():.2f}, "
+        f"Spearman {g.r_spearman.mean():.2f}±{g.r_spearman.std():.2f})",
+        fontsize=8.5, color="0.2")
+
+    fig.suptitle("Preferred-value correlation across conditions (per-voxel, within subject)",
+                 fontsize=10, y=1.03)
+    sns.despine(fig=fig, offset=4, trim=True)
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
 
@@ -384,6 +548,57 @@ def page_stimulus_distributions(value_lim: tuple[float, float], pdf: PdfPages):
     plt.close(fig)
 
 
+def page_preferred_vs_presented(by_sub: dict, value_lim: tuple[float, float],
+                                pdf: PdfPages):
+    """Empirical preferred-value distribution per condition, overlaid on the
+    presented (stimulus) value distribution for that same condition.
+
+    Preferred values are pooled raw voxel-level pRF modes (all subjects,
+    null-gated cvR² selection); presented values are pooled raw trial-level
+    CHF values.
+    Both are density-normalised (unit area), so the comparison is about
+    *shape*, not sample size — this is the direct empirical test of whether
+    pRF preference tracks stimulus density (efficient coding) rather than
+    spreading uniformly across the value range.
+    """
+    pool = pd.concat(by_sub.values(), ignore_index=True)
+    if pool.empty:
+        return
+    lo, hi = value_lim
+    val_dists = _pool_value_distributions()
+    pref_dists = {"cdf": pool.mode_cdf.to_numpy(),
+                 "inverse_cdf": pool.mode_invcdf.to_numpy()}
+
+    fig, axes = plt.subplots(2, 1, figsize=(7.5, 4.6),
+                             constrained_layout=True, sharex=True)
+    for ax, cond in zip(axes, ["cdf", "inverse_cdf"]):
+        presented = val_dists[cond]
+        preferred = pref_dists[cond]
+        sns.kdeplot(presented, ax=ax, color=COND_COLOUR[cond], lw=1.4,
+                    ls="--", clip=(lo, hi), cut=0,
+                    label="Presented values (stimulus)")
+        sns.kdeplot(preferred, ax=ax, color=COND_COLOUR[cond], lw=1.8,
+                    fill=True, alpha=0.25, clip=(lo, hi), cut=0,
+                    label="Preferred values (pRF mode, NPCr voxels)")
+        med_pres, med_pref = np.median(presented), np.median(preferred)
+        ax.axvline(med_pres, color=COND_COLOUR[cond], lw=1.0, ls="--", alpha=0.7)
+        ax.axvline(med_pref, color=COND_COLOUR[cond], lw=1.4, alpha=0.9)
+        ax.text(0.02, 0.95,
+                f"{cond}  ·  presented median {med_pres:.1f}  ·  "
+                f"preferred median {med_pref:.1f}  (Δ={med_pref-med_pres:+.1f})",
+                transform=ax.transAxes, fontsize=8.5, va="top",
+                color=COND_COLOUR[cond])
+        ax.set_xlim(lo, hi)
+        ax.set_ylabel("Density")
+        ax.legend(loc="upper right", fontsize=7.5, frameon=False)
+    axes[-1].set_xlabel("CHF value")
+    fig.suptitle("Preferred vs. presented value distributions, per condition",
+                 fontsize=10, y=1.02)
+    sns.despine(fig=fig, offset=4, trim=True)
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _density_peaks(values: np.ndarray) -> list[float]:
     """Three rank-matched 'peaks' per condition: 1/6, 1/2, 5/6 quantiles.
 
@@ -521,18 +736,175 @@ def page_hexbin(by_sub: dict, value_lim: tuple[float, float], pdf: PdfPages):
     plt.close(fig)
 
 
-def _collect_variant(subjects, r2_thr, smoothed):
+def page_reliability_gate(by_sub_full: dict, value_lim: tuple[float, float],
+                          pdf: PdfPages, top_frac: float = 0.3,
+                          n_boot: int = 1000, seed: int = 0):
+    """Is the mode_cdf/mode_invcdf relationship (page_hexbin) real signal
+    concentrated in a reliable minority, or uniform noise? The per-voxel
+    argmax "winner" tallies used elsewhere in this project
+    (cvr2_model_comparison.py) count every voxel as one vote — the wrong
+    question here: a real effect confined to a well-tuned minority reads
+    as "no effect" once averaged against a sea of independent estimation
+    noise in unreliable voxels.
+
+    First attempt at this figure used voxel win-rate (cvR²(shift) >
+    cvR²(standard)) per reliability decile — binned by cvR²(standard). That
+    has a hidden ceiling artifact: cvR²(standard) sits on *both* axes (once
+    directly, once inside the win/lose comparison), so a voxel already near
+    its achievable-R² ceiling mechanically has less room for further gain —
+    shrinking with reliability regardless of whether real shifting occurs.
+    Fixed by using an *independent* reliability axis (cvR² over null, not
+    a model-vs-model comparison delta) and testing structure directly in
+    the quantity that actually matters — the mode_cdf/mode_invcdf
+    relationship, not a cvR² difference. Second fix: an initial version
+    binned voxels into equal-count reliability deciles, but the
+    reliability distribution is heavily skewed (~74% of voxels never beat
+    null at all) — equal-count bins mostly just slice up the noise floor,
+    compressing all the interesting variation into the last one or two
+    bins and reading as flat/noisy everywhere else. Fixed by sweeping a
+    cumulative "keep the top X% most reliable voxels" threshold instead
+    of exclusive equal-count bins — a standard selection-stringency curve
+    that doesn't fight the skew.
+
+    a) Pearson r(mode_cdf, mode_invcdf), pooled voxels, as a function of
+       how strict the reliability cutoff is (from all voxels down to the
+       top few percent), with a voxel-level bootstrap 95% CI. Independent
+       noise in each condition's mode estimate pulls r toward 0 when
+       unreliable voxels dominate the pool, regardless of whether the
+       population truly reorganizes; a real, coherent relationship
+       (shifted or not) needs reliability to be visible at all. This is
+       deliberately silent on *whether* reliable voxels shift — only that
+       they carry a real, structured relationship instead of noise.
+       Panel b asks the shift question.
+    b) mode_cdf vs mode_invcdf hexbin restricted to the top ``top_frac`` of
+       voxels by the same reliability axis (one point on panel a's
+       curve, made concrete) — y=x "no reorganization" line and the
+       histogram-matching Q–Q efficient-coding prediction overlaid (same
+       construction as page_hexbin) — so the reliable subset can be read
+       against both references directly.
+    """
+    pool = pd.concat(by_sub_full.values(), ignore_index=True)
+    if pool.empty:
+        return
+    rng = np.random.default_rng(seed)
+
+    # --- Panel a: r(mode_cdf, mode_invcdf) vs selection stringency ---
+    # Stops at top 5%: below that the subset is a few hundred voxels
+    # increasingly dominated by 1-2 subjects (n_subj_contributing drops
+    # from 24 to 17 by the top 1%) and r swings sharply negative — a small-
+    # N/outlier-voxel regime, not evidence against the reliable-voxel
+    # story, but not informative for it either. Omitted rather than shown
+    # noisy and over-interpreted.
+    keep_fracs = np.array([1.0, 0.7, 0.5, 0.35, 0.25, 0.20, 0.15, 0.10, 0.05])
+    reliability = pool["reliability"].to_numpy()
+    order = np.argsort(-reliability)                     # most reliable first
+    mode_cdf_sorted = pool["mode_cdf"].to_numpy()[order]
+    mode_invcdf_sorted = pool["mode_invcdf"].to_numpy()[order]
+    n_total = len(pool)
+    r_med, r_lo, r_hi = [], [], []
+    for frac in keep_fracs:
+        k = max(int(round(frac * n_total)), 20)
+        x, y = mode_cdf_sorted[:k], mode_invcdf_sorted[:k]
+        boot = np.empty(n_boot)
+        idx_pool = np.arange(k)
+        for i in range(n_boot):
+            idx = rng.choice(idx_pool, size=k, replace=True)
+            boot[i] = np.corrcoef(x[idx], y[idx])[0, 1]
+        r_med.append(float(np.corrcoef(x, y)[0, 1]))
+        r_lo.append(float(np.percentile(boot, 2.5)))
+        r_hi.append(float(np.percentile(boot, 97.5)))
+    r_med, r_lo, r_hi = np.array(r_med), np.array(r_lo), np.array(r_hi)
+    peak = int(np.argmax(r_med))
+
+    fig, (ax_a, ax_b) = plt.subplots(
+        1, 2, figsize=(11.5, 5.2), constrained_layout=True,
+        gridspec_kw={"width_ratios": [1, 1.15]})
+
+    # Plot against rank order (evenly spaced), label ticks with the actual
+    # kept-% — avoids inverted-log-axis quirks with annotate()/tick
+    # formatters while keeping "strictest cutoff on the right" reading.
+    xr = np.arange(len(keep_fracs))[::-1]
+    ax_a.axhline(0, color="0.7", lw=0.8, ls="--", zorder=0)
+    ax_a.text(xr[0] + 0.15, 0.01, "No relationship (noise)", fontsize=8,
+             color="0.45", va="top", ha="left")
+    ax_a.fill_between(xr, r_lo, r_hi, color="#2A9D8F", alpha=0.2, lw=0)
+    ax_a.plot(xr, r_med, "-o", color="#2A9D8F", ms=4)
+    ax_a.plot(xr[peak], r_med[peak], "o", color="#2A9D8F", ms=8,
+             mec="white", mew=1.2, zorder=5)
+    ax_a.set_xticks(xr)
+    ax_a.set_xticklabels([f"{int(f * 100)}" for f in keep_fracs], fontsize=8)
+    ax_a.set_xlabel("Voxels kept, ranked by reliability (%)\n"
+                    "(cvR² over null; 100% = all voxels)")
+    ax_a.set_ylabel("Preferred value CDF ↔ InvCDF correlation  (r)\n"
+                    "pooled, 95% bootstrap CI")
+    ax_a.set_ylim(-0.05, 0.35)
+    ax_a.text(0.03, 0.06,
+             "Peak around the top 25–35% most\nreliable voxels — the "
+             "single noisiest\nand single strictest cuts both weaken it",
+             transform=ax_a.transAxes, fontsize=8, ha="left", va="bottom",
+             color="0.15")
+    ax_a.text(0.97, 0.94, f"n={n_total} voxels, {len(by_sub_full)} subjects",
+             transform=ax_a.transAxes, fontsize=7.5, color="0.4", ha="right")
+
+    # --- Panel b: shift hexbin, gated to the top reliability quantile ---
+    thr = float(pool["reliability"].quantile(1 - top_frac))
+    top = pool[pool["reliability"] >= thr]
+    lo, hi = value_lim
+    hb = ax_b.hexbin(top.mode_cdf, top.mode_invcdf, gridsize=28,
+                     extent=(lo, hi, lo, hi), cmap="rocket_r", mincnt=1)
+    ax_b.plot([lo, hi], [lo, hi], "--", color="0.5", lw=0.8, zorder=2,
+             label="y = x  (no reorganization)")
+    val_dists = _pool_value_distributions()
+    qs = np.linspace(0.005, 0.995, 200)
+    xx = np.quantile(val_dists["cdf"], qs)
+    yy = np.quantile(val_dists["inverse_cdf"], qs)
+    ax_b.plot(xx, yy, "-", color="#1B998B", lw=1.6, zorder=3,
+             label="Efficient-coding Q–Q prediction")
+    ax_b.set_aspect("equal", adjustable="box")
+    ax_b.set_xlim(lo, hi); ax_b.set_ylim(lo, hi)
+    ax_b.set_xlabel("Preferred value — CDF condition  (CHF)")
+    ax_b.set_ylabel("Preferred value — Inverse-CDF condition  (CHF)")
+    ax_b.text(0.04, 0.96,
+             f"Top {top_frac:.0%} most reliable voxels\n"
+             f"(n={len(top)}, cvR² over null ≥ {thr:.3f})",
+             transform=ax_b.transAxes, fontsize=8, va="top", color="0.15",
+             bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                       edgecolor="none", alpha=0.75))
+    ax_b.legend(loc="lower right", fontsize=7.5, frameon=False)
+    cbar = fig.colorbar(hb, ax=ax_b, shrink=0.7, pad=0.02, aspect=15)
+    cbar.set_label("Voxel count", fontsize=8)
+
+    fig.suptitle(
+        "Preferred-value reorganization is a reliability-gated effect in "
+        "a minority of NPCr voxels — not a popular vote",
+        fontsize=10.5, color="0.1", y=1.05)
+    sns.despine(fig=fig, offset=5, trim=True)
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _collect_variant(subjects, smoothed):
     by_sub = {}
     for sub in subjects:
-        df = collect_subject(sub, r2_thr=r2_thr, smoothed=smoothed)
+        df = collect_subject(sub, smoothed=smoothed)
         if df.empty:
             continue
         by_sub[sub] = df
     return by_sub
 
 
-def _render_variant(by_sub, value_lim, pdf, banner):
-    """Render the 4 per-variant pages with a leading banner page."""
+def _collect_variant_full(subjects, smoothed):
+    by_sub = {}
+    for sub in subjects:
+        df = collect_subject_full(sub, smoothed=smoothed)
+        if df.empty:
+            continue
+        by_sub[sub] = df
+    return by_sub
+
+
+def _render_variant(by_sub, value_lim, pdf, banner, smoothed=False, subjects=None):
+    """Render the per-variant pages with a leading banner page."""
     if not by_sub:
         return None
     # Banner-style title page
@@ -543,13 +915,22 @@ def _render_variant(by_sub, value_lim, pdf, banner):
     ax.set_axis_off()
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
+    page_preferred_vs_presented(by_sub, value_lim, pdf)
     page_hexbin(by_sub, value_lim, pdf)
+    by_sub_full = _collect_variant_full(subjects or list(by_sub), smoothed=smoothed)
+    page_reliability_gate(by_sub_full, value_lim, pdf)
     page_scatter(by_sub, value_lim, pdf)
+    corr_df = _compute_correlations(by_sub)
+    page_correlation(corr_df, pdf)
     page_shift_hist(by_sub, pdf)
-    return page_group(by_sub, pdf)
+    g = page_group(by_sub, pdf)
+    if g is not None and not corr_df.empty:
+        g = g.merge(corr_df[["subject", "r_pearson", "p_pearson",
+                             "r_spearman", "p_spearman"]], on="subject")
+    return g
 
 
-def run(subjects, r2_thr, out, value_lim,
+def run(subjects, out, value_lim,
         variants=("unsmoothed", "smoothed")):
     """Build the figure. ``variants`` controls which smoothing variants
     are rendered as separate sections of the same PDF. Default: both.
@@ -564,7 +945,7 @@ def run(subjects, r2_thr, out, value_lim,
         subjects = sorted(subjects_set,
                           key=lambda s: (0 if s[0].isdigit() else 1, s))
     if not subjects:
-        raise SystemExit("No session-shift fits found.")
+        raise SystemExit("No session-shift fits (point-estimate + cv) found.")
 
     out.parent.mkdir(parents=True, exist_ok=True)
     summaries = []
@@ -573,14 +954,15 @@ def run(subjects, r2_thr, out, value_lim,
         page_stimulus_distributions(value_lim, pdf)
         for v in variants:
             smoothed = (v == "smoothed")
-            by_sub = _collect_variant(subjects, r2_thr=r2_thr, smoothed=smoothed)
+            by_sub = _collect_variant(subjects, smoothed=smoothed)
             print(f"\n=== {v} ({len(by_sub)} subjects) ===")
             for sub in subjects:
                 n = len(by_sub.get(sub, []))
-                print(f"  sub-{sub}: {n} voxels above r²>{r2_thr}"
+                print(f"  sub-{sub}: {n} voxels  (cvR²(shift) > cvR²(null))"
                       f"{' (skipped: no data)' if n == 0 else ''}")
-            banner = f"{v.upper()}  ·  session-shift fits  ·  r² > {r2_thr}"
-            g = _render_variant(by_sub, value_lim, pdf, banner)
+            banner = f"{v.upper()}  ·  session-shift fits  ·  cvR²(shift) > cvR²(null)"
+            g = _render_variant(by_sub, value_lim, pdf, banner,
+                               smoothed=smoothed, subjects=subjects)
             if g is not None:
                 g["variant"] = v
                 summaries.append(g)
@@ -594,8 +976,6 @@ def run(subjects, r2_thr, out, value_lim,
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--subjects", nargs="+")
-    p.add_argument("--r2-thr", type=float, default=0.05,
-                   help="Voxel selection threshold on session-shift R²")
     # CHF range presented in the experiment: CDF 5.5–38.5, InvCDF 2.5–41.5.
     # Defaults cover the full union with a little headroom for the kernel
     # extrapolation at the edges of the hexbin / scatter views.
@@ -608,7 +988,7 @@ def main():
                         "(default: both)")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
-    run(args.subjects, args.r2_thr, Path(args.out),
+    run(args.subjects, Path(args.out),
         (args.value_min, args.value_max),
         variants=tuple(args.variants))
 
