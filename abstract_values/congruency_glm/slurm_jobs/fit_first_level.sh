@@ -14,18 +14,21 @@
 #   sbatch --array=3-26 --export=MODEL=all fit_first_level.sh   # PARTICIPANT_LABEL from array index
 #
 # MODEL: congruent | incongruent | both | all  (default: all)
+# SMOOTHING_FWHM: spatial smoothing kernel in mm (default: 6)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%02d" $SLURM_ARRAY_TASK_ID)
 fi
 MODEL="${MODEL:-all}"
+SMOOTHING_FWHM="${SMOOTHING_FWHM:-6}"
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
 
-echo "congruency_glm: sub-${PARTICIPANT_LABEL} model=${MODEL}"
+echo "congruency_glm: sub-${PARTICIPANT_LABEL} model=${MODEL} smoothing_fwhm=${SMOOTHING_FWHM}mm"
 
 . $HOME/init_conda.sh
 
 conda run -n abstract_values python -u \
     "$REPO/abstract_values/congruency_glm/fit_first_level.py" \
-    "$PARTICIPANT_LABEL" --model "$MODEL" --bids-folder "$BIDS_FOLDER"
+    "$PARTICIPANT_LABEL" --model "$MODEL" --bids-folder "$BIDS_FOLDER" \
+    --smoothing-fwhm "$SMOOTHING_FWHM"
