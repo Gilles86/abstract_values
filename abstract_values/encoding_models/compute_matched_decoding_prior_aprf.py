@@ -41,6 +41,7 @@ from nilearn.maskers import NiftiMasker
 
 from braincoder.models import LogGaussianPRF
 from braincoder.optimize import ResidualFitter
+from braincoder.utils.math import _trapezoid
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 from abstract_values.encoding_models.compute_cross_condition_decoding_aprf import (
@@ -51,7 +52,7 @@ from abstract_values.encoding_models.compute_cross_condition_decoding_aprf impor
 def _objective_prior(presented_values, grid, bw=None):
     kde = gaussian_kde(np.asarray(presented_values, dtype=np.float64), bw_method=bw)
     p = kde(grid)
-    return p / np.trapz(p, grid)
+    return p / _trapezoid(p, grid)
 
 
 def main(subject, roi="NPCr", hemi="None", n_voxels=100,

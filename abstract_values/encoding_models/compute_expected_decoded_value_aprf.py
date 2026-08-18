@@ -42,7 +42,7 @@ from nilearn import image as nli
 
 from braincoder.models import LogGaussianPRF
 from braincoder.optimize import ResidualFitter
-from braincoder.utils.math import get_expected_value
+from braincoder.utils.math import get_expected_value, _trapezoid
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
@@ -154,7 +154,7 @@ def _objective_value_prior(presented_values, grid, bw=None):
     kde = gaussian_kde(np.asarray(presented_values, dtype=np.float64),
                        bw_method=bw)
     p = kde(grid)
-    return p / np.trapz(p, grid)
+    return p / _trapezoid(p, grid)
 
 
 def _decode_with_prior(model, pars_df, omega, dof, true_values,
