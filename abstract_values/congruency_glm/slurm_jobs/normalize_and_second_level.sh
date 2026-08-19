@@ -16,6 +16,7 @@
 #   sbatch --dependency=afterok:JID1:JID2:... normalize_and_second_level.sh
 
 SUBJECTS=(03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 pil01 pil02)
+BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
 
 . $HOME/init_conda.sh
@@ -24,10 +25,10 @@ for SUB in "${SUBJECTS[@]}"; do
     echo "=== normalizing sub-${SUB} ==="
     conda run -n abstract_values python -u \
         "$REPO/abstract_values/congruency_glm/normalize_to_mni.py" \
-        "$SUB" --model all
+        "$SUB" --model all --bids-folder "$BIDS_FOLDER"
 done
 
 echo "=== fitting second-level (group) models ==="
 conda run -n abstract_values python -u \
     "$REPO/abstract_values/congruency_glm/fit_second_level.py" \
-    --subjects "${SUBJECTS[@]}"
+    --subjects "${SUBJECTS[@]}" --bids-folder "$BIDS_FOLDER"
