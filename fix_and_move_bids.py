@@ -133,21 +133,137 @@ def process_fmap(src_dir: Path, dst_dir: Path,
                 copy_file(src_nii, dst_nii, dry_run)
 
 
+def _n_volumes(path: Path) -> int | None:
+    """Number of volumes in a BOLD file, read from the NIfTI header only."""
+    try:
+        import nibabel as nb
+        shape = nb.load(str(path)).shape
+    except Exception:
+        return None
+    return shape[3] if len(shape) > 3 else 1
+
+
+def _detect_aborted_bold(src_dir: Path, threshold: float = 0.9,
+                         size_threshold: float = 0.5) -> set[Path]:
+    """Return set of BOLD .nii.gz files that are likely aborted/partial runs.
+
+    The primary signal is the **volume count** from the NIfTI header: every
+    completed run of this protocol has the same number of volumes, so anything
+    below `threshold` × the median volume count was aborted and restarted.
+
+    File size (< `size_threshold` × the median) is only a fallback for when the
+    headers cannot be read.  Size is far too blunt on its own: sub-28 ses-1's
+    aborted 222-volume Run_1 is ~60 % of a full 367-volume run, so it sails past
+    the size cut-off and would silently shift every later run by one.
+    """
+    bold_files = sorted(
+        f for f in src_dir.iterdir()
+        if re.search(r"_bold\.nii\.gz$", f.name)
+    )
+    if len(bold_files) < 2:
+        return set()
+
+    n_vols = [_n_volumes(f) for f in bold_files]
+    if all(n is not None for n in n_vols):
+        median_vols = sorted(n_vols)[len(n_vols) // 2]
+        return {f for f, n in zip(bold_files, n_vols) if n < threshold * median_vols}
+
+    print("  WARNING: could not read BOLD headers, falling back to file size "
+          "to detect aborted runs")
+    sizes = [f.stat().st_size for f in bold_files]
+    median_size = sorted(sizes)[len(sizes) // 2]
+    return {f for f, sz in zip(bold_files, sizes) if sz < size_threshold * median_size}
+
+
+def _bold_run_renumber_map(src_dir: Path, aborted_nii: set[Path]) -> dict[str, str]:
+    """Build a map from original run labels to sequential 1-based labels.
+
+    Surviving (non-aborted) BOLD runs are sorted by SeriesNumber from their
+    JSON sidecar (falling back to the run label itself) and renumbered 1..N.
+    Returns e.g. {'05': '1', '2': '2', '3': '3', ...}.
+    If no renumbering is needed (runs are already 1..N), returns an empty dict.
+    """
+    aborted_stems = {f.name.replace(".nii.gz", "") for f in aborted_nii}
+
+    # Collect surviving BOLD run labels with their sort key
+    run_info: list[tuple[int, str]] = []   # (series_number, original_run_label)
+    for f in sorted(src_dir.iterdir()):
+        if not re.search(r"_bold\.nii\.gz$", f.name):
+            continue
+        if f in aborted_nii:
+            continue
+        m = re.search(r"_run-(\d+)_bold", f.name)
+        if not m:
+            continue
+        run_label = m.group(1)
+        # Try to get SeriesNumber from JSON sidecar
+        json_f = f.with_name(f.name.replace(".nii.gz", ".json"))
+        series = int(run_label)  # fallback: sort by label
+        if json_f.exists():
+            try:
+                series = json.loads(json_f.read_text()).get("SeriesNumber", series)
+            except (json.JSONDecodeError, KeyError):
+                pass
+        run_info.append((series, run_label))
+
+    run_info.sort()
+    expected = [str(i + 1) for i in range(len(run_info))]
+    actual   = [label for _, label in run_info]
+
+    if actual == expected:
+        return {}
+
+    return {label: new for (_, label), new in zip(run_info, expected)}
+
+
 def process_func(src_dir: Path, dst_dir: Path,
                  subject: str, session: str, dry_run: bool) -> None:
-    """Copy func files, inserting task label and TaskName into BOLD files."""
+    """Copy func files, inserting task label and TaskName into BOLD files.
+
+    Aborted/partial BOLD runs (fewer volumes than a completed run) are detected
+    and skipped with a warning.  Surviving BOLD runs are renumbered 1..N in
+    acquisition order (by SeriesNumber) so they match the behavioral logs.
+    """
+    aborted_nii = _detect_aborted_bold(src_dir)
+    aborted_stems = {f.name.replace(".nii.gz", "") for f in aborted_nii}
+
+    if aborted_nii:
+        print(f"\n  WARNING: skipping {len(aborted_nii)} aborted/partial BOLD run(s):")
+        for f in sorted(aborted_nii):
+            n = _n_volumes(f)
+            vols = f"{n} volumes, " if n is not None else ""
+            print(f"    {f.name}  ({vols}{f.stat().st_size / 1e6:.1f} MB)")
+
+    renumber = _bold_run_renumber_map(src_dir, aborted_nii)
+    if renumber:
+        print(f"\n  Renumbering BOLD runs: "
+              + ", ".join(f"run-{old}→run-{new}" for old, new in renumber.items()))
+
     dst_dir.mkdir(parents=True, exist_ok=True)
     for src_file in sorted(src_dir.iterdir()):
+        # Skip aborted BOLD runs and their sidecars
+        if src_file in aborted_nii:
+            continue
+        if src_file.name.replace(".json", "") in aborted_stems and "_bold." in src_file.name:
+            continue
+
         # BOLD files: insert task-<label> if not already present, and patch JSON
         if re.search(r"_run-\d+_bold\.(nii\.gz|json)$", src_file.name):
-            if f"_task-{TASK_LABEL}_" not in src_file.name:
+            dst_name = src_file.name
+            if f"_task-{TASK_LABEL}_" not in dst_name:
                 dst_name = re.sub(
                     r"(_run-\d+_bold)",
                     f"_task-{TASK_LABEL}\\1",
-                    src_file.name,
+                    dst_name,
                 )
-            else:
-                dst_name = src_file.name
+            # Apply run renumbering
+            if renumber:
+                m = re.search(r"_run-(\d+)_bold", dst_name)
+                if m and m.group(1) in renumber:
+                    dst_name = dst_name.replace(
+                        f"_run-{m.group(1)}_bold",
+                        f"_run-{renumber[m.group(1)]}_bold",
+                    )
             dst_file = dst_dir / dst_name
             if src_file.suffix == ".json":
                 data = json.loads(src_file.read_text())
