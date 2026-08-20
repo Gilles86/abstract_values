@@ -56,8 +56,10 @@ GENERATION=${SNAKE_DRIVER_GENERATION:-1}
 MAX_GENERATIONS=${SNAKE_DRIVER_MAX_GENERATIONS:-8}
 PREV_REMAINING=${SNAKE_DRIVER_PREV_REMAINING:-}
 
+# `|| true`: under `set -e` a failing command substitution would kill the driver
+# here, before it has chained a successor or run anything.
 REMAINING=$(snakemake "${SNAKE_ARGS[@]}" --dry-run --quiet rules 2>/dev/null \
-                | awk '$1 == "total" { print $2 }' | tail -1)
+                | awk '$1 == "total" { print $2 }' | tail -1) || true
 REMAINING=${REMAINING:-unknown}
 echo "[driver] generation $GENERATION/$MAX_GENERATIONS, ${REMAINING} job(s) remaining"
 
@@ -78,7 +80,8 @@ chain_next () {
     fi
     sbatch --dependency="afterany:${SLURM_JOB_ID}" \
            --export="ALL,SNAKE_DRIVER_GENERATION=$((GENERATION + 1)),SNAKE_DRIVER_MAX_GENERATIONS=${MAX_GENERATIONS},SNAKE_DRIVER_PREV_REMAINING=${REMAINING}" \
-           abstract_values/snakemake/run_driver.sh
+           abstract_values/snakemake/run_driver.sh \
+        || echo "[driver] WARNING: could not queue a successor — the chain ends here."
 }
 chain_next
 
