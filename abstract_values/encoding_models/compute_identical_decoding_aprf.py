@@ -15,8 +15,11 @@ evidence the shift is functionally useful, not just noise.
 
 For each session, decodes the REAL single-trial betas with the ONE
 identical (standard aPRF) model -- same tuning curve regardless of
-condition. Same voxel selection / noise-model-fit / decode-grid machinery
-as compute_cross_condition_decoding_aprf.py, for direct comparability.
+condition -- twice: once with a flat prior over the decode grid, once with
+the objective (KDE of presented values) prior, mirroring
+compute_matched_decoding_prior_aprf.py's flat-vs-objective comparison for
+the mode-shift decoder. Same voxel selection / noise-model-fit / decode-
+grid machinery as compute_cross_condition_decoding_aprf.py.
 
 Output
 ------
@@ -25,7 +28,7 @@ Output
     _desc-identicaldecoded_pe.tsv
 
   One row per real gabor trial: run, trial_nr, true_value, test_condition,
-  identical_mean, identical_sd, test_session
+  flat_mean, flat_sd, objective_mean, objective_sd, test_session
 """
 from __future__ import annotations
 
@@ -43,6 +46,9 @@ from braincoder.optimize import ResidualFitter
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 from abstract_values.encoding_models.compute_cross_condition_decoding_aprf import (
     get_value_paradigm,
+)
+from abstract_values.encoding_models.compute_matched_decoding_prior_aprf import (
+    _objective_prior,
 )
 
 
@@ -123,21 +129,34 @@ def main(subject, roi="NPCr", hemi="None", n_voxels=100,
                                      parameters=model.parameters,
                                      omega=omega, dof=dof, normalize=False)
         pdf_vals = pdf.to_numpy(dtype=np.float64)
-        pdf_vals = pdf_vals / pdf_vals.sum(axis=1, keepdims=True)
-        mean = pdf_vals @ stimulus_range
-        second = pdf_vals @ (stimulus_range ** 2)
-        sd = np.sqrt(np.maximum(second - mean ** 2, 0.0))
+        pdf_vals = pdf_vals / pdf_vals.sum(axis=1, keepdims=True)  # flat-prior posterior
+
+        prior = _objective_prior(test_paradigm["x"].values, stimulus_range)
+        pdf_obj = pdf_vals * prior[np.newaxis, :]
+        pdf_obj = pdf_obj / pdf_obj.sum(axis=1, keepdims=True)
+
+        def _mean_sd(vals):
+            mean = vals @ stimulus_range
+            second = vals @ (stimulus_range ** 2)
+            sd = np.sqrt(np.maximum(second - mean ** 2, 0.0))
+            return mean, sd
+
+        flat_mean, flat_sd = _mean_sd(pdf_vals)
+        obj_mean, obj_sd = _mean_sd(pdf_obj)
 
         df = pd.DataFrame({
             "run": test_paradigm["run"], "trial_nr": test_paradigm["trial_nr"],
             "true_value": test_paradigm["x"], "test_condition": test_cond,
-            "identical_mean": mean, "identical_sd": sd,
+            "flat_mean": flat_mean, "flat_sd": flat_sd,
+            "objective_mean": obj_mean, "objective_sd": obj_sd,
         })
         df["test_session"] = test_ses
         out_rows.append(df)
 
-        mae = float(np.abs(mean - test_paradigm["x"].values).mean())
-        print(f"  MAE identical={mae:.2f} CHF   mean SD={sd.mean():.2f}")
+        mae_flat = float(np.abs(flat_mean - test_paradigm["x"].values).mean())
+        mae_obj = float(np.abs(obj_mean - test_paradigm["x"].values).mean())
+        print(f"  MAE identical flat={mae_flat:.2f} CHF  objective={mae_obj:.2f} CHF   "
+              f"mean SD flat={flat_sd.mean():.2f}  objective={obj_sd.mean():.2f}")
 
     out = pd.concat(out_rows, ignore_index=True)
     out_dir = (bids_folder / "derivatives" / "encoding_models"
