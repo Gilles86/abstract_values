@@ -21,6 +21,12 @@ default-resources:
   mem_mb: 8000
   runtime: 60       # minutes
 
+# Greedy over the default ILP scheduler: the ILP path shells out to PuLP/CBC,
+# which writes an MPS file on every scheduling round and so turns a full /tmp
+# into a dead driver (see the TMPDIR note in run_driver.sh). Greedy packs jobs
+# slightly less tightly and needs no solver, no temp files, no CBC binary.
+scheduler: greedy
+
 # Useful diagnostics
 printshellcmds: True
 keep-going: True

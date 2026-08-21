@@ -34,6 +34,17 @@ cd "$HOME/git/abstract_values"
 source "$HOME/data/miniforge3/etc/profile.d/conda.sh"
 conda activate abstract_values     # snakemake + plugin pip-installed here
 
+# Keep temporary files off /tmp. On this cluster /tmp is the shared
+# `cluster_tmp` network filesystem with a per-user quota, and a pipeline with
+# fmriprep + GLMsingle running concurrently blows through it: on 2026-08-20
+# three driver generations died with `OSError: [Errno 122] Disk quota exceeded`
+# writing the PuLP scheduler's MPS file to /tmp. /scratch has a 20 TB quota.
+# Exported so the workers Snakemake sbatches inherit it too — they are the ones
+# actually filling /tmp.
+export TMPDIR="/scratch/gdehol/tmp"
+export TMP="$TMPDIR" TEMP="$TMPDIR"
+mkdir -p "$TMPDIR"
+
 SNAKE_ARGS=(
     --snakefile  abstract_values/snakemake/Snakefile
     --workflow-profile abstract_values/snakemake/profile
