@@ -107,14 +107,20 @@ METRICS = [
     ("mean_fd", "Mean FD (mm)", None),
     ("pct_fd_gt_0p5", "Volumes > 0.5 mm (%)", None),
     ("n_spikes_gt_1mm", "Volumes > 1 mm (count)", None),
-    ("max_fd", "Max FD (mm)", None),
+    ("max_fd", "Worst single FD (mm)", None),
 ]
 
 
+# metric -> how to collapse runs to one number per subject. Everything is a
+# run mean except max FD, where the point is the single worst jump anywhere in
+# the subject's data — averaging per-run maxima would hide exactly that.
+AGG = {"max_fd": "max"}
+
+
 def plot(df, highlight, out):
-    """One panel per metric: subject means, highlighted subject called out."""
+    """One panel per metric: one number per subject, highlighted subject called out."""
     per_sub = (df.groupby("subject")
-                 .agg(**{m: (m, "mean") for m, _, _ in METRICS})
+                 .agg(**{m: (m, AGG.get(m, "mean")) for m, _, _ in METRICS})
                  .reset_index())
     # study subjects numerically, pilots last
     per_sub["_key"] = per_sub["subject"].map(
@@ -146,7 +152,7 @@ def plot(df, highlight, out):
     axes[-1].set_xticklabels(per_sub["subject"], rotation=90)
     axes[-1].set_xlabel("Subject")
     axes[0].set_title(
-        "Head motion per subject (run means)  ·  dashed = cohort median, "
+        "Head motion per subject  ·  dashed = cohort median, "
         "dotted = 90th percentile", fontsize=9, color="0.2", loc="left")
 
     out = Path(out)
