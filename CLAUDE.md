@@ -13,6 +13,49 @@ fMRI + behavioral study on abstract value learning. Participants learn orientati
 
 **Do not confuse these.** The pilot MRI data lives under `sourcedata/mri/sub-pil##`. Study behavioral data lives under `sourcedata/behavior/sub-##`.
 
+## Data access — `Subject` classes
+
+There are **two `Subject` classes**, in different modules, with overlapping method names. Pick by what you need:
+
+| Import | Source data | Methods |
+|--------|-------------|---------|
+| `from abstract_values.behavior.data import Subject` | `sourcedata/behavior/sub-##/` events TSVs | `get_behavioral_data()` |
+| `from abstract_values.utils.data import Subject` | BIDS + fmriprep derivatives | `get_runs`, `get_sessions`, `get_events`, `get_mapping`, `get_roi_mask`, `get_single_trial_estimates`, ... |
+
+Both share `subject_id`, `bids_folder`, `get_sessions()`, `get_runs()`, `get_mapping()`.
+
+### Clean per-trial behavior — one-row-per-trial recipe
+
+`Subject.get_behavioral_data()` returns one row **per event** (gabor, response_bar, feedback, isi, ...), not per trial. The BDM bid lands on the `feedback` row's `response` column. The canonical recipe to collapse to one row per trial (matches `notebooks/behavior_overview.ipynb`):
+
+```python
+from abstract_values.behavior.data import get_all_behavioral_data
+import pandas as pd
+
+df = get_all_behavioral_data()                                   # all study subjects
+df = df[df["event_type"] == "feedback"].copy()                   # one row per trial
+df["response"] = pd.to_numeric(df["response"], errors="coerce")  # NaN for non-responses
+df["error"]     = df["response"] - df["value"]                   # BDM is truth-telling: value IS the rational bid
+df["abs_error"] = df["error"].abs()
+df = df.reset_index()                                            # flatten (subject, session, mapping, run, trial_nr)
+```
+
+Columns after this: `subject, session, mapping, run, trial_nr, response, value, orientation, rt, error, abs_error, invalid_response`.
+
+**Frame-1 slider confirms are filtered by default.** The BDM slider re-randomises
+its marker every trial (`experiment/response_slider.py :: random_init_marker`), so
+a trial confirmed on the first frame records a uniform draw from `[0, 42]` CHF, not
+a bid. Both `Subject` classes blank `response`/`rt` (behavior) and `bid`
+(`utils.data.Subject.get_events`) for RTs below
+`abstract_values.utils.data.MIN_VALID_RT` (0.25 s) and set `invalid_response=True`.
+The cohort RT distribution is cleanly bimodal — a few trials at ~17 ms (one 60 Hz
+frame), nothing else below 534 ms — so any threshold in `[0.02, 0.5]` picks the
+same trials. Pass `min_rt=None` to any of these getters to keep the raw bids.
+
+For a single subject: `Subject(3).get_behavioral_data()` + same filter.
+
+For the per-trial brain×behavior table (decoded uncertainty + behavior), see `abstract_values/visualize/build_trial_table.py` — produces `notes/data/trial_table.tsv`.
+
 ## Key paths
 
 | Path | Description |
@@ -79,6 +122,7 @@ Fits a log-Gaussian pRF to single-trial GLMsingle betas using the **objective CH
 |-----------|-----------------|-------------|
 | `standard` (default) | `mode, fwhm, amplitude, baseline, r2` | Single log-Gaussian per voxel across all sessions. `mode_fwhm_natural` parameterisation. |
 | `session-shift` | `mode_1, mode_2, fwhm, amplitude, baseline, r2` | Mode shifts freely per session; fwhm/amplitude/baseline shared. Requires ≥2 sessions. Implemented in `SessionShiftedLogGaussianPRF`. |
+| `linear` | `amplitude, baseline, r2` | No tuning bump — signed slope (`amplitude`) + intercept (`baseline`) in CHF value. Fit by one closed-form OLS regression (`refine_baseline_and_amplitude`, `positive_amplitude=False`), not grid search + gradient descent. Baseline comparison for whether a voxel's value response is a tuned bump or a monotonic ramp. Implemented in `LinearValuePRF`. Output dir `aprf-linear` / `aprf-linear.cv`. |
 
 ### Output paths
 

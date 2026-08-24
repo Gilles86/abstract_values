@@ -1,5 +1,6 @@
 import os
 import re
+import warnings
 from pathlib import Path
 
 import nibabel as nib
@@ -11,6 +12,46 @@ from nilearn import image
 # share /shares/zne.uzh/gdehol/ds-abstractvalue) so scripts that build paths
 # from this constant — not just the ones taking --bids-folder — work remotely.
 BIDS_FOLDER = Path(os.environ.get('BIDS_FOLDER', '/data/ds-abstractvalue'))
+
+# Minimum plausible response-bar RT, in seconds.  The BDM slider re-randomises
+# its marker position on every trial (experiment/response_slider.py ::
+# random_init_marker), so a trial that is confirmed on the very first frame
+# records a uniform draw from [0, 42] CHF rather than a bid — a missed response
+# wearing the costume of a fast one.  Cohort-wide the RT distribution is
+# cleanly bimodal: a handful of trials at ~17 ms (one 60 Hz frame) and then
+# nothing at all until 534 ms, so any threshold in [0.02, 0.5] selects exactly
+# the same trials.  Pass ``min_rt=None`` to the data getters to keep them.
+MIN_VALID_RT = 0.25
+
+
+def flag_invalid_responses(rt, min_rt=MIN_VALID_RT):
+    """Boolean mask of trials whose response-bar RT is too fast to be a bid.
+
+    Parameters
+    ----------
+    rt : pandas.Series
+        Response-bar reaction times in seconds.  NaN (no response) is never
+        flagged — a miss is already a miss.
+    min_rt : float or None
+        Threshold in seconds.  ``None`` disables the check (all-False mask).
+
+    Returns
+    -------
+    pandas.Series of bool, aligned to ``rt``.
+    """
+    if min_rt is None:
+        return pd.Series(False, index=rt.index)
+    rt = pd.to_numeric(rt, errors='coerce')
+    return rt.notna() & (rt < min_rt)
+
+
+def warn_invalid_responses(invalid, what, who):
+    """Emit a one-line warning naming the frame-1 trials that were blanked."""
+    n = int(invalid.sum())
+    if n:
+        warnings.warn(f'{who}: blanked {n} frame-1 {what} '
+                      f'(RT < {MIN_VALID_RT}s; randomised slider position, '
+                      f'not a bid)', stacklevel=3)
 
 
 class Subject:
@@ -140,11 +181,20 @@ class Subject:
 
     # ── events ─────────────────────────────────────────────────────────────────
 
-    def get_events(self, session, runs=None):
+    def get_events(self, session, runs=None, min_rt=MIN_VALID_RT):
         """Return gabor and response_bar events for all runs.
 
         Returns a DataFrame indexed by (run, trial_nr) with columns:
-        onset, event_type, orientation, value, response, duration.
+        onset, event_type, orientation, value, bid, duration, invalid_response.
+
+        Parameters
+        ----------
+        min_rt : float or None
+            Trials whose response-bar RT falls below this (see
+            :data:`MIN_VALID_RT`) get ``bid = NaN`` and
+            ``invalid_response = True``; ``duration`` is left alone, since the
+            bar really was on screen for that long and the GLM should model it
+            as such.  ``None`` keeps every bid as recorded.
         """
         if runs is None:
             runs = self.get_runs(session)
@@ -176,17 +226,30 @@ class Subject:
             bids = (df[df['event_type'] == 'feedback']
                     .set_index('trial_nr')['response']
                     .rename('bid'))
+
+            # The response_bar event's duration IS the reaction time.
+            rt = (df[df['event_type'] == 'response_bar']
+                  .set_index('trial_nr')['duration'])
+            bad = flag_invalid_responses(rt, min_rt)
+            warn_invalid_responses(bad, 'bids',
+                          f'sub-{self.subject_id} ses-{session} run-{run:02d}')
+            bids = bids.mask(bad.reindex(bids.index, fill_value=False))
+
             df = df[df['event_type'].isin(['gabor', 'response_bar'])].copy()
             df = df.join(bids, on='trial_nr')
             # For response_bar events use the bid; for gabor events it is NaN
             # (intentionally — make_condition_label only uses bid for response_bar).
+            # make_condition_label already falls back to response_<angle> on a
+            # NaN bid, so a blanked trial degrades gracefully there.
+            df['invalid_response'] = (df['trial_nr']
+                                      .map(bad).fillna(False).astype(bool))
             df['run'] = run
             dfs.append(df)
 
         events = pd.concat(dfs, ignore_index=True)
         events = events.set_index(['run', 'trial_nr'])
         return events[['onset', 'event_type', 'orientation', 'value',
-                        'bid', 'duration']]
+                        'bid', 'duration', 'invalid_response']]
 
     # ── confounds ──────────────────────────────────────────────────────────────
 
@@ -439,3 +502,125 @@ class Subject:
                 raise FileNotFoundError(f'No aPRF parameter file: {fn}')
             result[param] = image.load_img(str(fn))
         return result
+
+    # ── surface-sampled encoding maps ───────────────────────────────────────────
+
+    def get_encoding_surface(self, model, desc, hemi,
+                             space='fsaverage', smoothed=False):
+        """Load one surface-sampled encoding-model map for one hemisphere.
+
+        Reads the GIfTI written by ``surface/sample_aprf_to_surface.py`` /
+        ``sample_r2_to_surface.py``:
+        ``derivatives/encoding_models/<model>/sub-<s>/func/
+        sub-<s>_task-abstractvalue_hemi-<L|R>_space-<space>_desc-<desc>[_smoothed]_pe.func.gii``
+
+        Parameters
+        ----------
+        model : str
+            Encoding-model dir, e.g. ``'aprf'``, ``'aprf.cv'``, ``'aprf-null.cv'``.
+        desc : str
+            Map to load, e.g. ``'mode'``, ``'r2'``, ``'cvr2'``, ``'gabor-r2'``.
+        hemi : {'L', 'R'}
+        space : str
+            ``'fsaverage'`` (default) or ``'fsnative'``.
+        smoothed : bool
+
+        Returns
+        -------
+        np.ndarray, shape (n_vertices,), float32. Raises FileNotFoundError if
+        the file is missing.
+        """
+        smooth = '_smoothed' if smoothed else ''
+        fn = (self.bids_folder / 'derivatives' / 'encoding_models' / model
+              / f'sub-{self.subject_id}' / 'func'
+              / f'sub-{self.subject_id}_task-abstractvalue'
+                f'_hemi-{hemi}_space-{space}_desc-{desc}{smooth}_pe.func.gii')
+        if not fn.exists():
+            raise FileNotFoundError(f'No surface map: {fn}')
+        return nib.load(str(fn)).darrays[0].data.astype(np.float32)
+
+    def get_encoding_surface_bilateral(self, model, desc,
+                                       space='fsaverage', smoothed=False):
+        """L+R concatenated surface map (pycortex convention), or ``None`` if
+        either hemisphere is missing."""
+        try:
+            return np.concatenate([
+                self.get_encoding_surface(model, desc, h, space, smoothed)
+                for h in ('L', 'R')])
+        except FileNotFoundError:
+            return None
+
+
+# ── cross-validated R² "signal" helpers ─────────────────────────────────────────
+#
+# The right per-voxel test for "does this encoding model carry signal" is not
+# ``cvR² > 0`` but ``cvR² > cvR²_null``, where the null model predicts the
+# *training-set* mean for every voxel. A genuinely silent voxel can only reach
+# the training mean, which scores a slightly NEGATIVE cvR² on held-out data
+# (≈ −0.03 here) because of train/test mean mismatch — so ``> 0`` is far too
+# strict and discards real-but-modest voxels (empirically ~11× fewer survive).
+# cvR² is also parameter-count-fair, so the same criterion is comparable across
+# models with different numbers of parameters. These helpers are deliberately
+# light (numpy + nibabel only) so they run in the pycortex2 env too.
+
+DEFAULT_NULL_MODEL = 'aprf-null.cv'
+
+
+def cvr2_signal(subject, model, baseline_model=DEFAULT_NULL_MODEL, cv_thr=0.0,
+                space='fsaverage', smoothed=False, bids_folder=BIDS_FOLDER):
+    """Per-vertex "this model beats the null" mask for one subject.
+
+    Compares ``model`` cvR² against, per vertex, the ``baseline_model`` cvR²
+    (the null-null "predict training mean" model). If ``baseline_model`` is
+    None — or its surface map is missing — falls back to the scalar ``cv_thr``.
+
+    Returns ``(signal, delta)``: a boolean ndarray (model wins) and the cvR²
+    margin ``model_cvr2 - reference``. Returns ``(None, None)`` if the model's
+    own cvR² surface is missing.
+    """
+    sub = Subject(subject, bids_folder=bids_folder)
+    cvr2 = sub.get_encoding_surface_bilateral(model, 'cvr2', space, smoothed)
+    if cvr2 is None:
+        return None, None
+    ref = None
+    if baseline_model:
+        ref = sub.get_encoding_surface_bilateral(
+            baseline_model, 'cvr2', space, smoothed)
+    if ref is None:
+        ref = np.full_like(cvr2, cv_thr, dtype=np.float32)
+    delta = cvr2 - ref
+    return (np.isfinite(delta) & (delta > 0)), delta
+
+
+def cvr2_prevalence(subjects, model, baseline_model=DEFAULT_NULL_MODEL,
+                    cv_thr=0.0, space='fsaverage', smoothed=False,
+                    bids_folder=BIDS_FOLDER):
+    """Per-vertex prevalence: fraction of subjects where ``model`` beats the
+    null (see :func:`cvr2_signal`).
+
+    Returns a dict with ``count`` (positive subjects per vertex), ``n`` (number
+    of subjects with data), ``prop`` (count / n, float32), ``p0`` (pooled base
+    rate of "wins" — a sanity reference for a binomial prevalence test), and
+    ``subjects`` (labels actually used). Returns ``None`` if no subject had data.
+    """
+    masks, used = [], []
+    for s in subjects:
+        sig, _ = cvr2_signal(s, model, baseline_model=baseline_model,
+                             cv_thr=cv_thr, space=space, smoothed=smoothed,
+                             bids_folder=bids_folder)
+        if sig is None:
+            continue
+        masks.append(sig)
+        used.append(str(s))
+    if not masks:
+        return None
+    stack = np.vstack(masks)                       # (n_subjects, n_vertices) bool
+    count = stack.sum(axis=0)
+    n = stack.shape[0]
+    return {
+        'count': count,
+        'n': n,
+        'prop': (count / n).astype(np.float32),
+        'p0': float(stack.mean()),
+        'subjects': used,
+    }
