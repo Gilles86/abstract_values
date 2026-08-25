@@ -38,13 +38,28 @@ def aggregate(subjects, roi="NPCr", smoothed=False):
             continue
         shift = d["mode_invcdf"].values - d["mode_cdf"].values
         r = stats.pearsonr(d["mode_cdf"], d["mode_invcdf"])[0]
+        # Efficient-coding alignment.  The cdf mapping compresses values around
+        # the median; inverse_cdf spreads them toward the tails.  If NPCr
+        # re-tiles to match stimulus density, then going cdf -> inverse_cdf a
+        # voxel preferring above-median values should move UP and one preferring
+        # below-median should move DOWN -- i.e. outward.  frac_outward is the
+        # fraction of voxels doing that; 0.5 is chance, so outward_index centres
+        # it.  Magnitude alone (mean_abs_shift) is blind to this direction.
+        centre = float(np.median(d["mode_cdf"]))
+        predicted = np.sign(d["mode_cdf"].values - centre)
+        observed = np.sign(shift)
+        ok = (predicted != 0) & (observed != 0)
+        frac_out = float((predicted[ok] == observed[ok]).mean()) if ok.any() else np.nan
         rows.append(dict(subject=int(s), n_shift_vox=len(d),
                          mean_shift=float(np.mean(shift)),
                          mean_abs_shift=float(np.mean(np.abs(shift))),
                          median_abs_shift=float(np.median(np.abs(shift))),
-                         mode_r=float(r)))
+                         mode_r=float(r),
+                         frac_outward=frac_out,
+                         outward_index=frac_out - 0.5))
         print(f"  sub-{s}: {len(d):5d} vox  "
-              f"mean|shift|={rows[-1]['mean_abs_shift']:.2f} CHF  r={r:+.3f}")
+              f"mean|shift|={rows[-1]['mean_abs_shift']:.2f} CHF  "
+              f"r={r:+.3f}  outward={frac_out:.3f}")
     return pd.DataFrame(rows)
 
 
