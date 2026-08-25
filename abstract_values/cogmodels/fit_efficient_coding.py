@@ -167,6 +167,11 @@ def main():
         write_paradigm_tsv(a.write_paradigm, a.subjects)
         return
 
+    # NOTE: do NOT ask the sampler for log_likelihood. bauer attaches the
+    # likelihood with pm.Potential, so model.observed_RVs is empty and pymc's
+    # JAX path dies in _get_log_likelihood with "'NoneType' object is not
+    # iterable" -- after sampling, so the whole fit is lost. Pointwise
+    # log-likelihood for LOO is computed separately (see loo_efficient_coding).
     import arviz as az
 
     paradigm = get_paradigm(a.subjects, paradigm_tsv=a.paradigm_tsv,
@@ -184,8 +189,7 @@ def main():
     idata = model.sample(draws=a.draws, tune=a.tune, chains=a.chains,
                          target_accept=a.target_accept,
                          nuts_sampler=a.nuts_sampler,
-                         nuts_sampler_kwargs=sampler_kwargs,
-                         idata_kwargs={"log_likelihood": True})
+                         nuts_sampler_kwargs=sampler_kwargs)
 
     out = Path(a.out_dir); out.mkdir(parents=True, exist_ok=True)
     tag = f"{a.model}" + (f"_{a.condition}" if a.condition else "")
