@@ -88,12 +88,15 @@ def get_paradigm(subjects=None, paradigm_tsv=None, condition=None):
 
 
 def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
-               perceptual_prior="long_term"):
+               perceptual_prior="long_term", fit_prior_weight=False,
+               no_seam_crossing=False):
     if model_name == "perception":
         from bauer.efficient_coding import EfficientPerceptionModel
         return EfficientPerceptionModel(paradigm, grid_resolution=grid_resolution,
                                         perceptual_prior=perceptual_prior,
-                                        lapse_rate=lapse_rate)
+                                        lapse_rate=lapse_rate,
+                                        fit_prior_weight=fit_prior_weight,
+                                        no_seam_crossing=no_seam_crossing)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
@@ -102,7 +105,9 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
         from bauer.efficient_coding import SequentialEfficientCodingModel
         return SequentialEfficientCodingModel(paradigm, grid_resolution=grid_resolution,
                                               perceptual_prior=perceptual_prior,
-                                              lapse_rate=lapse_rate)
+                                              lapse_rate=lapse_rate,
+                                              fit_prior_weight=fit_prior_weight,
+                                              no_seam_crossing=no_seam_crossing)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -113,7 +118,7 @@ def subject_parameters(idata, paradigm, model_name):
     subs = list(paradigm.index.get_level_values("subject").unique())
     post = idata.posterior
     rows = {}
-    for par in ("kappa_r", "sigma_rep"):
+    for par in ("kappa_r", "sigma_rep", "prior_weight"):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
             continue
@@ -168,6 +173,13 @@ def main():
                         "actually imposed (orientations were sampled "
                         "uniformly). The paper fits both and finds uniform "
                         "better for the perception-only architecture.")
+    p.add_argument("--fit-prior-weight", action="store_true",
+                   help="Fit the peakedness of the orientation prior, "
+                        "p(phi) ~ 1 - w|sin phi|. Nests uniform (w=0) and the "
+                        "paper's long-term prior (w=0.5).")
+    p.add_argument("--no-seam-crossing", action="store_true",
+                   help="Forbid perceptual confusion across the 0/180 deg seam, "
+                        "where G jumps from 42 CHF back to 2 CHF.")
     p.add_argument("--lapse-rate", type=float, default=0.01,
                    help="Probability of a uniformly random bid. Without it a "
                         "single far-off response can dominate the likelihood. "
@@ -194,7 +206,9 @@ def main():
                             condition=a.condition)
     model = make_model(paradigm, a.model, a.grid_resolution,
                        lapse_rate=a.lapse_rate,
-                       perceptual_prior=a.perceptual_prior)
+                       perceptual_prior=a.perceptual_prior,
+                       fit_prior_weight=a.fit_prior_weight,
+                       no_seam_crossing=a.no_seam_crossing)
 
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
           f"hierarchical={not a.no_hierarchical}, lapse={a.lapse_rate})…")
@@ -213,6 +227,10 @@ def main():
     tag = f"{a.model}" + (f"_{a.condition}" if a.condition else "")
     if a.perceptual_prior != "long_term":
         tag += f"_prior-{a.perceptual_prior}"
+    if a.fit_prior_weight:
+        tag += "_freeprior"
+    if a.no_seam_crossing:
+        tag += "_noseam"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
