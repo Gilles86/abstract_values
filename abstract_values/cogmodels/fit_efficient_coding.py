@@ -114,8 +114,10 @@ def subject_parameters(idata, paradigm, model_name):
         if not cands:
             continue
         v = post[cands[0]]
-        arr = v.mean(dim=("chain", "draw")).values.ravel()
-        if arr.size == len(subs):
+        arr = np.atleast_1d(v.mean(dim=("chain", "draw")).values).ravel()
+        if arr.size == 1 and len(subs) == 1:
+            rows[par] = pd.Series(arr, index=subs)
+        elif arr.size == len(subs):
             rows[par] = pd.Series(arr, index=subs)
         else:
             print(f"  ! {cands[0]} has {arr.size} values for {len(subs)} subjects, skipping")
@@ -154,6 +156,10 @@ def main():
                         "the abstract_values stack (see --write-paradigm).")
     p.add_argument("--write-paradigm", default=None,
                    help="Only dump the trial table to this path and exit.")
+    p.add_argument("--no-hierarchical", action="store_true",
+                   help="Fit subjects independently. Required for a single "
+                        "subject: with one subject the group SD is unidentified "
+                        "and its HalfCauchy tail lets kappa_r run away.")
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
@@ -167,8 +173,9 @@ def main():
                             condition=a.condition)
     model = make_model(paradigm, a.model, a.grid_resolution)
 
-    print(f"\nBuilding {a.model} model (grid={a.grid_resolution})…")
-    model.build_estimation_model(hierarchical=True)
+    print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
+          f"hierarchical={not a.no_hierarchical})…")
+    model.build_estimation_model(hierarchical=not a.no_hierarchical)
 
     print(f"Sampling: {a.chains} chains x {a.draws} draws (tune {a.tune}), "
           f"sampler={a.nuts_sampler}")
@@ -177,7 +184,8 @@ def main():
     idata = model.sample(draws=a.draws, tune=a.tune, chains=a.chains,
                          target_accept=a.target_accept,
                          nuts_sampler=a.nuts_sampler,
-                         nuts_sampler_kwargs=sampler_kwargs)
+                         nuts_sampler_kwargs=sampler_kwargs,
+                         idata_kwargs={"log_likelihood": True})
 
     out = Path(a.out_dir); out.mkdir(parents=True, exist_ok=True)
     tag = f"{a.model}" + (f"_{a.condition}" if a.condition else "")
