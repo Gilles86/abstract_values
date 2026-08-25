@@ -21,6 +21,7 @@ CHAINS="${CHAINS:-4}"
 GRID="${GRID:-101}"
 TARGET_ACCEPT="${TARGET_ACCEPT:-0.9}"
 CONDITION="${CONDITION:-}"
+CHAIN_METHOD="${CHAIN_METHOD:-sequential}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -28,7 +29,7 @@ PARADIGM=$REPO/notes/data/efficient_coding_paradigm.tsv
 OUTDIR=$BIDS_FOLDER/derivatives/cogmodels
 
 export TMPDIR=/scratch/gdehol
-export XLA_FLAGS="--xla_force_host_platform_device_count=${CHAINS}"
+
 
 echo "fit_efficient_coding (CPU): model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID"
 
@@ -42,4 +43,5 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer/bin/python -u \
     --draws "$DRAWS" --tune "$TUNE" --chains "$CHAINS" \
     --target-accept "$TARGET_ACCEPT" \
     --nuts-sampler numpyro \
+    --chain-method "$CHAIN_METHOD" \
     --out-dir "$OUTDIR"

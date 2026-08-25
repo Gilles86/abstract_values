@@ -143,6 +143,12 @@ def main():
     p.add_argument("--target-accept", type=float, default=0.9)
     p.add_argument("--nuts-sampler", default="numpyro",
                    choices=["pymc", "numpyro", "nutpie"])
+    p.add_argument("--chain-method", default="sequential",
+                   choices=["sequential", "parallel", "vectorized"],
+                   help="numpyro only. 'parallel'/'vectorized' hold every chain's "
+                        "intermediates at once, multiplying peak memory by "
+                        "--chains; the sequential model needs more than 192 GB "
+                        "that way at grid 101.")
     p.add_argument("--paradigm-tsv", default=None,
                    help="Read the trial table from here instead of importing "
                         "the abstract_values stack (see --write-paradigm).")
@@ -166,9 +172,12 @@ def main():
 
     print(f"Sampling: {a.chains} chains x {a.draws} draws (tune {a.tune}), "
           f"sampler={a.nuts_sampler}")
+    sampler_kwargs = ({"chain_method": a.chain_method}
+                      if a.nuts_sampler == "numpyro" else {})
     idata = model.sample(draws=a.draws, tune=a.tune, chains=a.chains,
                          target_accept=a.target_accept,
-                         nuts_sampler=a.nuts_sampler)
+                         nuts_sampler=a.nuts_sampler,
+                         nuts_sampler_kwargs=sampler_kwargs)
 
     out = Path(a.out_dir); out.mkdir(parents=True, exist_ok=True)
     tag = f"{a.model}" + (f"_{a.condition}" if a.condition else "")
