@@ -18,8 +18,9 @@ MODEL="${MODEL:-sequential}"
 DRAWS="${DRAWS:-1500}"
 TUNE="${TUNE:-1500}"
 CHAINS="${CHAINS:-4}"
-GRID="${GRID:-31}"
+GRID="${GRID:-101}"
 TARGET_ACCEPT="${TARGET_ACCEPT:-0.9}"
+CONDITION="${CONDITION:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -35,6 +36,7 @@ cd "$REPO" || exit 1
 PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer/bin/python -u \
     -m abstract_values.cogmodels.fit_efficient_coding \
     --model "$MODEL" \
+    ${CONDITION:+--condition "$CONDITION"} \
     --paradigm-tsv "$PARADIGM" \
     --grid-resolution "$GRID" \
     --draws "$DRAWS" --tune "$TUNE" --chains "$CHAINS" \

@@ -59,7 +59,7 @@ def write_paradigm_tsv(path, subjects=None):
     return df[cols]
 
 
-def get_paradigm(subjects=None, paradigm_tsv=None):
+def get_paradigm(subjects=None, paradigm_tsv=None, condition=None):
     """Trial-level paradigm: orientation (deg), response (CHF), mapping."""
     if paradigm_tsv is not None:
         df = pd.read_csv(paradigm_tsv, sep="\t")
@@ -71,6 +71,10 @@ def get_paradigm(subjects=None, paradigm_tsv=None):
         df = df.reset_index()
     if subjects is not None:
         df = df[df["subject"].isin({int(s) for s in subjects})]
+    if condition is not None:
+        df = df[df["mapping"] == condition]
+        if df.empty:
+            raise SystemExit(f"No trials for mapping={condition!r}")
     df = df.dropna(subset=["response", "orientation"])
 
     p = df[["subject", "orientation", "response", "mapping"]].copy()
@@ -126,7 +130,13 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--model", default="sequential", choices=MODELS)
     p.add_argument("--subjects", nargs="+", default=None)
-    p.add_argument("--grid-resolution", type=int, default=31)
+    p.add_argument("--condition", default=None, choices=["cdf", "inverse_cdf"],
+                   help="Fit one mapping only. Bedi et al. is between-subject, "
+                        "but this study is within-subject and their Table 4 shows "
+                        "kappa_r/sigma_rep differ several-fold by condition, so a "
+                        "single pooled value per subject describes neither session.")
+    p.add_argument("--grid-resolution", type=int, default=101,
+                   help="Paper uses 101 points over [2, 42] CHF. Below ~101 the\n                        likelihood is flat in kappa_r above ~20 and sigma_rep is\n                        biased low by 10-35%.")
     p.add_argument("--draws", type=int, default=1000)
     p.add_argument("--tune", type=int, default=1000)
     p.add_argument("--chains", type=int, default=4)
@@ -147,7 +157,8 @@ def main():
 
     import arviz as az
 
-    paradigm = get_paradigm(a.subjects, paradigm_tsv=a.paradigm_tsv)
+    paradigm = get_paradigm(a.subjects, paradigm_tsv=a.paradigm_tsv,
+                            condition=a.condition)
     model = make_model(paradigm, a.model, a.grid_resolution)
 
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution})…")
@@ -160,7 +171,8 @@ def main():
                          nuts_sampler=a.nuts_sampler)
 
     out = Path(a.out_dir); out.mkdir(parents=True, exist_ok=True)
-    nc = out / f"efficient_coding_{a.model}_trace.nc"
+    tag = f"{a.model}" + (f"_{a.condition}" if a.condition else "")
+    nc = out / f"efficient_coding_{tag}_trace.nc"
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
 
@@ -171,7 +183,8 @@ def main():
           + (f":\n{bad.head(10).to_string()}" if len(bad) else ""))
 
     pars = subject_parameters(idata, paradigm, a.model)
-    tsv = out / f"efficient_coding_{a.model}_subject_params.tsv"
+    pars["condition"] = a.condition or "both"
+    tsv = out / f"efficient_coding_{tag}_subject_params.tsv"
     pars.to_csv(tsv, sep="\t")
     print(f"Wrote {tsv}\n{pars.to_string()}")
 

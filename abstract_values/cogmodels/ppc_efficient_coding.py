@@ -256,7 +256,7 @@ def main():
     p.add_argument("--paradigm-tsv", default="notes/data/efficient_coding_paradigm.tsv")
     p.add_argument("--model", default="sequential",
                    choices=["perception", "valuation", "sequential"])
-    p.add_argument("--grid-resolution", type=int, default=31)
+    p.add_argument("--grid-resolution", type=int, default=101)
     p.add_argument("--n-draws", type=int, default=100)
     p.add_argument("--out", default=None)
     a = p.parse_args()
