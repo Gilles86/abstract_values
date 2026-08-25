@@ -87,18 +87,22 @@ def get_paradigm(subjects=None, paradigm_tsv=None, condition=None):
     return p
 
 
-def make_model(paradigm, model_name, grid_resolution):
+def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
+               perceptual_prior="long_term"):
     if model_name == "perception":
         from bauer.efficient_coding import EfficientPerceptionModel
         return EfficientPerceptionModel(paradigm, grid_resolution=grid_resolution,
-                                        perceptual_prior="long_term")
+                                        perceptual_prior=perceptual_prior,
+                                        lapse_rate=lapse_rate)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
-        return EfficientValuationModel(paradigm, grid_resolution=grid_resolution)
+        return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
+                                       lapse_rate=lapse_rate)
     if model_name == "sequential":
         from bauer.efficient_coding import SequentialEfficientCodingModel
         return SequentialEfficientCodingModel(paradigm, grid_resolution=grid_resolution,
-                                              perceptual_prior="long_term")
+                                              perceptual_prior=perceptual_prior,
+                                              lapse_rate=lapse_rate)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -156,6 +160,18 @@ def main():
                         "the abstract_values stack (see --write-paradigm).")
     p.add_argument("--write-paradigm", default=None,
                    help="Only dump the trial table to this path and exit.")
+    p.add_argument("--perceptual-prior", default="long_term",
+                   choices=["long_term", "uniform"],
+                   help="Orientation prior used for encoding/decoding. "
+                        "'long_term' is the fixed 2-|sin| cardinal prior; "
+                        "'uniform' is the short-term prior this experiment "
+                        "actually imposed (orientations were sampled "
+                        "uniformly). The paper fits both and finds uniform "
+                        "better for the perception-only architecture.")
+    p.add_argument("--lapse-rate", type=float, default=0.01,
+                   help="Probability of a uniformly random bid. Without it a "
+                        "single far-off response can dominate the likelihood. "
+                        "The paper fixes 0.01 for its primary comparisons.")
     p.add_argument("--no-hierarchical", action="store_true",
                    help="Fit subjects independently. Required for a single "
                         "subject: with one subject the group SD is unidentified "
@@ -176,10 +192,12 @@ def main():
 
     paradigm = get_paradigm(a.subjects, paradigm_tsv=a.paradigm_tsv,
                             condition=a.condition)
-    model = make_model(paradigm, a.model, a.grid_resolution)
+    model = make_model(paradigm, a.model, a.grid_resolution,
+                       lapse_rate=a.lapse_rate,
+                       perceptual_prior=a.perceptual_prior)
 
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
-          f"hierarchical={not a.no_hierarchical})…")
+          f"hierarchical={not a.no_hierarchical}, lapse={a.lapse_rate})…")
     model.build_estimation_model(hierarchical=not a.no_hierarchical)
 
     print(f"Sampling: {a.chains} chains x {a.draws} draws (tune {a.tune}), "
@@ -193,6 +211,8 @@ def main():
 
     out = Path(a.out_dir); out.mkdir(parents=True, exist_ok=True)
     tag = f"{a.model}" + (f"_{a.condition}" if a.condition else "")
+    if a.perceptual_prior != "long_term":
+        tag += f"_prior-{a.perceptual_prior}"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
@@ -205,6 +225,8 @@ def main():
 
     pars = subject_parameters(idata, paradigm, a.model)
     pars["condition"] = a.condition or "both"
+    pars["perceptual_prior"] = a.perceptual_prior
+    pars["lapse_rate"] = a.lapse_rate
     tsv = out / f"efficient_coding_{tag}_subject_params.tsv"
     pars.to_csv(tsv, sep="\t")
     print(f"Wrote {tsv}\n{pars.to_string()}")

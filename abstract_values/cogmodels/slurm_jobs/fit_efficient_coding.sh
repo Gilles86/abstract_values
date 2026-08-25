@@ -25,6 +25,8 @@ GRID="${GRID:-101}"
 TARGET_ACCEPT="${TARGET_ACCEPT:-0.9}"
 CONDITION="${CONDITION:-}"
 CHAIN_METHOD="${CHAIN_METHOD:-sequential}"
+LAPSE="${LAPSE:-0.01}"
+PRIOR="${PRIOR:-long_term}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -48,4 +50,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     --target-accept "$TARGET_ACCEPT" \
     --nuts-sampler numpyro \
     --chain-method "$CHAIN_METHOD" \
+    --lapse-rate "$LAPSE" \
+    --perceptual-prior "$PRIOR" \
     --out-dir "$OUTDIR"

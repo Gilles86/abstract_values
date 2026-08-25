@@ -81,7 +81,10 @@ def posterior_subject_draws(idata, subjects, params, n_draws, seed=1):
         v = post[par]
         subj_dim = [d for d in v.dims if d not in ("chain", "draw")]
         if not subj_dim:
-            raise ValueError(f"{par} has no subject dimension; is this a hierarchical fit?")
+            # Non-hierarchical fit: one scalar per parameter, shared by every
+            # row of the paradigm. Broadcast it to the subject axis.
+            aligned[par] = np.repeat(v.values[:, :, None], len(subjects), axis=2)
+            continue
         dim = subj_dim[0]
         coord = list(v.coords[dim].values) if dim in v.coords else None
         if coord is not None and set(map(str, coord)) == set(map(str, subjects)):
