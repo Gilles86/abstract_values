@@ -30,6 +30,8 @@ export KERAS_BACKEND=tensorflow
 #                 with P_SIGNAL_THR). Output filename: nvoxels-fdrNN.
 #   P_SIGNAL_THR  P(signal|r²) cutoff on whole-brain R² mixture (mutually
 #                 exclusive with FDR_ALPHA). Output filename: nvoxels-psigNN.
+#   NULL_GATE     set to "1" for nested cvR² > cvR²_null voxel selection
+#                 (requires N_VOXELS=0). Output filename: nvoxels-nullgated.
 #   LAMBD         ResidualFitter regularisation λ (default: 0.1)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
 #
@@ -55,12 +57,25 @@ GEODESIC_HEMI="${GEODESIC_HEMI:-R}"
 N_VOXELS="${N_VOXELS:-100}"
 FDR_ALPHA="${FDR_ALPHA:-}"
 P_SIGNAL_THR="${P_SIGNAL_THR:-}"
-LAMBD="${LAMBD:-0.1}"
+NULL_GATE="${NULL_GATE:-0}"
+# lambd>0 silently overrides the geodesic Omega in braincoder's
+# ResidualFitter (see decode_value.py's assert) — default to 0 whenever
+# GEODESIC=1 unless the caller explicitly overrides LAMBD themselves.
+if [ "$GEODESIC" = "1" ]; then
+    LAMBD="${LAMBD:-0}"
+else
+    LAMBD="${LAMBD:-0.1}"
+fi
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 MODEL="${MODEL:-loggauss}"
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
+    exit 1
+fi
+
+if [ "$NULL_GATE" = "1" ] && [ "$N_VOXELS" != "0" ]; then
+    echo "ERROR: NULL_GATE=1 requires N_VOXELS=0."
     exit 1
 fi
 
@@ -84,8 +99,9 @@ ARGS=(
 [ "$MODEL" != "loggauss" ] && ARGS+=(--model "$MODEL")
 [ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
 [ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
+[ "$NULL_GATE" = "1" ] && ARGS+=(--null-gate)
 
-echo "decode_value: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}  model=${MODEL}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}"
+echo "decode_value: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}  model=${MODEL}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  null_gate=${NULL_GATE}"
 echo "Args: ${ARGS[*]}"
 
 # Load environment

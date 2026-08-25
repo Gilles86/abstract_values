@@ -25,6 +25,9 @@ export KERAS_BACKEND=tensorflow
 #   SESSION       session number (default: all sessions)
 #   SMOOTHED      set to "1" to use spatially smoothed betas (default: off)
 #   SPHERICAL     set to "1" for spherical (diagonal) noise model (default: full)
+#   GEODESIC      set to "1" for geodesic-distance spatial noise model
+#                 (mutually exclusive with SPHERICAL; single-hemisphere ROI)
+#   GEODESIC_HEMI hemisphere for geodesic surface distance (default: R)
 #   N_VOXELS      top voxels to decode with (default: 100)
 #   FDR_ALPHA     FDR-control α on whole-brain R² mixture (mutually exclusive
 #                 with P_SIGNAL_THR). Output filename: nvoxels-fdrNN.
@@ -32,6 +35,9 @@ export KERAS_BACKEND=tensorflow
 #                 exclusive with FDR_ALPHA). Output filename: nvoxels-psigNN.
 #   LAMBD         ResidualFitter regularisation λ (default: 0.1)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
+#   MODEL         vonmises (default, tuned bump) | linear (no tuning bump,
+#                 cos(2x)/sin(2x) closed-form fit). Output subdir:
+#                 derivatives/decoding/{gabor,gabor-linear}/.
 #
 # Example — V1 bilateral, both noise models, pilot ses-1:
 #   MASK=/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/masks/sub-pil01/ses-1/anat/sub-pil01_ses-1_space-T1w_hemi-LR_desc-BensonV1_mask.nii.gz
@@ -50,14 +56,29 @@ fi
 SESSION="${SESSION:-}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-0}"
+GEODESIC="${GEODESIC:-0}"
+GEODESIC_HEMI="${GEODESIC_HEMI:-R}"
 N_VOXELS="${N_VOXELS:-100}"
 FDR_ALPHA="${FDR_ALPHA:-}"
 P_SIGNAL_THR="${P_SIGNAL_THR:-}"
-LAMBD="${LAMBD:-0.1}"
+# lambd>0 silently overrides the geodesic Omega in braincoder's
+# ResidualFitter (see decode_gabor.py's assert) — default to 0 whenever
+# GEODESIC=1 unless the caller explicitly overrides LAMBD themselves.
+if [ "$GEODESIC" = "1" ]; then
+    LAMBD="${LAMBD:-0}"
+else
+    LAMBD="${LAMBD:-0.1}"
+fi
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
+MODEL="${MODEL:-vonmises}"
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
+    exit 1
+fi
+
+if [ "$SPHERICAL" = "1" ] && [ "$GEODESIC" = "1" ]; then
+    echo "ERROR: SPHERICAL and GEODESIC are mutually exclusive."
     exit 1
 fi
 
@@ -77,10 +98,12 @@ ARGS=(
 [ -n "$SESSION" ] && ARGS+=(--sessions "$SESSION")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise)
+[ "$GEODESIC" = "1" ] && ARGS+=(--geodesic-noise --geodesic-hemi "$GEODESIC_HEMI")
 [ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
 [ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
+[ "$MODEL" != "vonmises" ] && ARGS+=(--model "$MODEL")
 
-echo "decode_gabor: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  λ=${LAMBD}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}"
+echo "decode_gabor: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  geodesic=${GEODESIC}  λ=${LAMBD}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  model=${MODEL}"
 echo "Args: ${ARGS[*]}"
 
 # Load environment

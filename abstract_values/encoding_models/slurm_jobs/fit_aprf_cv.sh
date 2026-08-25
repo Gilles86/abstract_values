@@ -30,7 +30,9 @@ export KERAS_BACKEND=tensorflow
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 #   N_ITERATIONS    max gradient descent iterations per fold (default: 1000)
-#   MODEL           standard|session-shift|gaussian|gauss-session-shift (default: standard)
+#   MODEL           standard|session-shift|fwhm-only-shift|fwhm-shift|
+#                   fully-shifted|gaussian|gauss-session-shift|linear
+#                   (default: standard)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)

@@ -5,6 +5,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
+#SBATCH --account=zne.uzh
 
 # Project models are TF-native; cluster keras.json defaults to jax — pin TF.
 export KERAS_BACKEND=tensorflow
