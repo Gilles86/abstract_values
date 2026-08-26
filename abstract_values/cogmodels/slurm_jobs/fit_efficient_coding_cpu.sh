@@ -32,8 +32,16 @@ OUTDIR=$BIDS_FOLDER/derivatives/cogmodels
 
 export TMPDIR=/scratch/gdehol
 
+# numpyro's chain_method="parallel" pmaps over JAX *devices*.  On CPU there is
+# exactly one device unless XLA is told otherwise, so without this the run
+# silently falls back to one-chain-at-a-time -- which is what made the
+# long_term sequential fit miss its wall clock (18.5 h per chain x 4).
+if [ "$CHAIN_METHOD" = "parallel" ]; then
+    export XLA_FLAGS="--xla_force_host_platform_device_count=$CHAINS"
+fi
 
-echo "fit_efficient_coding (CPU): model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID"
+
+echo "fit_efficient_coding (CPU): model= draws= tune= chains= grid= prior= chain_method= XLA_FLAGS="
 
 cd "$REPO" || exit 1
 PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer/bin/python -u \

@@ -36,7 +36,7 @@ OUTDIR=$BIDS_FOLDER/derivatives/cogmodels
 export TMPDIR=/scratch/gdehol
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
-echo "fit_efficient_coding: model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID"
+echo "fit_efficient_coding (GPU): model= draws= tune= chains= grid= prior= chain_method="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
 
 cd "$REPO" || exit 1
