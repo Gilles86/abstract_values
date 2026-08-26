@@ -10,7 +10,24 @@ shape flips between the two mappings.  So the PPC is built around bias(value):
           can match the bias curve and still get the noise badly wrong.
   page 2+ one panel per subject, both mappings overlaid, same quantity.
 
-Draws are subsampled (--n-draws) because the predictive is computed per trial
+BOTH sides carry uncertainty, and they are different things:
+
+  predicted band  each posterior draw is used to SIMULATE a full synthetic
+                  dataset with the same trial structure, and the summary is
+                  recomputed on it.  So the band is parameter uncertainty PLUS
+                  the trial-level sampling noise the model predicts -- which is
+                  what the observed curve is also subject to.  Ribboning the
+                  predicted MEAN instead (the obvious thing) gives a band that
+                  is invisible at this N: with 26 subjects the parameter
+                  posterior is tight, and a hairline band around a curve that
+                  misses the data reads as a catastrophic misfit when it is
+                  really just a tight posterior.
+  observed band   cluster bootstrap over subjects, so it answers "would another
+                  sample of participants show this bump?".  The simulated
+                  datasets are cluster-resampled the same way, so the two bands
+                  are directly comparable in width.
+
+Draws are subsampled (--n-draws) because the predictive is simulated per trial
 per draw and the full posterior is far more than the plot can use.
 
 Usage:
@@ -105,16 +122,48 @@ def posterior_subject_draws(idata, subjects, params, n_draws, seed=1):
 
 
 def run_ppc(model, paradigm, idata, params, n_draws, seed=1):
-    """Predicted response distribution per trial, for a subset of posterior draws."""
+    """One simulated dataset per posterior draw, same trial structure as the data."""
     subjects = list(paradigm.index.get_level_values("subject").unique())
+    # bauer.simulate draws through the global numpy RNG.
+    np.random.seed(seed)
     draws = []
     for i, pars in enumerate(posterior_subject_draws(idata, subjects, params,
                                                      n_draws, seed=seed)):
-        pred = model.predict(paradigm, pars)
-        draws.append(pred.reset_index())
+        sim = model.simulate(paradigm, pars, n_samples=1).reset_index()
+        # simulate() joins the paradigm back on, so the OBSERVED response rides
+        # along; drop it before the simulated one takes the name, or every
+        # downstream d["response"] silently becomes a two-column frame.
+        sim = (sim.drop(columns=["response"])
+                  .rename(columns={"simulated_response": "response"}))
+        draws.append(sim)
         if (i + 1) % 10 == 0:
             print(f"  draw {i+1}/{n_draws}")
     return draws
+
+
+def resample_subjects(d, rng):
+    """Cluster-resample subjects, so a simulated dataset carries the same
+    subject-sampling variability the observed bootstrap band does.  Without
+    this the two bands answer different questions and the model looks far more
+    confident than the data."""
+    by = {s: g for s, g in d.groupby("subject")}
+    subs = list(by)
+    return pd.concat([by[s] for s in rng.choice(subs, len(subs), replace=True)])
+
+
+def bootstrap_observed(d, n_boot=400, seed=0):
+    """Cluster bootstrap over subjects of bias(value) and SD(value)."""
+    rng = np.random.default_rng(seed)
+    subs = d["subject"].unique()
+    by_sub = {s: g for s, g in d.groupby("subject")}
+    bias, sd = [], []
+    for _ in range(n_boot):
+        dd = pd.concat([by_sub[s] for s in rng.choice(subs, len(subs), replace=True)])
+        g = dd.groupby("value")
+        bias.append(g["bias"].mean())
+        sd.append(g["response"].std())
+    q = lambda frames: pd.concat(frames, axis=1).quantile([.025, .975], axis=1).T
+    return q(bias), q(sd)
 
 
 def _bias_by_value(df, resp_col):
@@ -130,10 +179,12 @@ def page_group(obs, pred_draws, out_pdf):
     for j, cond in enumerate(["cdf", "inverse_cdf"]):
         o = obs[obs.mapping == cond]
         og = o.groupby("value").agg(bias=("bias", "mean"), sd=("response", "std"))
+        ob_bias, ob_sd = bootstrap_observed(o)
 
         # posterior predictive ribbon over draws
-        pb = [d[d.mapping == cond].groupby("value")["bias"].mean()
-              for d in pred_draws]
+        rng = np.random.default_rng(7 + j)
+        sim = [resample_subjects(d[d.mapping == cond], rng) for d in pred_draws]
+        pb = [d.groupby("value")["bias"].mean() for d in sim]
         pb = pd.concat(pb, axis=1)
         lo, mid, hi = pb.quantile(.025, axis=1), pb.median(axis=1), pb.quantile(.975, axis=1)
 
@@ -147,8 +198,11 @@ def page_group(obs, pred_draws, out_pdf):
 
         ax.axhline(0, color="0.4", lw=0.8, ls="--")
         ax.fill_between(mid.index, lo, hi, color=COND_C[cond], alpha=0.28, lw=0,
-                        label="Predicted (95% PPC)")
+                        label="Predicted (95% PPC, simulated data)")
         ax.plot(mid.index, mid, color=COND_C[cond], lw=1.2, ls="--")
+        ax.fill_between(ob_bias.index, ob_bias[.025], ob_bias[.975],
+                        color="0.35", alpha=0.22, lw=0,
+                        label="Observed (95% boot. over subjects)")
         ax.plot(og.index, og["bias"], color="0.15", marker="o", ms=3.5, lw=1.3,
                 label="Observed")
         # The predictive blows up in the outermost value bins: probability mass
@@ -168,23 +222,29 @@ def page_group(obs, pred_draws, out_pdf):
         ax.set_title(f"{COND_L[cond]} — bias vs value", fontsize=9, color="0.2")
         ax.legend(loc="upper left", fontsize=7)
 
-        # response SD: does the model get the noise level right?
-        ps = [d[d.mapping == cond].groupby("value")["predicted_sd"].mean()
-              for d in pred_draws if "predicted_sd" in d]
+        # response SD: does the model get the noise level right?  Computed the
+        # same way on both sides -- SD of the responses in each value bin --
+        # so the two are directly comparable.
+        ps = [d.groupby("value")["response"].std() for d in sim]
         ax = axes[1, j]
+        ax.fill_between(ob_sd.index, ob_sd[.025], ob_sd[.975], color="0.35",
+                        alpha=0.22, lw=0, label="Observed (95% boot.)")
         ax.plot(og.index, og["sd"], color="0.15", marker="o", ms=3.5, lw=1.3,
                 label="Observed SD")
         if ps:
             ps = pd.concat(ps, axis=1)
             ax.fill_between(ps.index, ps.quantile(.025, axis=1), ps.quantile(.975, axis=1),
-                            color=COND_C[cond], alpha=0.28, lw=0)
+                            color=COND_C[cond], alpha=0.28, lw=0,
+                            label="Predicted (95% PPC)")
             ax.plot(ps.index, ps.median(axis=1), color=COND_C[cond], lw=1.2, ls="--",
                     label="Predicted SD")
         ax.set_ylim(0, 1.8 * max(og["sd"].max(), 0.5))
         ax.set_xlabel("True value (CHF)"); ax.set_ylabel("Response SD (CHF)")
         ax.set_title(f"{COND_L[cond]} — spread", fontsize=9, color="0.2")
         ax.legend(loc="best", fontsize=7)
-    fig.suptitle("Group posterior predictive check", fontsize=10, y=1.03, color="0.15")
+    fig.suptitle("Group posterior predictive check  ·  bands are 95% intervals: "
+                 "colour = simulated datasets, grey = bootstrap over subjects",
+                 fontsize=10, y=1.03, color="0.15")
     sns.despine(fig=fig, offset=4, trim=False)
     out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
@@ -220,8 +280,9 @@ def pages_subjects(obs, pred_draws, out_pdf, per_page=12):
             ax.set_xlabel("Value (CHF)", fontsize=8)
         for ax in axes[:, 0]:
             ax.set_ylabel("Bias (CHF)", fontsize=8)
-        fig.suptitle("Per-subject posterior predictive check  ·  "
-                     "line = observed, band = 95% PPC", fontsize=10, y=1.02, color="0.15")
+        fig.suptitle("Per-subject posterior predictive check  ·  line = observed, "
+                     "band = 95% of simulated datasets", fontsize=10, y=1.02,
+                     color="0.15")
         sns.despine(fig=fig, offset=3, trim=False)
         out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
@@ -244,7 +305,7 @@ def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
     print(f"Running PPC ({n_draws} draws, params {params})…")
     pred_draws = run_ppc(model, paradigm, idata, params, n_draws)
     for d in pred_draws:
-        d["bias"] = d["predicted_mean"] - d["value"]
+        d["bias"] = d["response"] - d["value"]
     print(f"  {len(pred_draws)} predictive draws")
 
     obs = paradigm.reset_index()

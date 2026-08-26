@@ -41,7 +41,7 @@ if [ "$CHAIN_METHOD" = "parallel" ]; then
 fi
 
 
-echo "fit_efficient_coding (CPU): model= draws= tune= chains= grid= prior= chain_method= XLA_FLAGS="
+echo "fit_efficient_coding (CPU): model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID prior=$PRIOR chain_method=$CHAIN_METHOD XLA_FLAGS=$XLA_FLAGS"
 
 cd "$REPO" || exit 1
 PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer/bin/python -u \
