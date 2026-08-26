@@ -226,13 +226,18 @@ def pages_subjects(obs, pred_draws, out_pdf, per_page=12):
         out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
-def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution):
+def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
+        perceptual_prior="long_term", lapse_rate=0.01):
     import arviz as az
     from abstract_values.cogmodels.fit_efficient_coding import make_model
 
     paradigm = load_paradigm(paradigm_tsv)
     idata = az.from_netcdf(trace)
-    model = make_model(paradigm, model_name, grid_resolution)
+    # The prior has to match the one the trace was fitted under, or the PPC
+    # scores the posterior against a different generative model than the one
+    # that produced it.
+    model = make_model(paradigm, model_name, grid_resolution,
+                       lapse_rate=lapse_rate, perceptual_prior=perceptual_prior)
 
     params = {"perception": ["kappa_r"], "valuation": ["sigma_rep"],
               "sequential": ["kappa_r", "sigma_rep"]}[model_name]
@@ -261,10 +266,15 @@ def main():
                    choices=["perception", "valuation", "sequential"])
     p.add_argument("--grid-resolution", type=int, default=101)
     p.add_argument("--n-draws", type=int, default=100)
+    p.add_argument("--perceptual-prior", default="long_term",
+                   choices=["long_term", "uniform"],
+                   help="Must match the prior the trace was fitted under.")
+    p.add_argument("--lapse-rate", type=float, default=0.01)
     p.add_argument("--out", default=None)
     a = p.parse_args()
     out = a.out or f"notes/figures/ppc_{a.model}.pdf"
-    run(a.trace, a.paradigm_tsv, a.model, out, a.n_draws, a.grid_resolution)
+    run(a.trace, a.paradigm_tsv, a.model, out, a.n_draws, a.grid_resolution,
+        perceptual_prior=a.perceptual_prior, lapse_rate=a.lapse_rate)
 
 
 if __name__ == "__main__":
