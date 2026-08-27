@@ -89,7 +89,8 @@ def get_paradigm(subjects=None, paradigm_tsv=None, condition=None):
 
 def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                perceptual_prior="long_term", fit_prior_weight=False,
-               no_seam_crossing=False, prior_fourier_order=0):
+               no_seam_crossing=False, prior_fourier_order=0,
+               cardinal_truncation=False):
     if model_name == "perception":
         from bauer.efficient_coding import EfficientPerceptionModel
         return EfficientPerceptionModel(paradigm, grid_resolution=grid_resolution,
@@ -97,7 +98,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                                         lapse_rate=lapse_rate,
                                         fit_prior_weight=fit_prior_weight,
                                         prior_fourier_order=prior_fourier_order,
-                                        no_seam_crossing=no_seam_crossing)
+                                        no_seam_crossing=no_seam_crossing,
+                                        cardinal_truncation=cardinal_truncation)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
@@ -113,7 +115,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    lapse_rate=lapse_rate,
                    fit_prior_weight=fit_prior_weight,
                    prior_fourier_order=prior_fourier_order,
-                   no_seam_crossing=no_seam_crossing)
+                   no_seam_crossing=no_seam_crossing,
+                   cardinal_truncation=cardinal_truncation)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -195,6 +198,13 @@ def main():
                         "refines further. Coefficients carry a 0.6/k shrinkage "
                         "prior, so higher harmonics must earn their amplitude. "
                         "Mutually exclusive with --fit-prior-weight.")
+    p.add_argument("--cardinal-truncation", action="store_true",
+                   help="Truncate orientation perception at the cardinals: the "
+                        "percept, and the estimate summarising it, stay inside "
+                        "the category the stimulus falls in (below 90, at 90, "
+                        "above 90), bounded by 0/90/180 deg. Closes the 0/180 "
+                        "boundary as a side effect. Complements --model "
+                        "categorical, which gates the final VALUE distribution.")
     p.add_argument("--no-seam-crossing", action="store_true",
                    help="Forbid perceptual confusion across the 0/180 deg seam, "
                         "where G jumps from 42 CHF back to 2 CHF.")
@@ -227,7 +237,8 @@ def main():
                        perceptual_prior=a.perceptual_prior,
                        fit_prior_weight=a.fit_prior_weight,
                        prior_fourier_order=a.prior_fourier_order,
-                       no_seam_crossing=a.no_seam_crossing)
+                       no_seam_crossing=a.no_seam_crossing,
+                       cardinal_truncation=a.cardinal_truncation)
 
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
           f"hierarchical={not a.no_hierarchical}, lapse={a.lapse_rate})…")
@@ -256,6 +267,8 @@ def main():
         tag += f"_grid{a.grid_resolution}"
     if a.no_seam_crossing:
         tag += "_noseam"
+    if a.cardinal_truncation:
+        tag += "_trunc"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")

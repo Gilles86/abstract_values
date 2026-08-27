@@ -30,6 +30,8 @@ PRIOR="${PRIOR:-long_term}"
 # FREE_PRIOR=1 fits the prior peakedness; NOSEAM=1 closes the 0/180 deg seam.
 FREE_PRIOR="${FREE_PRIOR:-}"
 NOSEAM="${NOSEAM:-}"
+# TRUNC=1 truncates orientation perception at the 0/90/180 cardinals.
+TRUNC="${TRUNC:-}"
 # FOURIER=K fits the prior as a K-harmonic circular Fourier series.
 FOURIER="${FOURIER:-}"
 
@@ -68,5 +70,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     --perceptual-prior "$PRIOR" \
     ${FREE_PRIOR:+--fit-prior-weight} \
     ${NOSEAM:+--no-seam-crossing} \
+    ${TRUNC:+--cardinal-truncation} \
     ${FOURIER:+--prior-fourier-order "$FOURIER"} \
     --out-dir "$OUTDIR"
