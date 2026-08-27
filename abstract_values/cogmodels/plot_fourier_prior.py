@@ -77,6 +77,36 @@ def weight_prior(w, phi=PHI):
     return p / np.trapezoid(p, phi)
 
 
+def fourier_prior_general(coefs, phi=PHI):
+    """p(phi) ~ exp(sum_k a_k cos(k phi) + b_k sin(k phi)) for coefs [(a_k, b_k)]."""
+    logp = np.zeros_like(phi)
+    for k, (a, b) in enumerate(coefs, start=1):
+        logp = logp + a * np.cos(k * phi) + b * np.sin(k * phi)
+    p = np.exp(logp - logp.max())
+    return p / np.trapezoid(p, phi)
+
+
+def sample_prior_draws(order, n, rng, fixed=((0.0, 0.0), (0.309, 0.0))):
+    """Draws from the shrinkage prior on the coefficients above `fixed`.
+
+    Holding k = 1, 2 at the paper-like shape and drawing only the higher
+    harmonics answers the question people actually ask -- what does going to a
+    higher order ADD -- rather than showing the whole prior space, most of
+    which is the two interpretable terms moving around.  sigma_k = 0.5 for
+    k <= 2 and 0.5/(k-1)^2 above, matching
+    bauer.efficient_coding.fourier_coef_prior.
+    """
+    def sigma(k):
+        return 0.5 if k <= 2 else 0.5 / (k - 1) ** 2
+
+    def draw():
+        coefs = list(fixed)
+        for k in range(len(fixed) + 1, order + 1):
+            coefs.append((rng.normal(0, sigma(k)), rng.normal(0, sigma(k))))
+        return fourier_prior_general(coefs)
+    return [draw() for _ in range(n)]
+
+
 def encoding_cdf(p, phi=PHI):
     """F(phi): the efficient-coding transform the prior induces."""
     c = np.concatenate([[0.0], np.cumsum((p[:-1] + p[1:]) / 2 * np.diff(phi))])
@@ -103,7 +133,7 @@ def main():
     print(f"  max abs deviation from it: {np.abs(approx - long_term_prior()).max():.2e} "
           f"(density scale {long_term_prior().mean():.3f})")
 
-    fig, axes = plt.subplots(1, 2, figsize=(6.6, 2.6), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(7.25, 2.5), constrained_layout=True)
 
     # Three named shapes, not a parameter sweep: the panel has to be readable
     # before the reader has decoded a1/a2.
@@ -121,7 +151,8 @@ def main():
     for name, prior, c, sub in shapes:
         rel = prior / prior.mean()
         ax.plot(THETA, rel, color=c)
-        ax.text(184, rel[-1], f"{name}\n{sub}", color=c, fontsize=6.5,
+        extra = "\n= paper's 2 − |sin|" if name == "Cardinals favoured" else ""
+        ax.text(184, rel[-1], f"{name}\n{sub}{extra}", color=c, fontsize=6.5,
                 va="center", ha="left")
     lt = long_term_prior() / long_term_prior().mean()
     ax.plot(THETA, lt, color="#3B5BA5", ls=(0, (1.5, 1.6)), lw=1.6)
@@ -131,13 +162,7 @@ def main():
     ax.text(45, 0.36, "Obliques", color="0.45", fontsize=6.5, ha="center")
     ax.text(135, 0.36, "Obliques", color="0.45", fontsize=6.5, ha="center")
     ax.text(90, 2.33, "Cardinal", color="0.45", fontsize=6.5, ha="center")
-    ax.annotate("Dashed: the paper's 2 − |sin|\nprior, on top of a₂ = 0.31",
-                xy=(112, lt[THETA.searchsorted(112)]),
-                xytext=(20, 1.95), fontsize=6.5, color="#3B5BA5", ha="left",
-                arrowprops=dict(arrowstyle="-|>", color="#3B5BA5", lw=0.9,
-                                mutation_scale=7, shrinkB=4,
-                                connectionstyle="angle3,angleA=0,angleB=65",
-                                relpos=(1.0, 0.5)))
+    ax.plot([], [])  # (the dashed overlay above is labelled on the curve itself)
 
     # --- b: the behavioural consequence --------------------------------
     # Efficient coding spends coding space in proportion to the prior, so the
@@ -158,13 +183,35 @@ def main():
                                 connectionstyle="angle3,angleA=0,angleB=70",
                                 relpos=(0.0, 0.5)))
 
+    # --- c: what more harmonics allow ----------------------------------
+    ax = axes[2]
+    rng = np.random.default_rng(3)
+    for draw in sample_prior_draws(4, 14, rng):
+        ax.plot(THETA, draw / draw.mean(), color="#3B5BA5", lw=0.7, alpha=0.45)
+    ax.plot(THETA, fourier_prior(0.0, a2_lt) / fourier_prior(0.0, a2_lt).mean(),
+            color="#C44E52", lw=1.6)
+    ax.set_ylim(0.0, 2.7)
+    ax.set_ylabel("Prior density (uniform = 1)")
+    ax.set_title("What harmonics 3–4 add")
+    ax.text(6, 2.62, "14 draws with a₁, a₂ held at the\ncardinal shape and k = 3, 4 free",
+            color="#3B5BA5", fontsize=6.5, va="top", ha="left")
+    ax.annotate("Order 2 alone (red)",
+                xy=(90, (fourier_prior(0.0, a2_lt)
+                         / fourier_prior(0.0, a2_lt).mean())[THETA.searchsorted(90)]),
+                xytext=(100, 2.15), fontsize=6.5, color="#C44E52", ha="left",
+                arrowprops=dict(arrowstyle="-|>", color="#C44E52", lw=0.9,
+                                mutation_scale=7, shrinkB=5,
+                                connectionstyle="angle3,angleA=0,angleB=70",
+                                relpos=(0.0, 0.5)))
+
     for ax in axes:
         ax.set_xlabel("Orientation θ (deg)")
         ax.set_xticks(TICKS)
         for cardinal in (0, 90, 180):
             ax.axvline(cardinal, color="0.9", lw=0.6, ls=":", zorder=0)
-    axes[0].set_xlim(0, 290)
+    axes[0].set_xlim(0, 320)
     axes[1].set_xlim(0, 180)
+    axes[2].set_xlim(0, 180)
     sns.despine(fig=fig, offset=4, trim=True)
 
     out = Path(a.out)

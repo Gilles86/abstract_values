@@ -89,13 +89,14 @@ def get_paradigm(subjects=None, paradigm_tsv=None, condition=None):
 
 def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                perceptual_prior="long_term", fit_prior_weight=False,
-               no_seam_crossing=False):
+               no_seam_crossing=False, prior_fourier_order=0):
     if model_name == "perception":
         from bauer.efficient_coding import EfficientPerceptionModel
         return EfficientPerceptionModel(paradigm, grid_resolution=grid_resolution,
                                         perceptual_prior=perceptual_prior,
                                         lapse_rate=lapse_rate,
                                         fit_prior_weight=fit_prior_weight,
+                                        prior_fourier_order=prior_fourier_order,
                                         no_seam_crossing=no_seam_crossing)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
@@ -111,6 +112,7 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    perceptual_prior=perceptual_prior,
                    lapse_rate=lapse_rate,
                    fit_prior_weight=fit_prior_weight,
+                   prior_fourier_order=prior_fourier_order,
                    no_seam_crossing=no_seam_crossing)
     raise ValueError(f"Unknown model: {model_name}")
 
@@ -122,7 +124,8 @@ def subject_parameters(idata, paradigm, model_name):
     subs = list(paradigm.index.get_level_values("subject").unique())
     post = idata.posterior
     rows = {}
-    for par in ("kappa_r", "sigma_rep", "prior_weight"):
+    fourier = [f"prior_{c}{k}" for k in range(1, 9) for c in "ab"]
+    for par in ("kappa_r", "sigma_rep", "prior_weight", *fourier):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
             continue
@@ -183,6 +186,15 @@ def main():
                    help="Fit the peakedness of the orientation prior, "
                         "p(phi) ~ 1 - w|sin phi|. Nests uniform (w=0) and the "
                         "paper's long-term prior (w=0.5).")
+    p.add_argument("--prior-fourier-order", type=int, default=0,
+                   help="Fit the orientation prior as a circular Fourier "
+                        "series, p(phi) ~ exp(sum_k a_k cos k phi + b_k sin k phi), "
+                        "with K harmonics. k=1 is the horizontal-vs-vertical "
+                        "asymmetry, k=2 the cardinal-vs-oblique term that "
+                        "reproduces the paper's prior at a_2 ~ 0.31, k>=3 "
+                        "refines further. Coefficients carry a 0.6/k shrinkage "
+                        "prior, so higher harmonics must earn their amplitude. "
+                        "Mutually exclusive with --fit-prior-weight.")
     p.add_argument("--no-seam-crossing", action="store_true",
                    help="Forbid perceptual confusion across the 0/180 deg seam, "
                         "where G jumps from 42 CHF back to 2 CHF.")
@@ -214,6 +226,7 @@ def main():
                        lapse_rate=a.lapse_rate,
                        perceptual_prior=a.perceptual_prior,
                        fit_prior_weight=a.fit_prior_weight,
+                       prior_fourier_order=a.prior_fourier_order,
                        no_seam_crossing=a.no_seam_crossing)
 
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -235,6 +248,8 @@ def main():
         tag += f"_prior-{a.perceptual_prior}"
     if a.fit_prior_weight:
         tag += "_freeprior"
+    if a.prior_fourier_order:
+        tag += f"_fourier{a.prior_fourier_order}"
     if a.no_seam_crossing:
         tag += "_noseam"
     nc = out / f"efficient_coding_{tag}_trace.nc"

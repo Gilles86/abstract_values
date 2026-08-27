@@ -27,6 +27,8 @@ PRIOR="${PRIOR:-long_term}"
 # FREE_PRIOR=1 fits the prior peakedness; NOSEAM=1 closes the 0/180 deg seam.
 FREE_PRIOR="${FREE_PRIOR:-}"
 NOSEAM="${NOSEAM:-}"
+# FOURIER=K fits the prior as a K-harmonic circular Fourier series.
+FOURIER="${FOURIER:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -61,4 +63,5 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer/bin/python -u \
     --perceptual-prior "$PRIOR" \
     ${FREE_PRIOR:+--fit-prior-weight} \
     ${NOSEAM:+--no-seam-crossing} \
+    ${FOURIER:+--prior-fourier-order "$FOURIER"} \
     --out-dir "$OUTDIR"
