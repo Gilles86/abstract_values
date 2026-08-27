@@ -276,6 +276,34 @@ ssh sciencecluster squeue -u gdehol
 ssh sciencecluster "tail -20 ~/logs/fmriprep_*.txt"
 ```
 
+## Cognitive models (`abstract_values/cogmodels/`)
+
+Efficient-coding models from Bedi et al. (2026), implemented in `bauer.efficient_coding`.
+The paper itself is at `notes/papers/bedi_et_al2026.pdf`.
+
+| `--model` | What it is |
+|-----------|------------|
+| `perception` | Efficient coding + Bayesian decoding in orientation space only (`kappa_r`) |
+| `valuation` | Veridical perception; efficient coding in value space only (`sigma_rep`) |
+| `sequential` | Both stages, perceptual uncertainty marginalised into the value stage |
+| `categorical` | `sequential` + the paper's hard cardinal category gate at 90 deg / 22 CHF (Fig. 6, no extra free parameters) |
+
+Flags that matter: `--perceptual-prior long_term|uniform`, `--fit-prior-weight`
+(free steepness of the environmental prior), `--no-seam-crossing` (1-3 deg is
+never decoded as 179-180 deg), `--condition` (fit one mapping only).
+SLURM: `MODEL=`, `PRIOR=`, `FREE_PRIOR=1`, `NOSEAM=1`, `CHAIN_METHOD=`.
+
+**Skills to load when working here** (these do not reliably self-trigger from a
+debugging conversation, so load them explicitly):
+
+- **bayesian-workflow** — before touching any fit, PPC, or convergence
+  question. Covers the order of operations, divergence/r_hat/tree-depth triage,
+  identifiability and parameter recovery, and the sampler traps
+  (`chain_method="parallel"` silently serialising, `pm.Potential` breaking
+  `log_likelihood`, JAX static-shape failures in hierarchical fits).
+- **scientific-figures** — before writing any plotting code, including a PPC
+  panel. `notes/figures/*.pdf` is the house output format.
+
 ## Cluster
 
 Hostname: `sciencecluster`
