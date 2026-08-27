@@ -217,11 +217,14 @@ def page_group(obs, pred_draws, out_pdf):
         ax.plot(og.index, og["sd"], color="0.15", marker="o", ms=3.5, lw=1.3)
         if ps:
             ps = pd.concat(ps, axis=1)
-            ax.fill_between(ps.index, ps.quantile(.025, axis=1), ps.quantile(.975, axis=1),
-                            color=COND_C[cond], alpha=0.28, lw=0,
-                            label="Predicted (95% PPC)")
-            ax.plot(ps.index, ps.median(axis=1), color=COND_C[cond], lw=1.2, ls="--",
-                    label="Predicted SD")
+            s_lo, s_hi = ps.quantile(.025, axis=1), ps.quantile(.975, axis=1)
+            ax.fill_between(ps.index, s_lo, s_hi, color=COND_C[cond], alpha=0.28, lw=0)
+            ax.plot(ps.index, ps.median(axis=1), color=COND_C[cond], lw=1.2, ls="--")
+            cov_sd = coverage(og["sd"], s_lo, s_hi)
+            print(f" | SD {cov_sd:.2f}")
+            ax.text(0.98, 0.03, f"95% band covers {cov_sd:.0%} of points",
+                    transform=ax.transAxes, color="0.45", fontsize=6.5,
+                    va="bottom", ha="right")
         ax.set_ylim(0, 1.8 * max(og["sd"].max(), 0.5))
         ax.set_xlabel("True value (CHF)"); ax.set_ylabel("Response SD (CHF)")
         ax.set_title(f"{COND_L[cond]} — spread", color="0.2")
