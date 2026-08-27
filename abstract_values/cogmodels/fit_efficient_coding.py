@@ -250,6 +250,10 @@ def main():
         tag += "_freeprior"
     if a.prior_fourier_order:
         tag += f"_fourier{a.prior_fourier_order}"
+    # The grid is part of the model, not just its accuracy (it sets the kappa_r
+    # ceiling), so a grid sweep must not overwrite the reference fit.
+    if a.grid_resolution != 101:
+        tag += f"_grid{a.grid_resolution}"
     if a.no_seam_crossing:
         tag += "_noseam"
     nc = out / f"efficient_coding_{tag}_trace.nc"
