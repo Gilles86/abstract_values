@@ -10,22 +10,17 @@ shape flips between the two mappings.  So the PPC is built around bias(value):
           can match the bias curve and still get the noise badly wrong.
   page 2+ one panel per subject, both mappings overlaid, same quantity.
 
-BOTH sides carry uncertainty, and they are different things:
+The predictive band is the honest one: each posterior draw SIMULATES a full
+synthetic dataset with the same trial structure, and the summary is recomputed
+on it, so the band carries parameter uncertainty PLUS the trial-level sampling
+noise the model predicts.  Ribboning the predicted MEAN instead (the obvious
+thing) gives a band that is invisible at this N.
 
-  predicted band  each posterior draw is used to SIMULATE a full synthetic
-                  dataset with the same trial structure, and the summary is
-                  recomputed on it.  So the band is parameter uncertainty PLUS
-                  the trial-level sampling noise the model predicts -- which is
-                  what the observed curve is also subject to.  Ribboning the
-                  predicted MEAN instead (the obvious thing) gives a band that
-                  is invisible at this N: with 26 subjects the parameter
-                  posterior is tight, and a hairline band around a curve that
-                  misses the data reads as a catastrophic misfit when it is
-                  really just a tight posterior.
-  observed band   cluster bootstrap over subjects, so it answers "would another
-                  sample of participants show this bump?".  The simulated
-                  datasets are cluster-resampled the same way, so the two bands
-                  are directly comparable in width.
+The observed points get NO error band.  The predictive band already contains
+the measurement noise -- it is the distribution of datasets like this one --
+so the observed summary is one realisation to be checked against it.  Adding
+SEM or bootstrap ink to the points double-counts that noise and lets a real
+miss read as overlapping uncertainty.
 
 Draws are subsampled (--n-draws) because the predictive is simulated per trial
 per draw and the full posterior is far more than the plot can use.
@@ -52,19 +47,21 @@ import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 
 mpl.rcParams.update({
+    # scientific-figures house style. NB: do NOT add sns.set_context("paper")
+    # after this -- it does not scale the block, it replaces 13 of 15 keys.
     "font.family": "Helvetica",
     "font.sans-serif": ["Helvetica", "Helvetica Neue", "TeX Gyre Heros", "Arial"],
-    "font.size": 9, "axes.labelsize": 10, "axes.titlesize": 10,
-    "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
+    "font.size": 7, "axes.labelsize": 8, "axes.titlesize": 8,
+    "xtick.labelsize": 7, "ytick.labelsize": 7, "legend.fontsize": 7,
     "axes.linewidth": 0.8, "axes.spines.top": False, "axes.spines.right": False,
     "axes.labelpad": 4, "xtick.direction": "out", "ytick.direction": "out",
     "xtick.major.size": 3, "ytick.major.size": 3,
     "xtick.major.width": 0.8, "ytick.major.width": 0.8,
-    "lines.linewidth": 1.2, "legend.frameon": False, "legend.handlelength": 1.5,
-    "pdf.fonttype": 42, "ps.fonttype": 42,
+    "lines.linewidth": 1.2, "lines.markersize": 4,
+    "legend.frameon": False, "legend.handlelength": 1.5,
+    "pdf.fonttype": 42, "ps.fonttype": 42, "svg.fonttype": "none",
     "figure.dpi": 150, "savefig.dpi": 300,
 })
-sns.set_context("paper")
 
 COND_C = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
 COND_L = {"cdf": "CDF", "inverse_cdf": "Inverse CDF"}
@@ -141,29 +138,15 @@ def run_ppc(model, paradigm, idata, params, n_draws, seed=1):
     return draws
 
 
-def resample_subjects(d, rng):
-    """Cluster-resample subjects, so a simulated dataset carries the same
-    subject-sampling variability the observed bootstrap band does.  Without
-    this the two bands answer different questions and the model looks far more
-    confident than the data."""
-    by = {s: g for s, g in d.groupby("subject")}
-    subs = list(by)
-    return pd.concat([by[s] for s in rng.choice(subs, len(subs), replace=True)])
-
-
-def bootstrap_observed(d, n_boot=400, seed=0):
-    """Cluster bootstrap over subjects of bias(value) and SD(value)."""
-    rng = np.random.default_rng(seed)
-    subs = d["subject"].unique()
-    by_sub = {s: g for s, g in d.groupby("subject")}
-    bias, sd = [], []
-    for _ in range(n_boot):
-        dd = pd.concat([by_sub[s] for s in rng.choice(subs, len(subs), replace=True)])
-        g = dd.groupby("value")
-        bias.append(g["bias"].mean())
-        sd.append(g["response"].std())
-    q = lambda frames: pd.concat(frames, axis=1).quantile([.025, .975], axis=1).T
-    return q(bias), q(sd)
+def coverage(obs_curve, lo, hi):
+    """Fraction of observed points inside the band.  For a nominal 95% band
+    this should sit near 0.95: far below means the band is too narrow (the
+    classic PPC bug), far above means the check has been smoothed until it
+    can no longer fail.  The scientific-figures skill asks for this number
+    every time, so it is printed and put on the panel."""
+    o = obs_curve.reindex(lo.index)
+    ok = ((o >= lo) & (o <= hi))
+    return float(ok.mean())
 
 
 def _bias_by_value(df, resp_col):
@@ -175,15 +158,13 @@ def _bias_by_value(df, resp_col):
 
 def page_group(obs, pred_draws, out_pdf):
     """Observed bias(value) per condition with the posterior predictive ribbon."""
-    fig, axes = plt.subplots(2, 2, figsize=(11.0, 6.4), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(7.25, 4.6), constrained_layout=True)
     for j, cond in enumerate(["cdf", "inverse_cdf"]):
         o = obs[obs.mapping == cond]
         og = o.groupby("value").agg(bias=("bias", "mean"), sd=("response", "std"))
-        ob_bias, ob_sd = bootstrap_observed(o)
 
         # posterior predictive ribbon over draws
-        rng = np.random.default_rng(7 + j)
-        sim = [resample_subjects(d[d.mapping == cond], rng) for d in pred_draws]
+        sim = [d[d.mapping == cond] for d in pred_draws]
         pb = [d.groupby("value")["bias"].mean() for d in sim]
         pb = pd.concat(pb, axis=1)
         lo, mid, hi = pb.quantile(.025, axis=1), pb.median(axis=1), pb.quantile(.975, axis=1)
@@ -200,11 +181,9 @@ def page_group(obs, pred_draws, out_pdf):
         ax.fill_between(mid.index, lo, hi, color=COND_C[cond], alpha=0.28, lw=0,
                         label="Predicted (95% PPC, simulated data)")
         ax.plot(mid.index, mid, color=COND_C[cond], lw=1.2, ls="--")
-        ax.fill_between(ob_bias.index, ob_bias[.025], ob_bias[.975],
-                        color="0.35", alpha=0.22, lw=0,
-                        label="Observed (95% boot. over subjects)")
-        ax.plot(og.index, og["bias"], color="0.15", marker="o", ms=3.5, lw=1.3,
-                label="Observed")
+        ax.plot(og.index, og["bias"], color="0.15", marker="o", ms=3.5, lw=1.3)
+        cov_bias = coverage(og["bias"], lo, hi)
+        print(f"  {COND_L[cond]:<12} band coverage: bias {cov_bias:.2f}", end="")
         # The predictive blows up in the outermost value bins: probability mass
         # falls off the end of the response grid there, dragging the predicted
         # mean down and inflating its SD. Clip to the observed range so the real
@@ -219,18 +198,23 @@ def page_group(obs, pred_draws, out_pdf):
                         xy=(0.5, 0.03), xycoords="axes fraction", ha="center",
                         va="bottom", fontsize=6.5, color="0.45")
         ax.set_xlabel("True value (CHF)"); ax.set_ylabel("Bias (CHF)")
-        ax.set_title(f"{COND_L[cond]} — bias vs value", fontsize=9, color="0.2")
-        ax.legend(loc="upper left", fontsize=7)
+        ax.set_title(f"{COND_L[cond]} — bias vs value", color="0.2")
+        # Direct labels rather than a legend (house style): the reader should
+        # not have to look away from the data to decode it.
+        ax.text(0.02, 0.97, "Observed", transform=ax.transAxes, color="0.15",
+                fontsize=7, va="top", ha="left")
+        ax.text(0.02, 0.88, "Predicted", transform=ax.transAxes, color=COND_C[cond],
+                fontsize=7, va="top", ha="left")
+        ax.text(0.98, 0.03, f"95% band covers {cov_bias:.0%} of points",
+                transform=ax.transAxes, color="0.45", fontsize=6.5,
+                va="bottom", ha="right")
 
         # response SD: does the model get the noise level right?  Computed the
         # same way on both sides -- SD of the responses in each value bin --
         # so the two are directly comparable.
         ps = [d.groupby("value")["response"].std() for d in sim]
         ax = axes[1, j]
-        ax.fill_between(ob_sd.index, ob_sd[.025], ob_sd[.975], color="0.35",
-                        alpha=0.22, lw=0, label="Observed (95% boot.)")
-        ax.plot(og.index, og["sd"], color="0.15", marker="o", ms=3.5, lw=1.3,
-                label="Observed SD")
+        ax.plot(og.index, og["sd"], color="0.15", marker="o", ms=3.5, lw=1.3)
         if ps:
             ps = pd.concat(ps, axis=1)
             ax.fill_between(ps.index, ps.quantile(.025, axis=1), ps.quantile(.975, axis=1),
@@ -240,12 +224,11 @@ def page_group(obs, pred_draws, out_pdf):
                     label="Predicted SD")
         ax.set_ylim(0, 1.8 * max(og["sd"].max(), 0.5))
         ax.set_xlabel("True value (CHF)"); ax.set_ylabel("Response SD (CHF)")
-        ax.set_title(f"{COND_L[cond]} — spread", fontsize=9, color="0.2")
-        ax.legend(loc="best", fontsize=7)
-    fig.suptitle("Group posterior predictive check  ·  bands are 95% intervals: "
-                 "colour = simulated datasets, grey = bootstrap over subjects",
-                 fontsize=10, y=1.03, color="0.15")
-    sns.despine(fig=fig, offset=4, trim=False)
+        ax.set_title(f"{COND_L[cond]} — spread", color="0.2")
+    fig.suptitle("Group posterior predictive check  ·  band = 95% of simulated "
+                 "datasets (parameter + trial-level noise)",
+                 fontsize=8, y=1.03, color="0.15")
+    sns.despine(fig=fig, offset=5, trim=False)
     out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
@@ -281,14 +264,15 @@ def pages_subjects(obs, pred_draws, out_pdf, per_page=12):
         for ax in axes[:, 0]:
             ax.set_ylabel("Bias (CHF)", fontsize=8)
         fig.suptitle("Per-subject posterior predictive check  ·  line = observed, "
-                     "band = 95% of simulated datasets", fontsize=10, y=1.02,
+                     "band = 95% of simulated datasets", fontsize=8, y=1.02,
                      color="0.15")
         sns.despine(fig=fig, offset=3, trim=False)
         out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
 def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
-        perceptual_prior="long_term", lapse_rate=0.01):
+        perceptual_prior="long_term", lapse_rate=0.01,
+        fit_prior_weight=False, no_seam_crossing=False):
     import arviz as az
     from abstract_values.cogmodels.fit_efficient_coding import make_model
 
@@ -298,10 +282,15 @@ def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
     # scores the posterior against a different generative model than the one
     # that produced it.
     model = make_model(paradigm, model_name, grid_resolution,
-                       lapse_rate=lapse_rate, perceptual_prior=perceptual_prior)
+                       lapse_rate=lapse_rate, perceptual_prior=perceptual_prior,
+                       fit_prior_weight=fit_prior_weight,
+                       no_seam_crossing=no_seam_crossing)
 
     params = {"perception": ["kappa_r"], "valuation": ["sigma_rep"],
-              "sequential": ["kappa_r", "sigma_rep"]}[model_name]
+              "sequential": ["kappa_r", "sigma_rep"],
+              "categorical": ["kappa_r", "sigma_rep"]}[model_name]
+    if fit_prior_weight:
+        params = params + ["prior_weight"]
     print(f"Running PPC ({n_draws} draws, params {params})…")
     pred_draws = run_ppc(model, paradigm, idata, params, n_draws)
     for d in pred_draws:
@@ -324,18 +313,23 @@ def main():
     p.add_argument("--trace", required=True)
     p.add_argument("--paradigm-tsv", default="notes/data/efficient_coding_paradigm.tsv")
     p.add_argument("--model", default="sequential",
-                   choices=["perception", "valuation", "sequential"])
+                   choices=["perception", "valuation", "sequential", "categorical"])
     p.add_argument("--grid-resolution", type=int, default=101)
-    p.add_argument("--n-draws", type=int, default=100)
+    p.add_argument("--n-draws", type=int, default=200)
     p.add_argument("--perceptual-prior", default="long_term",
                    choices=["long_term", "uniform"],
                    help="Must match the prior the trace was fitted under.")
     p.add_argument("--lapse-rate", type=float, default=0.01)
+    p.add_argument("--fit-prior-weight", action="store_true",
+                   help="Match a trace fitted with a free prior peakedness.")
+    p.add_argument("--no-seam-crossing", action="store_true",
+                   help="Match a trace fitted with the 0/180 deg seam closed.")
     p.add_argument("--out", default=None)
     a = p.parse_args()
     out = a.out or f"notes/figures/ppc_{a.model}.pdf"
     run(a.trace, a.paradigm_tsv, a.model, out, a.n_draws, a.grid_resolution,
-        perceptual_prior=a.perceptual_prior, lapse_rate=a.lapse_rate)
+        perceptual_prior=a.perceptual_prior, lapse_rate=a.lapse_rate,
+        fit_prior_weight=a.fit_prior_weight, no_seam_crossing=a.no_seam_crossing)
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-MODELS = ("perception", "valuation", "sequential")
+MODELS = ("perception", "valuation", "sequential", "categorical")
 
 
 def write_paradigm_tsv(path, subjects=None):
@@ -101,13 +101,17 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
                                        lapse_rate=lapse_rate)
-    if model_name == "sequential":
-        from bauer.efficient_coding import SequentialEfficientCodingModel
-        return SequentialEfficientCodingModel(paradigm, grid_resolution=grid_resolution,
-                                              perceptual_prior=perceptual_prior,
-                                              lapse_rate=lapse_rate,
-                                              fit_prior_weight=fit_prior_weight,
-                                              no_seam_crossing=no_seam_crossing)
+    if model_name in ("sequential", "categorical"):
+        if model_name == "sequential":
+            from bauer.efficient_coding import SequentialEfficientCodingModel as cls
+        else:
+            # Paper Fig. 6: hard three-category gate around the 90 deg cardinal.
+            from bauer.efficient_coding import CategoricalSequentialModel as cls
+        return cls(paradigm, grid_resolution=grid_resolution,
+                   perceptual_prior=perceptual_prior,
+                   lapse_rate=lapse_rate,
+                   fit_prior_weight=fit_prior_weight,
+                   no_seam_crossing=no_seam_crossing)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -139,7 +143,9 @@ def subject_parameters(idata, paradigm, model_name):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", default="sequential", choices=MODELS)
+    p.add_argument("--model", default="sequential", choices=MODELS,
+                   help="'categorical' is 'sequential' plus the paper's "
+                        "cardinal category gate (no extra free parameters).")
     p.add_argument("--subjects", nargs="+", default=None)
     p.add_argument("--condition", default=None, choices=["cdf", "inverse_cdf"],
                    help="Fit one mapping only. Bedi et al. is between-subject, "
