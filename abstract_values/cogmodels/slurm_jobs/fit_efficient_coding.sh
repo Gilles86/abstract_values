@@ -39,6 +39,15 @@ PARADIGM=$REPO/notes/data/efficient_coding_paradigm.tsv
 OUTDIR=$BIDS_FOLDER/derivatives/cogmodels
 
 export TMPDIR=/scratch/gdehol
+
+# XLA compiles the whole fused graph ahead of time, and its CPU backend goes
+# through LLVM, which is superlinear in fused-function size: grid 101 costs
+# ~22 min before the first sample, grid 51 ~7 min (the CUDA path does the same
+# graph in <1 min). JAX can cache the compiled executable across runs, keyed by
+# the HLO -- so a resubmit of the same shape skips it. Not /tmp: that is a
+# quota'd shared filesystem here and EDQUOT there has killed jobs before.
+export JAX_COMPILATION_CACHE_DIR="${JAX_COMPILATION_CACHE_DIR:-/scratch/gdehol/jax_cache}"
+mkdir -p "$JAX_COMPILATION_CACHE_DIR"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 echo "fit_efficient_coding (GPU): model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID prior=$PRIOR chain_method=$CHAIN_METHOD"

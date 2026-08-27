@@ -37,6 +37,15 @@ OUTDIR=$BIDS_FOLDER/derivatives/cogmodels
 
 export TMPDIR=/scratch/gdehol
 
+# XLA compiles the whole fused graph ahead of time, and its CPU backend goes
+# through LLVM, which is superlinear in fused-function size: grid 101 costs
+# ~22 min before the first sample, grid 51 ~7 min (the CUDA path does the same
+# graph in <1 min). JAX can cache the compiled executable across runs, keyed by
+# the HLO -- so a resubmit of the same shape skips it. Not /tmp: that is a
+# quota'd shared filesystem here and EDQUOT there has killed jobs before.
+export JAX_COMPILATION_CACHE_DIR="${JAX_COMPILATION_CACHE_DIR:-/scratch/gdehol/jax_cache}"
+mkdir -p "$JAX_COMPILATION_CACHE_DIR"
+
 # numpyro's chain_method="parallel" pmaps over JAX *devices*.  On CPU there is
 # exactly one device unless XLA is told otherwise, so without this the run
 # silently falls back to one-chain-at-a-time -- which is what made the
