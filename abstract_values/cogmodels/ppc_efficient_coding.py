@@ -76,6 +76,42 @@ def load_paradigm(tsv):
     return p
 
 
+def trace_subjects(idata):
+    """The subjects a trace was actually fitted on, from its posterior coord.
+
+    The paradigm TSV grows as behaviour is collected, so a trace fitted last
+    week describes a subset of it.  Simulating the full paradigm from that
+    trace would either crash on the length mismatch or -- worse, if the counts
+    happened to line up -- assign one subject's parameters to another's trials.
+    """
+    post = idata.posterior
+    for v in post.data_vars.values():
+        dims = [d for d in v.dims if d not in ("chain", "draw")]
+        if dims and dims[0] in v.coords:
+            return list(v.coords[dims[0]].values)
+    return None
+
+
+def subset_paradigm_to_trace(paradigm, idata):
+    """Drop paradigm subjects the trace does not carry parameters for."""
+    subs = trace_subjects(idata)
+    if subs is None:
+        return paradigm
+    have = list(paradigm.index.get_level_values("subject").unique())
+    want = {str(s) for s in subs}
+    missing = [s for s in subs if str(s) not in {str(h) for h in have}]
+    if missing:
+        raise SystemExit(f"Trace has parameters for subjects {missing} that are "
+                         f"not in the paradigm; wrong --paradigm-tsv?")
+    keep = [s for s in have if str(s) in want]
+    if len(keep) != len(have):
+        dropped = [s for s in have if str(s) not in want]
+        print(f"Paradigm has {len(have)} subjects, trace was fitted on "
+              f"{len(keep)}; dropping {dropped} from the PPC.")
+        paradigm = paradigm.loc[keep]
+    return paradigm
+
+
 def posterior_subject_draws(idata, subjects, params, n_draws, seed=1):
     """Yield per-subject parameter frames for a random subset of posterior draws.
 
@@ -108,8 +144,11 @@ def posterior_subject_draws(idata, subjects, params, n_draws, seed=1):
             aligned[par] = v.values[:, :, order]
         else:
             if coord is not None:
-                print(f"  ! {par}: coord {coord[:4]}… does not match subjects "
-                      f"{list(subjects)[:4]}…, falling back to positional order")
+                # Positional fallback here would silently hand subject A's
+                # parameters to subject B's trials, which no plot would reveal.
+                raise ValueError(
+                    f"{par}: posterior subject coord {list(coord)[:4]}… does "
+                    f"not match paradigm subjects {list(subjects)[:4]}…")
             if v.sizes[dim] != len(subjects):
                 raise ValueError(f"{par} has {v.sizes[dim]} entries for "
                                  f"{len(subjects)} subjects")
@@ -410,6 +449,135 @@ def page_parameter_correlations(idata, out_pdf):
     out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
+def smooth_over_orientation(series, sigma_deg):
+    """Gaussian-weighted average along the orientation axis.
+
+    Applied identically to the observed curve and to every simulated one.
+    Smoothing only the observed side would shrink its scatter without shrinking
+    the band, and turn a real miss into apparent agreement.
+
+    Deliberately NOT circular: the trained set is the 23 interior orientations,
+    and the 0/180 deg seam is exactly where the value mapping jumps from 42 CHF
+    back to 2, so averaging across it would pool responses from opposite ends
+    of the value range.
+    """
+    if not sigma_deg:
+        return series
+    x = series.index.values.astype(float)
+    v = series.values.astype(float)
+    ok = np.isfinite(v)
+    w = np.exp(-0.5 * ((x[:, None] - x[None, :]) / float(sigma_deg)) ** 2) * ok[None, :]
+    denom = w.sum(1)
+    out = np.where(denom > 0,
+                   (w * np.where(ok, v, 0.0)[None, :]).sum(1) / np.maximum(denom, 1e-12),
+                   np.nan)
+    return pd.Series(out, index=series.index)
+
+
+def sd_curves(df, sigma_deg):
+    """Smoothed response SD per (subject, mapping) as a function of orientation.
+
+    Smoothing happens in the VARIANCE domain and the square root is taken
+    afterwards: variance is what averages linearly across neighbouring
+    orientations, and smoothing SD directly biases the result low wherever the
+    noise level changes across the window.
+
+    Each (subject, mapping, orientation) cell holds only ~7 trials, so the raw
+    per-orientation SD is far too noisy to read -- which is the reason to smooth
+    at all, and also the reason to read its coverage with the caveat on the page.
+    """
+    var = df.groupby(["subject", "mapping", "orientation"])["response"].var()
+    return {(s, m): np.sqrt(smooth_over_orientation(g.droplevel([0, 1]), sigma_deg))
+            for (s, m), g in var.groupby(level=[0, 1])}
+
+
+def pages_subjects_spread(obs, pred_draws, out_pdf, sigma_deg=10.0, per_page=14,
+                          par_med=None):
+    """Per-subject posterior predictive check on the SPREAD of the bids.
+
+    The bias pages ask whether the model puts the responses in the right place;
+    this asks whether it gets the right amount of scatter around that place --
+    the quantity kappa_r, sigma_rep and sigma_motor jointly control, and the one
+    a model can miss badly while still tracking the bias curve.
+    """
+    subs = sorted(obs["subject"].unique())
+    print(f"  spread pages: smoothing SD over orientation, sigma = {sigma_deg:g} deg")
+    obs_sd = sd_curves(obs, sigma_deg)
+    sim_sd = [sd_curves(d, sigma_deg) for d in pred_draws]
+
+    bands = {}
+    for key, og in obs_sd.items():
+        cols = [c[key] for c in sim_sd if key in c]
+        if not cols:
+            continue
+        ps = pd.concat(cols, axis=1)
+        bands[key] = (ps.quantile(.025, axis=1), ps.quantile(.975, axis=1))
+
+    # One y-scale for every panel: response SD is the same quantity for every
+    # subject, so per-panel autoscaling would make a quiet subject look as
+    # variable as a noisy one.
+    top = max([float(np.nanmax(v.values)) for v in obs_sd.values()] +
+              [float(np.nanmax(hi.values)) for _, hi in bands.values()])
+    ylim = (0, 1.08 * top)
+
+    covs = [coverage(obs_sd[k], *bands[k]) for k in bands]
+    print(f"  spread coverage across subject x mapping panels: "
+          f"median {np.median(covs):.2f}, range {min(covs):.2f}-{max(covs):.2f}")
+
+    n_pages = max(1, int(np.ceil(len(subs) / per_page)))
+    per_page = int(np.ceil(len(subs) / n_pages))
+    for start in range(0, len(subs), per_page):
+        chunk = subs[start:start + per_page]
+        ncol = 4
+        nrow = int(np.ceil(len(chunk) / ncol))
+        fig, axes = plt.subplots(nrow, ncol, figsize=(3.0 * ncol, 2.5 * nrow),
+                                 constrained_layout=True, squeeze=False)
+        for ax, s in zip(axes.flat, chunk):
+            panel_cov = []
+            for cond in ["cdf", "inverse_cdf"]:
+                key = (s, cond)
+                if key not in obs_sd:
+                    continue
+                og = obs_sd[key]
+                if key in bands:
+                    lo, hi = bands[key]
+                    ax.fill_between(lo.index, lo, hi, color=COND_C[cond],
+                                    alpha=0.25, lw=0)
+                    panel_cov.append(coverage(og, lo, hi))
+                ax.plot(og.index, og.values, color=COND_C[cond], marker="o",
+                        ms=2.5, lw=1.1)
+            # The 90 deg cardinal is where the category gate switches the other
+            # noise sources off, so it is where sigma_motor is identified.
+            ax.axvline(90, color="0.75", lw=0.7, ls=":", zorder=0)
+            ax.set_xlim(0, 180)
+            ax.set_xticks([0, 45, 90, 135, 180])
+            ax.set_ylim(*ylim)
+            title = f"sub-{int(s):02d}"
+            if panel_cov:
+                title += f"   cov {np.mean(panel_cov):.0%}"
+            if par_med is not None and s in par_med:
+                fmt = {"κ": "{:.0f}", "σ": "{:.2f}", "σm": "{:.2f}", "w": "{:.2f}"}
+                title += "   " + "  ".join(
+                    f"{k}={fmt.get(k, '{:.3g}').format(v)}"
+                    for k, v in par_med[s].items())
+            ax.set_title(title, fontsize=6.5, color="0.2")
+            ax.tick_params(labelsize=7)
+        for ax in axes.flat[len(chunk):]:
+            ax.set_visible(False)
+        for ax in axes[-1, :]:
+            ax.set_xlabel("Orientation (deg)", fontsize=8)
+        for ax in axes[:, 0]:
+            ax.set_ylabel("Response SD (CHF)", fontsize=8)
+        fig.suptitle("Per-subject spread check  ·  line = observed, band = 95% of "
+                     f"simulated datasets  ·  SD smoothed over orientation "
+                     f"(Gaussian, σ = {sigma_deg:g}°, both sides)  ·  smoothing "
+                     "raises coverage, so read it against the bias pages",
+                     fontsize=8, y=1.02, color="0.15")
+        sns.despine(fig=fig, offset=3, trim=False)
+        out_pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+
 def pages_subjects(obs, pred_draws, out_pdf, per_page=14, par_med=None,
                    priors=None):
     subs = sorted(obs["subject"].unique())
@@ -479,26 +647,37 @@ def pages_subjects(obs, pred_draws, out_pdf, per_page=14, par_med=None,
 def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
         perceptual_prior="long_term", lapse_rate=0.01,
         fit_prior_weight=False, no_seam_crossing=False,
-        cardinal_truncation=False):
+        cardinal_truncation=False, fit_motor_noise=False,
+        prior_fourier_order=0, smooth_deg=10.0):
     import arviz as az
     from abstract_values.cogmodels.fit_efficient_coding import make_model
 
-    paradigm = load_paradigm(paradigm_tsv)
     idata = az.from_netcdf(trace)
+    paradigm = subset_paradigm_to_trace(load_paradigm(paradigm_tsv), idata)
     # The prior has to match the one the trace was fitted under, or the PPC
     # scores the posterior against a different generative model than the one
     # that produced it.
     model = make_model(paradigm, model_name, grid_resolution,
                        lapse_rate=lapse_rate, perceptual_prior=perceptual_prior,
                        fit_prior_weight=fit_prior_weight,
+                       prior_fourier_order=prior_fourier_order,
                        no_seam_crossing=no_seam_crossing,
-                       cardinal_truncation=cardinal_truncation)
+                       cardinal_truncation=cardinal_truncation,
+                       fit_motor_noise=fit_motor_noise)
 
     params = {"perception": ["kappa_r"], "valuation": ["sigma_rep"],
               "sequential": ["kappa_r", "sigma_rep"],
               "categorical": ["kappa_r", "sigma_rep"]}[model_name]
     if fit_prior_weight:
         params = params + ["prior_weight"]
+    if prior_fourier_order:
+        # simulate() needs every free parameter, so the harmonics have to be
+        # named here too -- otherwise the prior silently reverts to uniform.
+        params = params + [f"prior_{c}{k}"
+                           for k in range(1, prior_fourier_order + 1)
+                           for c in "ab"]
+    if fit_motor_noise:
+        params = params + ["sigma_motor"]
     print(f"Running PPC ({n_draws} draws, params {params})…")
     pred_draws = run_ppc(model, paradigm, idata, params, n_draws)
     for d in pred_draws:
@@ -529,6 +708,8 @@ def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
         page_parameter_correlations(idata, pdf)
         page_implied_priors(idata, pdf)
         pages_subjects(obs, pred_draws, pdf, par_med=par_med, priors=priors)
+        pages_subjects_spread(obs, pred_draws, pdf, sigma_deg=smooth_deg,
+                              par_med=par_med)
     print(f"Wrote {out}")
 
 
@@ -549,15 +730,30 @@ def main():
                    help="Match a trace fitted with a free prior peakedness.")
     p.add_argument("--no-seam-crossing", action="store_true",
                    help="Match a trace fitted with the 0/180 deg seam closed.")
+    p.add_argument("--fit-motor-noise", action="store_true",
+                   help="Match a trace fitted with per-subject motor noise.")
     p.add_argument("--cardinal-truncation", action="store_true",
                    help="Match a trace fitted with perception truncated at 0/90/180.")
+    p.add_argument("--prior-fourier-order", type=int, default=0,
+                   help="Match a trace fitted with a K-harmonic Fourier prior.")
+    p.add_argument("--smooth-deg", type=float, default=10.0,
+                   help="Gaussian bandwidth (deg) for smoothing the per-subject "
+                        "SD curves along the orientation axis; 0 disables. Each "
+                        "orientation holds ~7 trials per subject per mapping, so "
+                        "the raw SD is unreadable. Applied to observed and "
+                        "simulated curves alike, so the check stays fair -- but "
+                        "it does raise band coverage, so do not read the spread "
+                        "coverage as if it were the bias coverage.")
     p.add_argument("--out", default=None)
     a = p.parse_args()
     out = a.out or f"notes/figures/ppc_{a.model}.pdf"
     run(a.trace, a.paradigm_tsv, a.model, out, a.n_draws, a.grid_resolution,
         perceptual_prior=a.perceptual_prior, lapse_rate=a.lapse_rate,
         fit_prior_weight=a.fit_prior_weight, no_seam_crossing=a.no_seam_crossing,
-        cardinal_truncation=a.cardinal_truncation)
+        cardinal_truncation=a.cardinal_truncation,
+        fit_motor_noise=a.fit_motor_noise,
+        prior_fourier_order=a.prior_fourier_order,
+        smooth_deg=a.smooth_deg)
 
 
 if __name__ == "__main__":

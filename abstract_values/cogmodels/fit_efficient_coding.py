@@ -311,7 +311,7 @@ def main():
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
 
-    summ = az.summary(idata, var_names=["~_log", "~p_"], filter_vars="regex")
+    summ = az.summary(idata, var_names=["~.*_untransformed", "~.*_offset"], filter_vars="regex")
     print(summ.head(30).to_string())
     bad = summ[summ["r_hat"] > 1.01]
     print(f"\n{len(bad)} parameters with r_hat > 1.01"
