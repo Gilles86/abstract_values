@@ -34,6 +34,7 @@ NOSEAM="${NOSEAM:-}"
 TRUNC="${TRUNC:-}"
 GROUP_SD="${GROUP_SD:-halfnormal}"
 FIND_INIT="${FIND_INIT:-}"
+MOTOR="${MOTOR:-}"
 # FOURIER=K fits the prior as a K-harmonic circular Fourier series.
 FOURIER="${FOURIER:-}"
 
@@ -75,5 +76,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     ${TRUNC:+--cardinal-truncation} \
     --group-sd-dist "$GROUP_SD" \
     ${FIND_INIT:+--find-init "$FIND_INIT"} \
+    ${MOTOR:+--fit-motor-noise} \
     ${FOURIER:+--prior-fourier-order "$FOURIER"} \
     --out-dir "$OUTDIR"

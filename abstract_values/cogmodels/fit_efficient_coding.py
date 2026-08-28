@@ -90,7 +90,7 @@ def get_paradigm(subjects=None, paradigm_tsv=None, condition=None):
 def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                perceptual_prior="long_term", fit_prior_weight=False,
                no_seam_crossing=False, prior_fourier_order=0,
-               cardinal_truncation=False):
+               cardinal_truncation=False, fit_motor_noise=False):
     if model_name == "perception":
         from bauer.efficient_coding import EfficientPerceptionModel
         return EfficientPerceptionModel(paradigm, grid_resolution=grid_resolution,
@@ -99,7 +99,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                                         fit_prior_weight=fit_prior_weight,
                                         prior_fourier_order=prior_fourier_order,
                                         no_seam_crossing=no_seam_crossing,
-                                        cardinal_truncation=cardinal_truncation)
+                                        cardinal_truncation=cardinal_truncation,
+                                        fit_motor_noise=fit_motor_noise)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
@@ -116,7 +117,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    fit_prior_weight=fit_prior_weight,
                    prior_fourier_order=prior_fourier_order,
                    no_seam_crossing=no_seam_crossing,
-                   cardinal_truncation=cardinal_truncation)
+                   cardinal_truncation=cardinal_truncation,
+                   fit_motor_noise=fit_motor_noise)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -128,7 +130,7 @@ def subject_parameters(idata, paradigm, model_name):
     post = idata.posterior
     rows = {}
     fourier = [f"prior_{c}{k}" for k in range(1, 9) for c in "ab"]
-    for par in ("kappa_r", "sigma_rep", "prior_weight", *fourier):
+    for par in ("kappa_r", "sigma_rep", "sigma_motor", "prior_weight", *fourier):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
             continue
@@ -212,6 +214,16 @@ def main():
                    help="Probability of a uniformly random bid. Without it a "
                         "single far-off response can dominate the likelihood. "
                         "The paper fixes 0.01 for its primary comparisons.")
+    p.add_argument("--fit-motor-noise", action="store_true",
+                   help="Fit per-subject motor (response-execution) noise as a "
+                        "Gaussian convolution on the response axis. Identified "
+                        "by the 90 deg cardinal, where the category gate "
+                        "switches the other noise sources off: 67% of bids "
+                        "there land exactly on 22 CHF and none is more than "
+                        "5 CHF away, i.e. local jitter rather than the uniform "
+                        "lapse the model would otherwise blame. Pair it with a "
+                        "lower --lapse-rate; at 0.01 the lapse alone already "
+                        "over-predicts the spread at the cardinal.")
     p.add_argument("--group-sd-dist", default="halfnormal",
                    choices=["halfnormal", "halfcauchy"],
                    help="Prior on the group-level SDs. halfcauchy is bauer's "
@@ -253,7 +265,8 @@ def main():
                        fit_prior_weight=a.fit_prior_weight,
                        prior_fourier_order=a.prior_fourier_order,
                        no_seam_crossing=a.no_seam_crossing,
-                       cardinal_truncation=a.cardinal_truncation)
+                       cardinal_truncation=a.cardinal_truncation,
+                       fit_motor_noise=a.fit_motor_noise)
 
     model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -290,6 +303,10 @@ def main():
     tag += "_hn" if a.group_sd_dist == "halfnormal" else "_hc"
     if a.find_init:
         tag += f"_{a.find_init}"
+    if a.fit_motor_noise:
+        tag += "_motor"
+    if a.lapse_rate != 0.01:
+        tag += f"_lapse{a.lapse_rate:g}"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
