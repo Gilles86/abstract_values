@@ -220,6 +220,13 @@ def main():
                         "kappa_r) wander past the grid's resolution ceiling. "
                         "halfnormal regularises that, at the cost of mild "
                         "over-shrinkage. Always recorded in the output tag.")
+    p.add_argument("--find-init", default=None,
+                   choices=["mapjitter", "priorjitter"],
+                   help="bauer's starting-point finder: dispersed per-chain "
+                        "initvals around a MAP ('mapjitter') or prior "
+                        "('priorjitter') centre, instead of the backend's "
+                        "generic jitter. DDM/RDM models default to mapjitter; "
+                        "these grid models never have. Recorded in the tag.")
     p.add_argument("--no-hierarchical", action="store_true",
                    help="Fit subjects independently. Required for a single "
                         "subject: with one subject the group SD is unidentified "
@@ -260,6 +267,7 @@ def main():
                       if a.nuts_sampler == "numpyro" else {})
     idata = model.sample(draws=a.draws, tune=a.tune, chains=a.chains,
                          target_accept=a.target_accept,
+                         **({"find_init": a.find_init} if a.find_init else {}),
                          nuts_sampler=a.nuts_sampler,
                          nuts_sampler_kwargs=sampler_kwargs)
 
@@ -280,6 +288,8 @@ def main():
     if a.cardinal_truncation:
         tag += "_trunc"
     tag += "_hn" if a.group_sd_dist == "halfnormal" else "_hc"
+    if a.find_init:
+        tag += f"_{a.find_init}"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
