@@ -41,6 +41,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import arviz as az
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -65,6 +66,7 @@ mpl.rcParams.update({
 
 COND_C = {"cdf": "#E76F51", "inverse_cdf": "#2A9D8F"}
 COND_L = {"cdf": "CDF", "inverse_cdf": "Inverse CDF"}
+PAR_C = "#3B5BA5"
 
 
 def load_paradigm(tsv):
@@ -159,6 +161,7 @@ def _bias_by_value(df, resp_col):
 def page_group(obs, pred_draws, out_pdf):
     """Observed bias(value) per condition with the posterior predictive ribbon."""
     fig, axes = plt.subplots(2, 2, figsize=(7.25, 4.6), constrained_layout=True)
+    bias_pads, sd_pads = [], []      # shared y-limits: same quantity, same scale
     for j, cond in enumerate(["cdf", "inverse_cdf"]):
         o = obs[obs.mapping == cond]
         og = o.groupby("value").agg(bias=("bias", "mean"), sd=("response", "std"))
@@ -180,19 +183,18 @@ def page_group(obs, pred_draws, out_pdf):
         ax.axhline(0, color="0.4", lw=0.8, ls="--")
         ax.fill_between(mid.index, lo, hi, color=COND_C[cond], alpha=0.28, lw=0,
                         label="Predicted (95% PPC, simulated data)")
-        ax.plot(mid.index, mid, color=COND_C[cond], lw=1.2, ls="--")
-        ax.plot(og.index, og["bias"], color="0.15", marker="o", ms=3.5, lw=1.3)
+        ax.plot(og.index, og["bias"], "-o", color=COND_C[cond], ms=5.5, lw=1.2,
+                mec="white", mew=0.6, zorder=3)
         cov_bias = coverage(og["bias"], lo, hi)
         print(f"  {COND_L[cond]:<12} band coverage: bias {cov_bias:.2f}", end="")
         # The predictive blows up in the outermost value bins: probability mass
         # falls off the end of the response grid there, dragging the predicted
         # mean down and inflating its SD. Clip to the observed range so the real
         # structure stays visible, and mark the affected bins.
-        pad = 1.6 * max(og["bias"].abs().max(), 0.5)
-        ax.set_ylim(-pad, pad)
+        bias_pads.append(1.6 * max(og["bias"].abs().max(), 0.5))
         for edge in (vals[0], vals[-1]):
             ax.axvline(edge, color="0.6", lw=0.7, ls=":", zorder=0)
-        off = ((mid < -pad) | (mid > pad))
+        off = ((mid < -bias_pads[-1]) | (mid > bias_pads[-1]))
         if off.any():
             ax.annotate("edge bins: predictive off-scale\n(grid truncation)",
                         xy=(0.5, 0.03), xycoords="axes fraction", ha="center",
@@ -201,10 +203,10 @@ def page_group(obs, pred_draws, out_pdf):
         ax.set_title(f"{COND_L[cond]} — bias vs value", color="0.2")
         # Direct labels rather than a legend (house style): the reader should
         # not have to look away from the data to decode it.
-        ax.text(0.02, 0.97, "Observed", transform=ax.transAxes, color="0.15",
-                fontsize=7, va="top", ha="left")
-        ax.text(0.02, 0.88, "Predicted", transform=ax.transAxes, color=COND_C[cond],
-                fontsize=7, va="top", ha="left")
+        ax.text(0.02, 0.97, "Dots: observed", transform=ax.transAxes,
+                color=COND_C[cond], fontsize=7, va="top", ha="left")
+        ax.text(0.02, 0.88, "Band: predicted 95%", transform=ax.transAxes,
+                color=COND_C[cond], fontsize=7, va="top", ha="left")
         ax.text(0.98, 0.03, f"95% band covers {cov_bias:.0%} of points",
                 transform=ax.transAxes, color="0.45", fontsize=6.5,
                 va="bottom", ha="right")
@@ -214,20 +216,25 @@ def page_group(obs, pred_draws, out_pdf):
         # so the two are directly comparable.
         ps = [d.groupby("value")["response"].std() for d in sim]
         ax = axes[1, j]
-        ax.plot(og.index, og["sd"], color="0.15", marker="o", ms=3.5, lw=1.3)
+        ax.plot(og.index, og["sd"], "-o", color=COND_C[cond], ms=5.5, lw=1.2,
+                mec="white", mew=0.6, zorder=3)
         if ps:
             ps = pd.concat(ps, axis=1)
             s_lo, s_hi = ps.quantile(.025, axis=1), ps.quantile(.975, axis=1)
             ax.fill_between(ps.index, s_lo, s_hi, color=COND_C[cond], alpha=0.28, lw=0)
-            ax.plot(ps.index, ps.median(axis=1), color=COND_C[cond], lw=1.2, ls="--")
             cov_sd = coverage(og["sd"], s_lo, s_hi)
             print(f" | SD {cov_sd:.2f}")
             ax.text(0.98, 0.03, f"95% band covers {cov_sd:.0%} of points",
                     transform=ax.transAxes, color="0.45", fontsize=6.5,
                     va="bottom", ha="right")
-        ax.set_ylim(0, 1.8 * max(og["sd"].max(), 0.5))
+        sd_pads.append(1.8 * max(og["sd"].max(), 0.5))
         ax.set_xlabel("True value (CHF)"); ax.set_ylabel("Response SD (CHF)")
         ax.set_title(f"{COND_L[cond]} — spread", color="0.2")
+    # One scale per row: the two mappings show the same quantity, so panel-
+    # specific autoscaling would make a small bias look like a large one.
+    for j in range(2):
+        axes[0, j].set_ylim(-max(bias_pads), max(bias_pads))
+        axes[1, j].set_ylim(0, max(sd_pads))
     fig.suptitle("Group posterior predictive check  ·  band = 95% of simulated "
                  "datasets (parameter + trial-level noise)",
                  fontsize=8, y=1.03, color="0.15")
@@ -235,7 +242,122 @@ def page_group(obs, pred_draws, out_pdf):
     out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
-def pages_subjects(obs, pred_draws, out_pdf, per_page=12):
+def _par_names(post):
+    """Free parameters present in this trace, in a sensible reading order."""
+    base = [v for v in ("kappa_r", "sigma_rep", "sigma_motor", "prior_weight")
+            if v in post.data_vars]
+    fourier = sorted(v for v in post.data_vars
+                     if len(v) == 8 and v.startswith("prior_") and v[6] in "ab")
+    return base + fourier
+
+
+def page_group_parameters(idata, out_pdf):
+    """Group-level posteriors: the population mean and spread of each parameter."""
+    post = idata.posterior
+    pars = _par_names(post)
+    pars = [p for p in pars if f"{p}_mu" in post.data_vars]
+    if not pars:
+        return
+    fig, axes = plt.subplots(2, len(pars), figsize=(2.0 * len(pars) + 0.8, 4.0),
+                             constrained_layout=True, squeeze=False)
+    for j, par in enumerate(pars):
+        for i, (suffix, label) in enumerate((("_mu", "Group mean"),
+                                             ("_sd", "Between-subject SD"))):
+            ax = axes[i, j]
+            v = post.get(par + suffix)
+            if v is None:
+                ax.set_visible(False)
+                continue
+            x = v.values.ravel()
+            sns.kdeplot(x=x, ax=ax, color=PAR_C, fill=True, alpha=0.25, lw=1.2)
+            lo, hi = az.hdi(x, hdi_prob=0.95)
+            ax.axvspan(lo, hi, color=PAR_C, alpha=0.12, lw=0)
+            ax.axvline(np.median(x), color=PAR_C, lw=1.2)
+            ax.set_ylabel(label if j == 0 else "")
+            ax.set_yticks([])
+            ax.set_xlabel(par.replace("_", " "))
+            ax.set_title(f"{np.median(x):.2f}  [{lo:.2f}, {hi:.2f}]",
+                         fontsize=7, color="0.35")
+    fig.suptitle("Group-level parameters  ·  median and 95% HDI",
+                 fontsize=8, y=1.04, color="0.15")
+    sns.despine(fig=fig, offset=4)
+    out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
+def page_subject_parameters(idata, out_pdf):
+    """Per-subject posteriors: median and 95% HDI, sorted within each parameter."""
+    post = idata.posterior
+    pars = _par_names(post)
+    subs = [int(x) for x in post[pars[0]].coords["subject"].values]
+    fig, axes = plt.subplots(1, len(pars), figsize=(1.9 * len(pars) + 0.9, 3.8),
+                             constrained_layout=True, squeeze=False)
+    for j, par in enumerate(pars):
+        ax = axes[0, j]
+        x = post[par].values.reshape(-1, len(subs))
+        med = np.median(x, axis=0)
+        hdi = np.stack([az.hdi(x[:, i], hdi_prob=0.95) for i in range(len(subs))])
+        order = np.argsort(med)
+        y = np.arange(len(subs))
+        ax.hlines(y, hdi[order, 0], hdi[order, 1], color=PAR_C, lw=1.0, alpha=0.7)
+        ax.plot(med[order], y, "o", ms=3.4, color=PAR_C, mec="white", mew=0.4)
+        ax.set_yticks(y)
+        ax.set_yticklabels([f"{subs[i]:02d}" for i in order], fontsize=5.5)
+        ax.set_ylim(-1, len(subs))
+        ax.set_xlabel(par.replace("_", " "))
+        if par == "kappa_r":
+            ax.set_xscale("log")
+        if j == 0:
+            ax.set_ylabel("Subject")
+    fig.suptitle("Per-subject parameters  ·  median and 95% HDI, sorted",
+                 fontsize=8, y=1.03, color="0.15")
+    sns.despine(fig=fig, offset=4)
+    out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
+def page_parameter_correlations(idata, out_pdf):
+    """Across-subject correlations between the per-subject posterior medians."""
+    post = idata.posterior
+    pars = _par_names(post)
+    if len(pars) < 2:
+        return
+    subs = [int(x) for x in post[pars[0]].coords["subject"].values]
+    med, hdi = {}, {}
+    for par in pars:
+        x = post[par].values.reshape(-1, len(subs))
+        med[par] = np.median(x, axis=0)
+        hdi[par] = np.stack([az.hdi(x[:, i], hdi_prob=0.95) for i in range(len(subs))])
+    pairs = [(a, b) for i, a in enumerate(pars) for b in pars[i + 1:]]
+    ncol = min(4, len(pairs))
+    nrow = int(np.ceil(len(pairs) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(2.3 * ncol, 2.3 * nrow),
+                             constrained_layout=True, squeeze=False)
+    for ax, (a, b) in zip(axes.flat, pairs):
+        x, y = med[a], med[b]
+        # Credible intervals in both directions: a subject whose kappa is only
+        # known to within a factor of three should not read as a point.
+        xerr = np.abs(np.stack([x - hdi[a][:, 0], hdi[a][:, 1] - x]))
+        yerr = np.abs(np.stack([y - hdi[b][:, 0], hdi[b][:, 1] - y]))
+        ax.errorbar(x, y, xerr=xerr, yerr=yerr, fmt="none",
+                    ecolor=PAR_C, elinewidth=0.7, alpha=0.35, zorder=1)
+        ax.plot(x, y, "o", ms=5, color=PAR_C, mec="white", mew=0.6, zorder=2)
+        r = np.corrcoef(np.log(x) if a == "kappa_r" else x,
+                        np.log(y) if b == "kappa_r" else y)[0, 1]
+        ax.set_xlabel(a.replace("_", " ")); ax.set_ylabel(b.replace("_", " "))
+        if a == "kappa_r":
+            ax.set_xscale("log")
+        if b == "kappa_r":
+            ax.set_yscale("log")
+        ax.set_title(f"r = {r:+.2f}", fontsize=7.5, color="0.35")
+    for ax in axes.flat[len(pairs):]:
+        ax.set_visible(False)
+    fig.suptitle("Across-subject parameter correlations  ·  posterior median "
+                 "and 95% HDI per subject  (κ_r on a log axis)",
+                 fontsize=8, y=1.03, color="0.15")
+    sns.despine(fig=fig, offset=4)
+    out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
+def pages_subjects(obs, pred_draws, out_pdf, per_page=12, par_med=None):
     subs = sorted(obs["subject"].unique())
     for start in range(0, len(subs), per_page):
         chunk = subs[start:start + per_page]
@@ -258,7 +380,15 @@ def pages_subjects(obs, pred_draws, out_pdf, per_page=12):
             pad = 1.6 * max((obs_s["response"] - obs_s["value"]).abs()
                             .groupby([obs_s["mapping"], obs_s["value"]]).mean().abs().max(), 0.5)
             ax.set_ylim(-pad, pad)
-            ax.set_title(f"sub-{int(s):02d}", fontsize=8, color="0.2")
+            title = f"sub-{int(s):02d}"
+            if par_med is not None and s in par_med:
+                # The parameters that produced this panel's prediction, on the
+                # panel: a misfit is only interpretable next to the values that
+                # caused it.
+                fmt = {"κ": "{:.0f}", "σ": "{:.2f}", "σm": "{:.2f}", "w": "{:.2f}"}
+                title += "   " + "  ".join(
+                    f"{k}={fmt.get(k, '{:.3g}').format(v)}" for k, v in par_med[s].items())
+            ax.set_title(title, fontsize=6.5, color="0.2")
             ax.tick_params(labelsize=7)
         for ax in axes.flat[len(chunk):]:
             ax.set_visible(False)
@@ -305,10 +435,24 @@ def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
     obs = paradigm.reset_index()
     obs["bias"] = obs["response"] - obs["value"]
 
+    # per-subject posterior medians, for the panel annotations
+    post = idata.posterior
+    par_list = _par_names(post)
+    par_subs = [int(x) for x in post[par_list[0]].coords["subject"].values]
+    short = {"kappa_r": "κ", "sigma_rep": "σ", "sigma_motor": "σm",
+             "prior_weight": "w"}
+    par_med = {sub: {short.get(par, par.replace("prior_", "")):
+                     float(np.median(post[par].values.reshape(-1, len(par_subs))[:, i]))
+                     for par in par_list}
+               for i, sub in enumerate(par_subs)}
+
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out) as pdf:
         page_group(obs, pred_draws, pdf)
-        pages_subjects(obs, pred_draws, pdf)
+        page_group_parameters(idata, pdf)
+        page_subject_parameters(idata, pdf)
+        page_parameter_correlations(idata, pdf)
+        pages_subjects(obs, pred_draws, pdf, par_med=par_med)
     print(f"Wrote {out}")
 
 
