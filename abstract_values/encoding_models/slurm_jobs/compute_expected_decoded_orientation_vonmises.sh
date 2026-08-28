@@ -34,6 +34,8 @@ HEMI="${HEMI:-LR}"
 N_VOXELS="${N_VOXELS:-100}"
 FDR_ALPHA="${FDR_ALPHA:-}"
 P_SIGNAL_THR="${P_SIGNAL_THR:-}"
+N_BASIS="${N_BASIS:-8}"
+BASIS_KAPPA="${BASIS_KAPPA:-2.0}"
 N_SIMULATIONS="${N_SIMULATIONS:-1000}"
 N_ORIENTATIONS="${N_ORIENTATIONS:-180}"
 BATCH_STIMULI="${BATCH_STIMULI:-25}"
@@ -55,6 +57,8 @@ ARGS=(
     --roi "$ROI"
     --hemi "$HEMI"
     --n-voxels "$N_VOXELS"
+    --n-basis "$N_BASIS"
+    --kappa "$BASIS_KAPPA"
     --n-simulations "$N_SIMULATIONS"
     --n-orientations "$N_ORIENTATIONS"
     --batch-stimuli "$BATCH_STIMULI"
@@ -67,7 +71,7 @@ ARGS=(
 [ "$FULL_GRID" = "1" ] && ARGS+=(--full-grid)
 [ "$SESSION_SHIFT_WEIGHTS" = "1" ] && ARGS+=(--session-shift-weights)
 
-echo "compute_eu_vonmises: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  full_grid=${FULL_GRID}"
+echo "compute_eu_vonmises: sub-${PARTICIPANT_LABEL}  n_basis=${N_BASIS}  roi=${ROI}  n_voxels=${N_VOXELS}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  full_grid=${FULL_GRID}"
 echo "Args: ${ARGS[*]}"
 
 . $HOME/init_conda.sh
