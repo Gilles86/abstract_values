@@ -8,10 +8,25 @@ fMRI + behavioral study on abstract value learning. Participants learn orientati
 
 | Prefix | Example | Meaning |
 |--------|---------|---------|
-| `sub-pil##` | `sub-pil01` | **fMRI pilot** — used to test/validate the MRI protocol. Not study participants. |
-| `sub-##` | `sub-01` | **Study participants** — behavioral-only or full fMRI study participants. |
+| `sub-##` | `sub-01` | Study participant. |
+| `sub-pil##` | `sub-pil01` | **The same person as `sub-##`**, under the label the MRI side uses. |
 
-**Do not confuse these.** The pilot MRI data lives under `sourcedata/mri/sub-pil##`. Study behavioral data lives under `sourcedata/behavior/sub-##`.
+**`sub-pil01` IS `sub-01`, and `sub-pil02` IS `sub-02`** — the first two participants,
+labelled `pil` in the MRI data and numerically in the behavioural data. Verified
+byte-for-byte identical events files. They are full study participants and belong in
+every analysis.
+
+Practical consequences:
+
+- The behavioural loader (`behavior/data.py`) enumerates `sub-*` and keeps whatever
+  parses as an int, so it picks up `sub-01`/`sub-02` and silently skips the `pil`
+  directories — which is correct, and avoids double-counting, since the two hold the
+  same data.
+- The MRI side (BIDS root, fmriprep, GLMsingle, encoding models, expected uncertainty,
+  `cvr2_surface_extent`) uses `sub-pil01`/`sub-pil02` only.
+- **Joining brain to behaviour therefore needs `pil01 → 1`, `pil02 → 2`.** Any table
+  that keys on the numeric id alone silently drops them; that is why
+  `brain_behavior_subject_summary.tsv` has 26 rows rather than 28.
 
 ## Data access — `Subject` classes
 
