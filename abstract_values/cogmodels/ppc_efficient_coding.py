@@ -242,6 +242,59 @@ def page_group(obs, pred_draws, out_pdf):
     out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
+THETA = np.linspace(0, 180, 361)
+PHI = np.deg2rad(THETA) * 2
+
+
+def implied_prior(post, i, n_sub):
+    """That subject's orientation prior, from whichever parameterisation was fitted."""
+    if "prior_weight" in post.data_vars:
+        w = float(np.median(post.prior_weight.values.reshape(-1, n_sub)[:, i]))
+        pr = np.maximum(1.0 - w * np.abs(np.sin(PHI)), 1e-6)
+        return pr / np.trapezoid(pr, PHI), w
+    coefs = sorted(v for v in post.data_vars
+                   if len(v) == 8 and v.startswith("prior_") and v[6] in "ab")
+    if not coefs:
+        return None, None
+    logp = np.zeros_like(PHI)
+    for v in coefs:
+        k = int(v[-1]); c = np.cos if v[6] == "a" else np.sin
+        logp += float(np.median(post[v].values.reshape(-1, n_sub)[:, i])) * c(k * PHI)
+    pr = np.exp(logp - logp.max())
+    return pr / np.trapezoid(pr, PHI), None
+
+
+def page_implied_priors(idata, out_pdf):
+    """The orientation prior each subject's fitted parameters imply."""
+    post = idata.posterior
+    pars = _par_names(post)
+    subs = [int(x) for x in post[pars[0]].coords["subject"].values]
+    curves = [implied_prior(post, i, len(subs)) for i in range(len(subs))]
+    if curves[0][0] is None:
+        return
+    fig, ax = plt.subplots(figsize=(4.4, 3.0), constrained_layout=True)
+    ws = [w for _, w in curves if w is not None]
+    cmap = sns.color_palette("mako", as_cmap=True)
+    lo, hi = (min(ws), max(ws)) if ws else (0, 1)
+    for (pr, w), sub in zip(curves, subs):
+        c = cmap(0.15 + 0.6 * (1 - (w - lo) / (hi - lo + 1e-12))) if w is not None else "0.5"
+        ax.plot(THETA, pr / pr.mean(), color=c, lw=0.9, alpha=0.85)
+    ref = np.maximum(1.0 - 0.5 * np.abs(np.sin(PHI)), 1e-6)
+    ax.plot(THETA, ref / ref.mean(), color="#C44E52", lw=1.6, ls=(0, (2, 1.6)))
+    ax.axhline(1.0, color="0.75", lw=0.7, ls=":")
+    ax.set_xticks([0, 45, 90, 135, 180]); ax.set_xlim(0, 180)
+    ax.set_xlabel("Orientation θ (deg)")
+    ax.set_ylabel("Prior density (uniform = 1)")
+    ax.set_title("Implied orientation prior, one line per subject", color="0.2")
+    ax.text(90, ax.get_ylim()[1] * 0.97, "Dashed red: the paper's fixed prior (w = 0.5)",
+            color="#C44E52", fontsize=6.5, ha="center", va="top")
+    if ws:
+        ax.text(2, ax.get_ylim()[1] * 0.97, f"w = {lo:.2f} – {hi:.2f}\ndarker = more peaked",
+                color="0.35", fontsize=6.5, ha="left", va="top")
+    sns.despine(fig=fig, offset=4)
+    out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+
 def _par_names(post):
     """Free parameters present in this trace, in a sensible reading order."""
     base = [v for v in ("kappa_r", "sigma_rep", "sigma_motor", "prior_weight")
@@ -357,8 +410,13 @@ def page_parameter_correlations(idata, out_pdf):
     out_pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
 
 
-def pages_subjects(obs, pred_draws, out_pdf, per_page=12, par_med=None):
+def pages_subjects(obs, pred_draws, out_pdf, per_page=14, par_med=None,
+                   priors=None):
     subs = sorted(obs["subject"].unique())
+    # Balance the pages: 26 subjects at 12 per page leaves a page with two
+    # panels on it. Round the page count first, then split evenly.
+    n_pages = max(1, int(np.ceil(len(subs) / per_page)))
+    per_page = int(np.ceil(len(subs) / n_pages))
     for start in range(0, len(subs), per_page):
         chunk = subs[start:start + per_page]
         ncol = 4; nrow = int(np.ceil(len(chunk) / ncol))
@@ -375,6 +433,21 @@ def pages_subjects(obs, pred_draws, out_pdf, per_page=12, par_med=None):
                 ax.fill_between(pb.index, pb.quantile(.025, axis=1), pb.quantile(.975, axis=1),
                                 color=COND_C[cond], alpha=0.25, lw=0)
                 ax.plot(og.index, og, color=COND_C[cond], marker="o", ms=2.5, lw=1.1)
+            if priors is not None and s in priors and priors[s] is not None:
+                # The subject's own orientation prior, in the corner: the shape
+                # that produced this panel's predictions.
+                ins = ax.inset_axes([0.72, 0.70, 0.27, 0.28])
+                pr = priors[s]
+                ins.plot(THETA, pr / pr.mean(), color="#3B5BA5", lw=0.8)
+                ins.axhline(1.0, color="0.8", lw=0.5, ls=":")
+                ins.set_xticks([]); ins.set_yticks([])
+                ins.set_xlim(0, 180)
+                # Fixed across subjects, or every inset autoscales to its own
+                # peak and a flat prior looks identical to a sharp one.
+                ins.set_ylim(0, 2.8)
+                for sp in ins.spines.values():
+                    sp.set_linewidth(0.5); sp.set_color("0.7")
+                ins.patch.set_alpha(0.6)
             ax.axhline(0, color="0.5", lw=0.7, ls="--")
             obs_s = obs[obs.subject == s]
             pad = 1.6 * max((obs_s["response"] - obs_s["value"]).abs()
@@ -445,6 +518,8 @@ def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
                      float(np.median(post[par].values.reshape(-1, len(par_subs))[:, i]))
                      for par in par_list}
                for i, sub in enumerate(par_subs)}
+    priors = {sub: implied_prior(post, i, len(par_subs))[0]
+              for i, sub in enumerate(par_subs)}
 
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(out) as pdf:
@@ -452,7 +527,8 @@ def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
         page_group_parameters(idata, pdf)
         page_subject_parameters(idata, pdf)
         page_parameter_correlations(idata, pdf)
-        pages_subjects(obs, pred_draws, pdf, par_med=par_med)
+        page_implied_priors(idata, pdf)
+        pages_subjects(obs, pred_draws, pdf, par_med=par_med, priors=priors)
     print(f"Wrote {out}")
 
 
