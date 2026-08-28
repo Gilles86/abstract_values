@@ -29,6 +29,7 @@ FREE_PRIOR="${FREE_PRIOR:-}"
 NOSEAM="${NOSEAM:-}"
 # TRUNC=1 truncates orientation perception at the 0/90/180 cardinals.
 TRUNC="${TRUNC:-}"
+GROUP_SD="${GROUP_SD:-halfnormal}"
 # FOURIER=K fits the prior as a K-harmonic circular Fourier series.
 FOURIER="${FOURIER:-}"
 
@@ -75,5 +76,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer/bin/python -u \
     ${FREE_PRIOR:+--fit-prior-weight} \
     ${NOSEAM:+--no-seam-crossing} \
     ${TRUNC:+--cardinal-truncation} \
+    --group-sd-dist "$GROUP_SD" \
     ${FOURIER:+--prior-fourier-order "$FOURIER"} \
     --out-dir "$OUTDIR"

@@ -212,6 +212,14 @@ def main():
                    help="Probability of a uniformly random bid. Without it a "
                         "single far-off response can dominate the likelihood. "
                         "The paper fixes 0.01 for its primary comparisons.")
+    p.add_argument("--group-sd-dist", default="halfnormal",
+                   choices=["halfnormal", "halfcauchy"],
+                   help="Prior on the group-level SDs. halfcauchy is bauer's "
+                        "historical default and has an infinite-variance tail "
+                        "that lets a weakly-identified subject parameter (here: "
+                        "kappa_r) wander past the grid's resolution ceiling. "
+                        "halfnormal regularises that, at the cost of mild "
+                        "over-shrinkage. Always recorded in the output tag.")
     p.add_argument("--no-hierarchical", action="store_true",
                    help="Fit subjects independently. Required for a single "
                         "subject: with one subject the group SD is unidentified "
@@ -240,8 +248,10 @@ def main():
                        no_seam_crossing=a.no_seam_crossing,
                        cardinal_truncation=a.cardinal_truncation)
 
+    model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
-          f"hierarchical={not a.no_hierarchical}, lapse={a.lapse_rate})…")
+          f"hierarchical={not a.no_hierarchical}, lapse={a.lapse_rate}, "
+          f"group_sd={a.group_sd_dist})…")
     model.build_estimation_model(hierarchical=not a.no_hierarchical)
 
     print(f"Sampling: {a.chains} chains x {a.draws} draws (tune {a.tune}), "
@@ -269,6 +279,7 @@ def main():
         tag += "_noseam"
     if a.cardinal_truncation:
         tag += "_trunc"
+    tag += "_hn" if a.group_sd_dist == "halfnormal" else "_hc"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")

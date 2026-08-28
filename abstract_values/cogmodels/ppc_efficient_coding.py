@@ -275,7 +275,8 @@ def pages_subjects(obs, pred_draws, out_pdf, per_page=12):
 
 def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
         perceptual_prior="long_term", lapse_rate=0.01,
-        fit_prior_weight=False, no_seam_crossing=False):
+        fit_prior_weight=False, no_seam_crossing=False,
+        cardinal_truncation=False):
     import arviz as az
     from abstract_values.cogmodels.fit_efficient_coding import make_model
 
@@ -287,7 +288,8 @@ def run(trace, paradigm_tsv, model_name, out, n_draws, grid_resolution,
     model = make_model(paradigm, model_name, grid_resolution,
                        lapse_rate=lapse_rate, perceptual_prior=perceptual_prior,
                        fit_prior_weight=fit_prior_weight,
-                       no_seam_crossing=no_seam_crossing)
+                       no_seam_crossing=no_seam_crossing,
+                       cardinal_truncation=cardinal_truncation)
 
     params = {"perception": ["kappa_r"], "valuation": ["sigma_rep"],
               "sequential": ["kappa_r", "sigma_rep"],
@@ -327,12 +329,15 @@ def main():
                    help="Match a trace fitted with a free prior peakedness.")
     p.add_argument("--no-seam-crossing", action="store_true",
                    help="Match a trace fitted with the 0/180 deg seam closed.")
+    p.add_argument("--cardinal-truncation", action="store_true",
+                   help="Match a trace fitted with perception truncated at 0/90/180.")
     p.add_argument("--out", default=None)
     a = p.parse_args()
     out = a.out or f"notes/figures/ppc_{a.model}.pdf"
     run(a.trace, a.paradigm_tsv, a.model, out, a.n_draws, a.grid_resolution,
         perceptual_prior=a.perceptual_prior, lapse_rate=a.lapse_rate,
-        fit_prior_weight=a.fit_prior_weight, no_seam_crossing=a.no_seam_crossing)
+        fit_prior_weight=a.fit_prior_weight, no_seam_crossing=a.no_seam_crossing,
+        cardinal_truncation=a.cardinal_truncation)
 
 
 if __name__ == "__main__":
