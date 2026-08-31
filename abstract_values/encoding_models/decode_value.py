@@ -10,7 +10,10 @@ Leave-one-run-out cross-validation.  In each fold:
      gradient descent via ParameterFitter; same approach as fit_aprf.py).
   2. Select voxels: top n_voxels by training R², or (when n_voxels=0) all
      voxels with nested cross-validated R² > 0 (inner leave-one-run-out CV
-     within the training set — no circularity).
+     within the training set — no circularity). With ``--null-gate``
+     (requires n_voxels=0), the threshold is instead the nested cv-R² of
+     a null (per-voxel training-mean) model, evaluated on the same inner
+     folds — i.e. ``cvR² > cvR²_null`` rather than ``cvR² > 0``.
   3. Fit a multivariate Student-t residual noise model (ResidualFitter).
   4. Evaluate P(data | value) over the stimulus grid for each test trial.
      This unnormalised likelihood serves as the posterior PDF under a flat
@@ -52,12 +55,18 @@ import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
 
-from braincoder.models import LogGaussianPRF
+from braincoder.models import LogGaussianPRF, LinearModelWithBaseline
 from braincoder.optimize import ParameterFitter, ResidualFitter, WeightFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.models import GaussianValuePRF
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+from abstract_values.encoding_models.geodesic_noise import (
+    geodesic_snap_for_masker, geodesic_D_for_selection,
+)
+from abstract_values.encoding_models.voxel_selection import (
+    STATUS_EMPTY, STATUS_OK, concat_posteriors, select_voxels, warn_if_degraded,
+)
 
 
 def _build_model(model_type, allow_neg_amplitudes=True):
@@ -111,54 +120,8 @@ def _out_subdir(model_type):
         'loggauss': 'value',
         'gaussian': 'value-gauss',
         'weighted': 'value-weighted',
+        'linear':   'value-linear',
     }[model_type]
-
-
-def geodesic_snap_for_masker(masker, hemi, subject, bids_folder, fmriprep_deriv):
-    """Snap the masker's voxels to the nearest white-matter surface vertex
-    (T1w space) and return ``(vertices, faces, nearest_vertex)``.
-
-    ``nearest_vertex`` is in the SAME column order ``masker.transform``
-    produces, so ``nearest_vertex[sel]`` gives the source vertices for any
-    selected-voxel subset. The (cheap) snap is done once; the (expensive)
-    geodesic Dijkstra is then run per fold over just the selected voxels via
-    :func:`geodesic_D_for_selection` — building the full ROI matrix is
-    pointless when only ~100 voxels are decoded. Single-hemisphere ROIs only
-    (e.g. NPCr → hemi R); a bilateral mask would need a block-structured D.
-    """
-    import nibabel as nib
-    from scipy.spatial import cKDTree
-
-    mask_img = masker.mask_img_                       # resampled mask actually used
-    ijk = np.argwhere(np.asarray(mask_img.get_fdata()) > 0)   # C-order == columns
-    xyz = nib.affines.apply_affine(mask_img.affine, ijk).astype(np.float32)
-
-    surfs = sorted((Path(bids_folder) / 'derivatives' / fmriprep_deriv
-                    / f'sub-{subject}').glob(
-                       f'ses-*/anat/sub-{subject}_ses-*_hemi-{hemi}_white.surf.gii'))
-    if not surfs:
-        raise FileNotFoundError(
-            f'No hemi-{hemi} white surface for sub-{subject} under '
-            f'{fmriprep_deriv} (needed for geodesic noise model)')
-    gii = nib.load(str(surfs[0]))
-    vertices = gii.darrays[0].data.astype(np.float32)
-    faces = gii.darrays[1].data.astype(np.int32)
-    snap, nearest = cKDTree(vertices).query(xyz)
-    print(f'    geodesic snap: {len(xyz)} voxels → hemi-{hemi} surface '
-          f'({surfs[0].name}); snap median {np.median(snap):.2f} mm, '
-          f'p95 {np.percentile(snap, 95):.2f} mm')
-    return vertices, faces, np.asarray(nearest)
-
-
-def geodesic_D_for_selection(geo_snap, sel_positions):
-    """Geodesic distance matrix (mm) among the selected voxels only.
-    ``sel_positions`` index into the masker column order. Cheap because
-    Dijkstra runs from just the ~N selected source vertices."""
-    from braincoder.utils.cortex import geodesic_distance_matrix
-    vertices, faces, nearest = geo_snap
-    return geodesic_distance_matrix(
-        vertices, faces, source_indices=nearest[np.asarray(sel_positions)],
-        progressbar=False).astype(np.float32)
 
 
 def get_value_paradigm(sub, sessions):
@@ -250,48 +213,13 @@ def _run_weighted_folds(sub, sessions, paradigm, data, stimulus_range,
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
-            if fdr_alpha is not None or p_signal_thr is not None:
-                if fdr_alpha is not None:
-                    from abstract_values.encoding_models.compute_r2_mixture \
-                        import get_brain_fdr_threshold
-                    res = get_brain_fdr_threshold(
-                        sub.subject_id, model='aprf-weighted',
-                        bids_folder=bids_folder,
-                        alpha=fdr_alpha, smoothed=smoothed)
-                    crit_label = f'FDR≤{fdr_alpha:.2f}'
-                else:
-                    from abstract_values.encoding_models.compute_r2_mixture \
-                        import get_brain_p_signal_threshold
-                    res = get_brain_p_signal_threshold(
-                        sub.subject_id, model='aprf-weighted',
-                        bids_folder=bids_folder,
-                        p=p_signal_thr, smoothed=smoothed)
-                    crit_label = f'P(signal)≥{p_signal_thr:.2f}'
-                if res is None:
-                    raise RuntimeError(
-                        'aprf-weighted whole-brain mixture missing and '
-                        'auto-fit failed. Run `python -m '
-                        'abstract_values.encoding_models.compute_r2_mixture '
-                        '--models aprf-weighted` first.')
-                thr = res['threshold']
-                if res['degenerate'] or not np.isfinite(thr):
-                    sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
-                    print(f'    {len(sel)} voxels selected  '
-                          f'(mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
-                else:
-                    sel = cv_r2[cv_r2 > thr].index
-                    if len(sel) < 10:
-                        sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
-                        print(f'    {len(sel)} voxels selected  '
-                              f'(only {(cv_r2 > thr).sum()} passed {crit_label} → R² > {thr:.3f}; '
-                              f'fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
-                    else:
-                        print(f'    {len(sel)} voxels selected  '
-                              f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
-            else:
-                sel = cv_r2[cv_r2 > 0.0].index
-                print(f'    {len(sel)} voxels selected  '
-                      f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+            sel, status, msg = select_voxels(
+                cv_r2, mixture_model='aprf-weighted',
+                subject=sub.subject_id, bids_folder=bids_folder,
+                smoothed=smoothed, fdr_alpha=fdr_alpha,
+                p_signal_thr=p_signal_thr,
+                fdr_fallback_n_voxels=fdr_fallback_n_voxels)
+            print(msg)
         else:
             basis_pred = model.basis_predictions(train_paradigm, basis_pars)
             pred_train = pd.DataFrame(basis_pred @ weights.values,
@@ -299,11 +227,16 @@ def _run_weighted_folds(sub, sessions, paradigm, data, stimulus_range,
                                       columns=train_data.columns)
             r2_train = get_rsq(train_data, pred_train)
             sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            status = STATUS_OK
             print(f'    {len(sel)} voxels selected  '
                   f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
 
         fold_meta.append(dict(session=test_session, run=test_run,
-                              n_voxels_selected=len(sel)))
+                              n_voxels_selected=len(sel), status=status))
+        if status == STATUS_EMPTY:
+            # Previously unguarded: an empty selection fell through into
+            # ResidualFitter and died there with an opaque error.
+            continue
         weights_sel    = weights[sel]
         train_data_sel = train_data[sel]
         test_data_sel  = test_data[sel]
@@ -338,8 +271,136 @@ def _run_weighted_folds(sub, sessions, paradigm, data, stimulus_range,
     return all_pdfs, fold_meta
 
 
+def _run_linear_folds(sub, sessions, paradigm, data, stimulus_range,
+                      n_voxels, fdr_alpha, p_signal_thr,
+                      fdr_fallback_n_voxels,
+                      weight_alpha, lambd, spherical_noise,
+                      smoothed, bids_folder, debug):
+    """Linear (signed-slope) decoding flow — value-axis analog of
+    ``_run_weighted_folds``, but with a single linear regressor (the raw
+    CHF value) instead of an 8-function log-Gaussian basis set.
+
+    Slope + baseline are fit jointly per fold via one closed-form OLS
+    regression (``WeightFitter(..., fit_intercept=True)`` — see the
+    ``fit_intercept`` addition to braincoder's ``WeightFitter``, and its
+    encoding-side analog ``LinearValuePRF`` / ``ModelSpec.is_linear`` in
+    ``fit_pipeline.py``). No grid search, no gradient descent, no basis
+    functions — mirrors the ``EncodingModel._predict`` path so
+    ``get_stimulus_pdf`` (Bayesian decoding) and ``ResidualFitter`` (noise
+    model) work exactly as they do for the weighted-basis flow.
+    """
+    all_pdfs = []
+    fold_meta = []
+    all_runs = [(s, r) for s in sessions for r in sub.get_runs(s)]
+
+    def _fit_slope_baseline(train_x, train_d):
+        m = LinearModelWithBaseline(paradigm=train_x, parameters=None)
+        w, b = WeightFitter(m, None, train_d, train_x).fit(
+            alpha=weight_alpha, fit_intercept=True)
+        return m, w, pd.DataFrame({'baseline': b})
+
+    def _predict(m, x, w, b_df):
+        pred = m.predict(paradigm=x, parameters=b_df, weights=w)
+        return pred if isinstance(pred, pd.DataFrame) else pd.DataFrame(
+            np.asarray(pred), index=x.index, columns=w.columns)
+
+    for test_session, test_run in all_runs:
+        print(f'\n  [fold] hold-out ses-{test_session} run-{test_run}')
+
+        test_idx  = (paradigm.index.get_level_values('session') == test_session) & \
+                    (paradigm.index.get_level_values('run') == test_run)
+        train_idx = ~test_idx
+
+        train_paradigm = paradigm.loc[train_idx, ['x']]
+        test_paradigm  = paradigm.loc[test_idx, ['x']]
+        train_data     = data.loc[train_idx]
+        test_data      = data.loc[test_idx]
+
+        # ── fit slope + baseline (closed-form OLS) ───────────────────────────
+        model, weights, baseline_df = _fit_slope_baseline(train_paradigm, train_data)
+
+        # ── voxel selection ────────────────────────────────────────────────
+        if n_voxels == 0 or fdr_alpha is not None or p_signal_thr is not None:
+            inner_runs = sorted(set(zip(
+                train_paradigm.index.get_level_values('session'),
+                train_paradigm.index.get_level_values('run'))))
+            inner_r2s = []
+            for inner_ses, inner_run in inner_runs:
+                inner_test_idx = (
+                    (train_paradigm.index.get_level_values('session') == inner_ses) &
+                    (train_paradigm.index.get_level_values('run') == inner_run))
+                inner_train_paradigm = train_paradigm.loc[~inner_test_idx]
+                inner_test_paradigm  = train_paradigm.loc[inner_test_idx]
+                inner_train_data     = train_data.loc[~inner_test_idx]
+                inner_test_data      = train_data.loc[inner_test_idx]
+
+                inner_model, inner_w, inner_b_df = _fit_slope_baseline(
+                    inner_train_paradigm, inner_train_data)
+                inner_pred = _predict(inner_model, inner_test_paradigm, inner_w, inner_b_df)
+                inner_r2s.append(get_rsq(inner_test_data, inner_pred))
+
+            cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
+            sel, status, msg = select_voxels(
+                cv_r2, mixture_model='aprf-linear',
+                subject=sub.subject_id, bids_folder=bids_folder,
+                smoothed=smoothed, fdr_alpha=fdr_alpha,
+                p_signal_thr=p_signal_thr,
+                fdr_fallback_n_voxels=fdr_fallback_n_voxels)
+            print(msg)
+        else:
+            pred_train = _predict(model, train_paradigm, weights, baseline_df)
+            r2_train = get_rsq(train_data, pred_train)
+            sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            status = STATUS_OK
+            print(f'    {len(sel)} voxels selected  '
+                  f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
+
+        fold_meta.append(dict(session=test_session, run=test_run,
+                              n_voxels_selected=len(sel), status=status))
+        if status == STATUS_EMPTY:
+            # Was a silent top-1 fallback — a posterior decoded from a voxel
+            # with out-of-sample R² <= 0, indistinguishable downstream from a
+            # real one. Drop the fold and record why instead.
+            continue
+        weights_sel    = weights[sel]
+        baseline_sel   = baseline_df.loc[sel]
+        train_data_sel = train_data[sel]
+        test_data_sel  = test_data[sel]
+
+        # ── fit noise model ────────────────────────────────────────────────
+        n_iter_noise = 100 if debug else 1000
+        residfit = ResidualFitter(model, train_data_sel, train_paradigm,
+                                  parameters=baseline_sel, weights=weights_sel,
+                                  lambd=lambd)
+        omega, dof = residfit.fit(
+            init_sigma2=0.1, init_dof=10.0, method='t',
+            learning_rate=0.05, spherical=spherical_noise,
+            max_n_iterations=n_iter_noise)
+        print(f'    noise model: dof={float(dof):.1f}')
+
+        # ── decode ─────────────────────────────────────────────────────────
+        pdf = model.get_stimulus_pdf(test_data_sel, stimulus_range,
+                                     parameters=baseline_sel,
+                                     weights=weights_sel,
+                                     omega=omega, dof=dof,
+                                     normalize=False)
+        pdf.columns = stimulus_range
+        test_paradigm_full = paradigm.loc[test_idx]
+        pdf.index = pd.MultiIndex.from_arrays([
+            test_paradigm_full.index.get_level_values('session'),
+            test_paradigm_full.index.get_level_values('run'),
+            test_paradigm_full.index.get_level_values('trial_nr'),
+            test_paradigm_full['x'].values,
+        ], names=['session', 'run', 'trial_nr', 'true_value_chf'])
+
+        all_pdfs.append(pdf)
+
+    return all_pdfs, fold_meta
+
+
 def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
          p_signal_thr=None, fdr_fallback_n_voxels=100,
+         null_gate=False,
          n_iterations=1000,
          n_grid_mus=20, n_grid_sds=15, n_stimulus_grid=50,
          n_basis=8, basis_fwhm=None, weight_alpha=0.0,
@@ -356,10 +417,20 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
     the nested-CV R² at P(signal | r²) ≥ p_signal_thr (using the same
     whole-brain mixture). Same degenerate-fallback semantics. Output
     filename uses ``nvoxels-psigNN`` where NN is p*100. ``fdr_alpha`` and
-    ``p_signal_thr`` are mutually exclusive."""
+    ``p_signal_thr`` are mutually exclusive.
+
+    If null_gate is set (requires n_voxels=0, incompatible with
+    fdr_alpha/p_signal_thr), the same inner leave-one-run-out folds also
+    score a null (per-voxel training-mean) model, and voxels are selected
+    by ``cvR² > cvR²_null`` rather than ``cvR² > 0``. Output filename uses
+    ``nvoxels-nullgated``."""
 
     assert not (fdr_alpha is not None and p_signal_thr is not None), \
         "Pass at most one of --fdr-alpha / --p-signal-thr"
+    assert not (null_gate and (fdr_alpha is not None or p_signal_thr is not None)), \
+        "--null-gate is incompatible with --fdr-alpha / --p-signal-thr"
+    assert not (null_gate and n_voxels != 0), \
+        "--null-gate requires --n-voxels 0"
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -400,6 +471,17 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
     # masker column order); folds subset it via the selected-voxel positions.
     assert not (geodesic_noise and spherical_noise), \
         'geodesic_noise and spherical_noise are mutually exclusive'
+    # braincoder's ResidualFitter.get_omega() checks lambd>0 BEFORE D: when
+    # both are set it silently routes to the sample-covariance shrinkage
+    # Omega and never touches alpha/beta/D at all (confirmed empirically on
+    # decode_gabor.py's port — alpha/beta sit frozen at their init values).
+    # Output would still say noise-geodesic while actually being
+    # non-geodesic. Fail loudly instead of writing a misleadingly labeled
+    # file.
+    assert not (geodesic_noise and lambd > 0.0), \
+        ('--geodesic-noise and --lambd > 0 are incompatible in the current '
+         'braincoder ResidualFitter (lambd>0 silently overrides the '
+         'geodesic Omega). Pass --lambd 0 with --geodesic-noise.')
     geo_snap = None
     if geodesic_noise:
         geo_snap = geodesic_snap_for_masker(
@@ -425,6 +507,8 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         nvox_tag = f'fdr{int(round(fdr_alpha * 100)):02d}'
     elif p_signal_thr is not None:
         nvox_tag = f'psig{int(round(p_signal_thr * 100)):02d}'
+    elif null_gate:
+        nvox_tag = 'nullgated'
     else:
         nvox_tag = str(n_voxels)
     out_fn = (out_dir /
@@ -439,7 +523,28 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
             n_voxels, fdr_alpha, p_signal_thr, fdr_fallback_n_voxels,
             n_basis, basis_fwhm, weight_alpha, lambd, spherical_noise,
             smoothed, bids_folder, debug)
-        pdfs = pd.concat(all_pdfs).sort_index()
+        warn_if_degraded(fold_meta, subject, mask_desc)
+        pdfs = concat_posteriors(
+            all_pdfs, stimulus_range,
+            ['session', 'run', 'trial_nr', 'true_value_chf'])
+        pdfs.to_csv(out_fn, sep='\t')
+        print(f'\n  saved to {out_fn}')
+        meta_fn = out_fn.with_name(out_fn.stem.replace('_pars', '_meta') + '.tsv')
+        pd.DataFrame(fold_meta).to_csv(meta_fn, sep='\t', index=False)
+        print(f'  meta  to {meta_fn}')
+        return
+
+    # ── dispatch to linear (signed-slope) flow if model_type=='linear' ────────
+    if model_type == 'linear':
+        all_pdfs, fold_meta = _run_linear_folds(
+            sub, sessions, paradigm, data, stimulus_range,
+            n_voxels, fdr_alpha, p_signal_thr, fdr_fallback_n_voxels,
+            weight_alpha, lambd, spherical_noise,
+            smoothed, bids_folder, debug)
+        warn_if_degraded(fold_meta, subject, mask_desc)
+        pdfs = concat_posteriors(
+            all_pdfs, stimulus_range,
+            ['session', 'run', 'trial_nr', 'true_value_chf'])
         pdfs.to_csv(out_fn, sep='\t')
         print(f'\n  saved to {out_fn}')
         meta_fn = out_fn.with_name(out_fn.stem.replace('_pars', '_meta') + '.tsv')
@@ -488,6 +593,7 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
             inner_runs = sorted(set(inner_runs))
 
             inner_r2s = []
+            inner_null_r2s = [] if null_gate else None
             for inner_ses, inner_run in inner_runs:
                 print(f'      [inner CV] hold-out ses-{inner_ses} run-{inner_run}')
                 inner_test_idx = (
@@ -511,61 +617,39 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
                                                   paradigm=inner_test_paradigm)
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
+                if null_gate:
+                    # Null baseline on the SAME inner fold: per-voxel training
+                    # mean, broadcast across the held-out inner-test trials.
+                    mean_per_voxel = inner_train_data.mean(axis=0)
+                    inner_null_pred = pd.DataFrame(
+                        np.tile(mean_per_voxel.values, (len(inner_test_data), 1)),
+                        index=inner_test_data.index, columns=inner_test_data.columns)
+                    inner_null_r2s.append(get_rsq(inner_test_data, inner_null_pred))
+
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
-            if fdr_alpha is not None or p_signal_thr is not None:
-                # Whole-brain logit-Gaussian R² mixture (fit once per
-                # subject by compute_r2_mixture.py and cached) gives a
-                # stable noise/signal model. When the mixture is
-                # degenerate (Δμ small, σ_signal too wide, w_signal
-                # extreme), fall back to top-N voxels by cv-R² so we
-                # always select *something*.
-                if fdr_alpha is not None:
-                    from abstract_values.encoding_models.compute_r2_mixture \
-                        import get_brain_fdr_threshold
-                    res = get_brain_fdr_threshold(
-                        subject, model='aprf', bids_folder=bids_folder,
-                        alpha=fdr_alpha, smoothed=smoothed)
-                    crit_label = f'FDR≤{fdr_alpha:.2f}'
-                else:
-                    from abstract_values.encoding_models.compute_r2_mixture \
-                        import get_brain_p_signal_threshold
-                    res = get_brain_p_signal_threshold(
-                        subject, model='aprf', bids_folder=bids_folder,
-                        p=p_signal_thr, smoothed=smoothed)
-                    crit_label = f'P(signal)≥{p_signal_thr:.2f}'
-                if res is None:
-                    raise RuntimeError(
-                        'Whole-brain mixture missing and auto-fit failed for '
-                        f'sub-{subject}. Run '
-                        '`python -m abstract_values.encoding_models.compute_r2_mixture` first.')
-                thr = res['threshold']
-                if res['degenerate'] or not np.isfinite(thr):
-                    sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
-                    print(f'    {len(sel)} voxels selected  '
-                          f'(mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
-                else:
-                    sel = cv_r2[cv_r2 > thr].index
-                    if len(sel) < 10:
-                        sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
-                        print(f'    {len(sel)} voxels selected  '
-                              f'(only {(cv_r2 > thr).sum()} passed {crit_label} → R² > {thr:.3f}; '
-                              f'fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
-                    else:
-                        print(f'    {len(sel)} voxels selected  '
-                              f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
-            else:
-                sel = cv_r2[cv_r2 > 0.0].index
-                print(f'    {len(sel)} voxels selected  '
-                      f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+            cv_r2_null = (pd.concat(inner_null_r2s, axis=1).mean(axis=1)
+                          if null_gate else None)
+            sel, status, msg = select_voxels(
+                cv_r2, mixture_model='aprf', subject=subject,
+                bids_folder=bids_folder, smoothed=smoothed,
+                fdr_alpha=fdr_alpha, p_signal_thr=p_signal_thr,
+                fdr_fallback_n_voxels=fdr_fallback_n_voxels,
+                cv_r2_null=cv_r2_null)
+            print(msg)
         else:
             pred_train = model.predict(parameters=pars, paradigm=train_paradigm)
             r2_train   = get_rsq(train_data, pred_train)
             sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            status = STATUS_OK
             print(f'    {len(sel)} voxels selected  '
                   f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
 
         fold_meta.append(dict(session=test_session, run=test_run,
-                              n_voxels_selected=len(sel)))
+                              n_voxels_selected=len(sel), status=status))
+        if status == STATUS_EMPTY:
+            # Previously unguarded: an empty selection fell through into
+            # ResidualFitter and died there with an opaque error.
+            continue
         pars_sel       = pars.loc[sel]
         train_data_sel = train_data[sel]
         test_data_sel  = test_data[sel]
@@ -606,7 +690,10 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         all_pdfs.append(pdf)
 
     # ── save ──────────────────────────────────────────────────────────────────
-    pdfs = pd.concat(all_pdfs).sort_index()
+    warn_if_degraded(fold_meta, subject, mask_desc)
+    pdfs = concat_posteriors(
+        all_pdfs, stimulus_range,
+        ['session', 'run', 'trial_nr', 'true_value_chf'])
     pdfs.to_csv(out_fn, sep='\t')
     print(f'\n  saved to {out_fn}')
 
@@ -637,6 +724,12 @@ if __name__ == '__main__':
                         help='Top-N voxels by cv-R² to use when the whole-brain '
                              'mixture is flagged degenerate (default: 100). '
                              'Applies to both --fdr-alpha and --p-signal-thr.')
+    parser.add_argument('--null-gate', action='store_true',
+                        help='Requires --n-voxels 0. Select voxels by nested '
+                             'CV R² > nested CV R²_null (per-voxel training-mean '
+                             'baseline scored on the same inner folds), instead '
+                             'of the plain nested CV R² > 0 threshold. '
+                             'Output: nvoxels-nullgated.')
     parser.add_argument('--n-iterations', type=int, default=1000,
                         help='Max gradient descent iterations (default: 1000)')
     parser.add_argument('--n-stimulus-grid', type=int, default=50,
@@ -661,10 +754,12 @@ if __name__ == '__main__':
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--model', default='loggauss',
-                        choices=['loggauss', 'gaussian', 'weighted'],
+                        choices=['loggauss', 'gaussian', 'weighted', 'linear'],
                         help="Tuning family. 'loggauss'/'gaussian' = "
                              "per-voxel parametric; 'weighted' = basis-set "
-                             "log-Gaussian (matched to vonmises gabor decoder).")
+                             "log-Gaussian (matched to vonmises gabor decoder); "
+                             "'linear' = signed-slope + baseline, closed-form "
+                             "OLS (no tuning bump — see LinearValuePRF).")
     parser.add_argument('--n-basis', type=int, default=8,
                         help='[weighted only] number of basis RFs (default: 8)')
     parser.add_argument('--basis-fwhm', type=float, default=None,
@@ -680,6 +775,7 @@ if __name__ == '__main__':
          fdr_alpha=args.fdr_alpha,
          p_signal_thr=args.p_signal_thr,
          fdr_fallback_n_voxels=args.fdr_fallback_n_voxels,
+         null_gate=args.null_gate,
          n_iterations=args.n_iterations, n_stimulus_grid=args.n_stimulus_grid,
          n_basis=args.n_basis, basis_fwhm=args.basis_fwhm,
          weight_alpha=args.weight_alpha,

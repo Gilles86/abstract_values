@@ -40,6 +40,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 
+from abstract_values.encoding_models.voxel_selection import usable_folds
 from abstract_values.utils.data import BIDS_FOLDER
 
 mpl.rcParams.update({
@@ -119,7 +120,11 @@ def load_pars(decoder: str, subject: str, mask: str, nv: str,
             f"{lam_tag}_pars.tsv")
     if not fn.exists():
         return None
-    return pd.read_csv(fn, sep="\t", index_col=[0, 1, 2])
+    df = pd.read_csv(fn, sep="\t", index_col=[0, 1, 2])
+    if df.empty:
+        # No fold was decodable — treat as missing rather than as a data point.
+        return None
+    return df
 
 
 def circular_correlation(true_rad: np.ndarray, pred_rad: np.ndarray,
@@ -207,7 +212,11 @@ def _aggregate_n_voxels_selected(decoder: str, subject: str, mask: str,
 
     Used for the FDR / p_signal tokens to give a sense of how many
     voxels actually survived the criterion. Returns ``None`` if the
-    meta TSV is missing (older runs).
+    meta TSV is missing (older runs) or if no fold was decodable.
+
+    Folds marked undecodable in the sidecar (``status`` column) are excluded:
+    averaging their 0 in would understate the count for the folds that did
+    select voxels.
     """
     lam_tag = f"_lambda-{lambd}" if lambd != 0.0 else ""
     fn = (DERIV / decoder / f"sub-{subject}" / "func"
@@ -216,7 +225,10 @@ def _aggregate_n_voxels_selected(decoder: str, subject: str, mask: str,
     if not fn.exists():
         return None
     try:
-        return float(pd.read_csv(fn, sep="\t")["n_voxels_selected"].mean())
+        meta = usable_folds(pd.read_csv(fn, sep="\t"))
+        if meta.empty:
+            return None
+        return float(meta["n_voxels_selected"].mean())
     except Exception:
         return None
 

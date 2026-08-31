@@ -840,7 +840,7 @@ rule decode_gabor:
         f"{DERIV}/decoded_gabor{{smooth}}/sub-{{subject}}/"
         f"sub-{{subject}}_roi-{{roi}}_nv-{{nv}}_lam-{{lam}}_noise-{{noise}}.done",
     log: "logs/decode_gabor{smooth}_{subject}_{roi}_nv{nv}_lam{lam}_noise{noise}.log"
-    resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
+    resources: cpus_per_task=4, mem_mb=16_000, runtime=_decode_runtime,
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MASK={input.mask} MASK_DESC={wildcards.roi} "

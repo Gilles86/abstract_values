@@ -38,6 +38,7 @@ Usage
              sub-pil01_ses-1_space-T1w_hemi-LR_desc-BensonV1_mask.nii.gz \\
       --mask-desc BensonV1
   python decode_gabor.py pil01 --sessions 1 --debug
+  python decode_gabor.py pil01 --sessions 1 --geodesic-noise --geodesic-hemi R
 """
 
 import argparse
@@ -47,11 +48,17 @@ import numpy as np
 import pandas as pd
 from nilearn.maskers import NiftiMasker
 
-from braincoder.models import AxialVonMisesPRF
+from braincoder.models import AxialVonMisesPRF, LinearModelWithBaseline
 from braincoder.optimize import WeightFitter, ResidualFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.utils.data import Subject, BIDS_FOLDER
+from abstract_values.encoding_models.geodesic_noise import (
+    geodesic_snap_for_masker, geodesic_D_for_selection,
+)
+from abstract_values.encoding_models.voxel_selection import (
+    STATUS_EMPTY, STATUS_OK, concat_posteriors, select_voxels, warn_if_degraded,
+)
 
 
 def get_gabor_paradigm(sub, sessions):
@@ -88,13 +95,162 @@ def make_basis_parameters(n_basis, kappa):
     })
 
 
+def _out_subdir(model_type):
+    return {'vonmises': 'gabor', 'linear': 'gabor-linear'}[model_type]
+
+
+def _circular_basis(x_rad):
+    """[cos(2x), sin(2x)] — the axial (pi-periodic) first-harmonic basis.
+
+    Doubling the angle matches AxialVonMisesPRF's own axial convention
+    (period pi, not 2pi — a gabor at theta looks identical to theta+pi).
+    A model linear in this 2-column basis is the smoothest possible
+    orientation-selective response: one broad preferred/anti-preferred
+    orientation, no sharper tuning than that. It's the circular analogue
+    of LinearValuePRF's straight ramp — no tuning bump, just a single
+    graded direction of preference.
+    """
+    return pd.DataFrame({'cos2x': np.cos(2 * x_rad), 'sin2x': np.sin(2 * x_rad)},
+                        index=x_rad.index if hasattr(x_rad, 'index') else None)
+
+
+def _run_linear_folds(sub, sessions, paradigm, data, stimulus_range,
+                      n_voxels, fdr_alpha, p_signal_thr,
+                      fdr_fallback_n_voxels,
+                      weight_alpha, lambd, spherical_noise,
+                      smoothed, bids_folder, debug):
+    """Linear (no tuning bump) orientation decoding — the circular analog
+    of decode_value.py's ``_run_linear_folds``. Signed response along a
+    single graded orientation axis: slope on [cos(2x), sin(2x)] + baseline,
+    fit jointly in closed form via WeightFitter(fit_intercept=True).
+    Mirrors the Von Mises flow above fold-for-fold; only the basis and
+    stimulus-grid construction differ.
+    """
+    all_pdfs = []
+    fold_meta = []
+    all_runs = [(s, r) for s in sessions for r in sub.get_runs(s)]
+
+    # 2-column [cos(2x), sin(2x)] grid matching stimulus_range, used for
+    # decoding; the model itself only ever sees this circular basis, never
+    # raw radians.
+    grid_basis = _circular_basis(pd.Series(stimulus_range))
+
+    def _fit_slope_baseline(train_x, train_d):
+        basis = _circular_basis(train_x['x'])
+        m = LinearModelWithBaseline(paradigm=basis, parameters=None)
+        w, b = WeightFitter(m, None, train_d, basis).fit(
+            alpha=weight_alpha, fit_intercept=True)
+        return m, w, pd.DataFrame({'baseline': b})
+
+    def _predict(m, x, w, b_df):
+        basis = _circular_basis(x['x'])
+        pred = m.predict(paradigm=basis, parameters=b_df, weights=w)
+        return pred if isinstance(pred, pd.DataFrame) else pd.DataFrame(
+            np.asarray(pred), index=x.index, columns=w.columns)
+
+    for test_session, test_run in all_runs:
+        print(f'\n  [fold] hold-out ses-{test_session} run-{test_run}')
+
+        test_idx  = (paradigm.index.get_level_values('session') == test_session) & \
+                    (paradigm.index.get_level_values('run') == test_run)
+        train_idx = ~test_idx
+
+        train_paradigm = paradigm.loc[train_idx, ['x']]
+        test_paradigm  = paradigm.loc[test_idx, ['x']]
+        train_data     = data.loc[train_idx]
+        test_data      = data.loc[test_idx]
+
+        # ── fit slope + baseline (closed-form OLS on the circular basis) ───
+        model, weights, baseline_df = _fit_slope_baseline(train_paradigm, train_data)
+
+        # ── voxel selection ────────────────────────────────────────────────
+        if n_voxels == 0 or fdr_alpha is not None or p_signal_thr is not None:
+            inner_runs = sorted(set(zip(
+                train_paradigm.index.get_level_values('session'),
+                train_paradigm.index.get_level_values('run'))))
+            inner_r2s = []
+            for inner_ses, inner_run in inner_runs:
+                inner_test_idx = (
+                    (train_paradigm.index.get_level_values('session') == inner_ses) &
+                    (train_paradigm.index.get_level_values('run') == inner_run))
+                inner_train_paradigm = train_paradigm.loc[~inner_test_idx]
+                inner_test_paradigm  = train_paradigm.loc[inner_test_idx]
+                inner_train_data     = train_data.loc[~inner_test_idx]
+                inner_test_data      = train_data.loc[inner_test_idx]
+
+                inner_model, inner_w, inner_b_df = _fit_slope_baseline(
+                    inner_train_paradigm, inner_train_data)
+                inner_pred = _predict(inner_model, inner_test_paradigm, inner_w, inner_b_df)
+                inner_r2s.append(get_rsq(inner_test_data, inner_pred))
+
+            cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
+            sel, status, msg = select_voxels(
+                cv_r2, mixture_model='vonmises-linear',
+                subject=sub.subject_id, bids_folder=bids_folder,
+                smoothed=smoothed, fdr_alpha=fdr_alpha,
+                p_signal_thr=p_signal_thr,
+                fdr_fallback_n_voxels=fdr_fallback_n_voxels)
+            print(msg)
+        else:
+            pred_train = _predict(model, train_paradigm, weights, baseline_df)
+            r2_train = get_rsq(train_data, pred_train)
+            sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            status = STATUS_OK
+            print(f'    {len(sel)} voxels selected  '
+                  f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
+
+        fold_meta.append(dict(session=test_session, run=test_run,
+                              n_voxels_selected=len(sel), status=status))
+        if status == STATUS_EMPTY:
+            # Nothing generalises in this fold. Record it and move on — the
+            # fold contributes no trials rather than a posterior decoded from
+            # voxels the encoding model does not explain.
+            continue
+        weights_sel    = weights[sel]
+        baseline_sel   = baseline_df.loc[sel]
+        train_data_sel = train_data[sel]
+        test_data_sel  = test_data[sel]
+
+        # ── fit noise model ────────────────────────────────────────────────
+        n_iter_noise = 100 if debug else 1000
+        train_basis = _circular_basis(train_paradigm['x'])
+        residfit = ResidualFitter(model, train_data_sel, train_basis,
+                                  parameters=baseline_sel, weights=weights_sel,
+                                  lambd=lambd)
+        omega, dof = residfit.fit(
+            init_sigma2=0.1, init_dof=10.0, method='t',
+            learning_rate=0.05, spherical=spherical_noise,
+            max_n_iterations=n_iter_noise)
+        print(f'    noise model: dof={float(dof):.1f}')
+
+        # ── decode ─────────────────────────────────────────────────────────
+        pdf = model.get_stimulus_pdf(test_data_sel, grid_basis.values,
+                                     parameters=baseline_sel,
+                                     weights=weights_sel,
+                                     omega=omega, dof=dof,
+                                     normalize=False)
+        pdf.columns = stimulus_range
+        test_paradigm_full = paradigm.loc[test_idx]
+        pdf.index = pd.MultiIndex.from_arrays([
+            test_paradigm_full.index.get_level_values('session'),
+            test_paradigm_full.index.get_level_values('run'),
+            test_paradigm_full.index.get_level_values('trial_nr'),
+            test_paradigm_full['x'].values,
+        ], names=['session', 'run', 'trial_nr', 'true_orientation_rad'])
+
+        all_pdfs.append(pdf)
+
+    return all_pdfs, fold_meta
+
+
 def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
          p_signal_thr=None, fdr_fallback_n_voxels=100,
          n_basis=8, kappa=2.0,
          weight_alpha=0.0, lambd=0.0,
          mask=None, mask_desc=None, spherical_noise=False,
+         geodesic_noise=False, geodesic_hemi='R',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False):
+         smoothed=False, debug=False, model_type='vonmises'):
     """If fdr_alpha is set, voxels are selected by FDR-thresholding the
     nested-CV R² using the whole-brain vonmises mixture.
     ``fdr_fallback_n_voxels`` is the top-N fallback when the mixture
@@ -104,10 +260,27 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
     nested-CV R² at P(signal | r²) ≥ p_signal_thr (same whole-brain
     vonmises mixture). Same degenerate-fallback semantics. Output
     filename uses ``nvoxels-psigNN``. ``fdr_alpha`` and ``p_signal_thr``
-    are mutually exclusive."""
+    are mutually exclusive.
+
+    ``model_type``: 'vonmises' (default, tuned bump — 8-function Von Mises
+    basis set) or 'linear' (no tuning bump — signed response along a
+    single graded orientation axis, cos(2x)/sin(2x) basis, closed-form
+    fit). Output subdir: derivatives/decoding/{gabor,gabor-linear}/."""
 
     assert not (fdr_alpha is not None and p_signal_thr is not None), \
         "Pass at most one of --fdr-alpha / --p-signal-thr"
+
+    # braincoder's ResidualFitter.get_omega() checks lambd>0 BEFORE D: when
+    # both are set it silently routes to the sample-covariance shrinkage
+    # Omega and never touches alpha/beta/D at all (confirmed empirically —
+    # alpha/beta sit frozen at their init values, "Gradients do not exist"
+    # UserWarning). Output would still say noise-geodesic while actually
+    # being non-geodesic. Fail loudly instead of writing a misleadingly
+    # labeled file.
+    assert not (geodesic_noise and lambd > 0.0), \
+        ('--geodesic-noise and --lambd > 0 are incompatible in the current '
+         'braincoder ResidualFitter (lambd>0 silently overrides the '
+         'geodesic Omega). Pass --lambd 0 with --geodesic-noise.')
 
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
@@ -117,7 +290,8 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
 
     ses_dir    = f'ses-{sessions[0]}' if len(sessions) == 1 else ''
     ses_entity = f'_ses-{sessions[0]}' if len(sessions) == 1 else ''
-    print(f'sub-{subject}  {ses_dir or "all-sessions"}  [gabor orientation decoding]')
+    print(f'sub-{subject}  {ses_dir or "all-sessions"}  '
+          f'[gabor orientation decoding  model={model_type}]')
 
     # ── paradigm + data ───────────────────────────────────────────────────────
     paradigm = get_gabor_paradigm(sub, sessions)
@@ -138,22 +312,28 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         index=paradigm.index)
     print(f'  {data.shape[1]} voxels in mask ({mask_desc})')
 
+    # Geodesic noise model: build the voxel×voxel distance matrix once (in
+    # masker column order); folds subset it via the selected-voxel positions.
+    assert not (geodesic_noise and spherical_noise), \
+        'geodesic_noise and spherical_noise are mutually exclusive'
+    geo_snap = None
+    if geodesic_noise:
+        geo_snap = geodesic_snap_for_masker(
+            masker, geodesic_hemi, subject, bids_folder, fmriprep_deriv)
+
     # ── stimulus grid ─────────────────────────────────────────────────────────
     stimulus_range = np.sort(paradigm['x'].unique()).astype(np.float32)
     print(f'  stimulus grid: {len(stimulus_range)} orientations '
           f'({np.rad2deg(stimulus_range[[0,-1]]).round(1)} deg)')
 
-    # ── basis parameters ──────────────────────────────────────────────────────
-    basis_pars = make_basis_parameters(n_basis, kappa)
-    print(f'  {n_basis} Von Mises basis functions  kappa={kappa}')
-
     # ── output dir ───────────────────────────────────────────────────────────
-    out_dir = bids_folder / 'derivatives' / 'decoding' / 'gabor' / f'sub-{subject}'
+    out_dir = bids_folder / 'derivatives' / 'decoding' / _out_subdir(model_type) / f'sub-{subject}'
     if ses_dir:
         out_dir = out_dir / ses_dir
     out_dir = out_dir / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
-    noise_label  = 'spherical' if spherical_noise else 'full'
+    noise_label  = ('geodesic' if geodesic_noise
+                    else 'spherical' if spherical_noise else 'full')
     smooth_label = '_smoothed' if smoothed else ''
     lambd_label  = f'_lambda-{lambd}' if lambd != 0.0 else ''
     if fdr_alpha is not None:
@@ -165,6 +345,27 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_mask-{mask_desc}'
               f'_nvoxels-{nvox_tag}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
+
+    if model_type == 'linear':
+        all_pdfs, fold_meta = _run_linear_folds(
+            sub, sessions, paradigm, data, stimulus_range,
+            n_voxels, fdr_alpha, p_signal_thr, fdr_fallback_n_voxels,
+            weight_alpha, lambd, spherical_noise,
+            smoothed, bids_folder, debug)
+        warn_if_degraded(fold_meta, subject, mask_desc)
+        pdfs = concat_posteriors(
+            all_pdfs, stimulus_range,
+            ['session', 'run', 'trial_nr', 'true_orientation_rad'])
+        pdfs.to_csv(out_fn, sep='\t')
+        print(f'\n  saved to {out_fn}')
+        meta_fn = out_fn.with_name(out_fn.stem.replace('_pars', '_meta') + '.tsv')
+        pd.DataFrame(fold_meta).to_csv(meta_fn, sep='\t', index=False)
+        print(f'  meta  to {meta_fn}')
+        return
+
+    # ── basis parameters ──────────────────────────────────────────────────────
+    basis_pars = make_basis_parameters(n_basis, kappa)
+    print(f'  {n_basis} Von Mises basis functions  kappa={kappa}')
 
     # ── leave-one-run-out cross-validation ────────────────────────────────────
     all_pdfs = []
@@ -216,55 +417,12 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
-            if fdr_alpha is not None or p_signal_thr is not None:
-                if fdr_alpha is not None:
-                    from abstract_values.encoding_models.compute_r2_mixture \
-                        import get_brain_fdr_threshold
-                    res = get_brain_fdr_threshold(
-                        subject, model='vonmises', bids_folder=bids_folder,
-                        alpha=fdr_alpha, smoothed=smoothed)
-                    crit_label = f'FDR≤{fdr_alpha:.2f}'
-                else:
-                    from abstract_values.encoding_models.compute_r2_mixture \
-                        import get_brain_p_signal_threshold
-                    res = get_brain_p_signal_threshold(
-                        subject, model='vonmises', bids_folder=bids_folder,
-                        p=p_signal_thr, smoothed=smoothed)
-                    crit_label = f'P(signal)≥{p_signal_thr:.2f}'
-                if res is None:
-                    raise RuntimeError(
-                        'Whole-brain vonmises mixture missing and auto-fit failed for '
-                        f'sub-{subject}. Run '
-                        '`python -m abstract_values.encoding_models.compute_r2_mixture --models vonmises` first.')
-                thr = res['threshold']
-                if res['degenerate'] or not np.isfinite(thr):
-                    sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
-                    print(f'    {len(sel)} voxels selected  '
-                          f'(mixture degenerate ⇒ fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
-                else:
-                    sel = cv_r2[cv_r2 > thr].index
-                    if len(sel) < 10:
-                        sel = cv_r2.sort_values(ascending=False).index[:fdr_fallback_n_voxels]
-                        print(f'    {len(sel)} voxels selected  '
-                              f'(only {(cv_r2 > thr).sum()} passed {crit_label} → R² > {thr:.3f}; '
-                              f'fallback to top-{fdr_fallback_n_voxels} by cv-R²)')
-                    else:
-                        print(f'    {len(sel)} voxels selected  '
-                              f'(whole-brain mixture {crit_label} → R² > {thr:.3f})')
-            else:
-                sel = cv_r2[cv_r2 > 0.0].index
-                if len(sel) == 0:
-                    # No voxel generalizes in this fold → the n-voxels=0
-                    # decoding is undefined for this subject/ROI. Exit
-                    # cleanly (non-zero, so Snakemake writes no .done)
-                    # rather than decode from unselected noise voxels.
-                    raise SystemExit(
-                        f'    0/{data.shape[1]} voxels with nested CV R² > 0 '
-                        f'in fold ses-{test_session} run-{test_run} '
-                        f'(mask {mask_desc}) — n-voxels=0 decoding is '
-                        f'undefined for sub-{subject}; exiting without output.')
-                print(f'    {len(sel)} voxels selected  '
-                      f'(nested CV R² > 0, mean={float(cv_r2.loc[sel].mean()):.3f})')
+            sel, status, msg = select_voxels(
+                cv_r2, mixture_model='vonmises', subject=subject,
+                bids_folder=bids_folder, smoothed=smoothed,
+                fdr_alpha=fdr_alpha, p_signal_thr=p_signal_thr,
+                fdr_fallback_n_voxels=fdr_fallback_n_voxels)
+            print(msg)
         else:
             basis_pred = model.basis_predictions(train_paradigm, basis_pars)
             pred_train = pd.DataFrame(basis_pred @ weights.values,
@@ -272,11 +430,19 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
                                       columns=train_data.columns)
             r2_train = get_rsq(train_data, pred_train)
             sel = r2_train.sort_values(ascending=False).index[:n_voxels]
+            status = STATUS_OK
             print(f'    {len(sel)} voxels selected  '
                   f'(train R² ≥ {float(r2_train.loc[sel].min()):.3f})')
 
         fold_meta.append(dict(session=test_session, run=test_run,
-                              n_voxels_selected=len(sel)))
+                              n_voxels_selected=len(sel), status=status))
+        if status == STATUS_EMPTY:
+            # No voxel generalises in this fold. Previously this raised
+            # SystemExit, which left Snakemake with no sentinel and re-planned
+            # the job on every driver generation. Record the fold as
+            # undecodable and carry on — the emptiness is now visible in the
+            # _meta sidecar instead of in an exit code.
+            continue
         weights_sel    = weights[sel]
         train_data_sel = train_data[sel]
         test_data_sel  = test_data[sel]
@@ -286,11 +452,17 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         residfit = ResidualFitter(model, train_data_sel, train_paradigm,
                                   parameters=basis_pars, weights=weights_sel,
                                   lambd=lambd)
+        geo_kw = {}
+        if geo_snap is not None:
+            # sel are masker column positions (data.columns is a RangeIndex)
+            geo_kw = dict(D=geodesic_D_for_selection(geo_snap, np.asarray(sel)),
+                          init_alpha=0.5, init_beta=0.05)
         omega, dof = residfit.fit(
             init_sigma2=0.1, init_dof=10.0, method='t',
             learning_rate=0.05, spherical=spherical_noise,
-            max_n_iterations=n_iter_noise)
-        print(f'    noise model: dof={float(dof):.1f}')
+            max_n_iterations=n_iter_noise, **geo_kw)
+        print(f'    noise model: dof={float(dof):.1f}'
+              + ('  (geodesic Ω)' if geo_snap is not None else ''))
 
         # ── decode ────────────────────────────────────────────────────────────
         pdf = model.get_stimulus_pdf(test_data_sel, stimulus_range,
@@ -310,7 +482,10 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         all_pdfs.append(pdf)
 
     # ── save ──────────────────────────────────────────────────────────────────
-    pdfs = pd.concat(all_pdfs).sort_index()
+    warn_if_degraded(fold_meta, subject, mask_desc)
+    pdfs = concat_posteriors(
+        all_pdfs, stimulus_range,
+        ['session', 'run', 'trial_nr', 'true_orientation_rad'])
     pdfs.to_csv(out_fn, sep='\t')
     print(f'\n  saved to {out_fn}')
 
@@ -355,12 +530,26 @@ if __name__ == '__main__':
                         help='Short label for mask used in output filename')
     parser.add_argument('--spherical-noise', action='store_true',
                         help='Fit isotropic noise model instead of full covariance')
+    parser.add_argument('--geodesic-noise', action='store_true',
+                        help='Fit a structured Omega with a geodesic-distance '
+                             'spatial component (single-hemisphere ROI). '
+                             'Output: noise-geodesic.')
+    parser.add_argument('--geodesic-hemi', default='R', choices=['L', 'R'],
+                        help='Hemisphere whose white surface defines geodesic '
+                             'distance (default: R, for NPCr/BensonV1 hemi-R)')
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                         choices=['fmriprep', 'fmriprep-t2w'])
     parser.add_argument('--smoothed', action='store_true')
     parser.add_argument('--debug', action='store_true',
                         help='100 noise iterations (fast test)')
+    parser.add_argument('--model', default='vonmises',
+                        choices=['vonmises', 'linear'],
+                        help="Tuning family. 'vonmises' (default) = tuned "
+                             "bump, 8-function Von Mises basis set; "
+                             "'linear' = no tuning bump, signed response "
+                             "on cos(2x)/sin(2x), closed-form fit. Output "
+                             "subdir: derivatives/decoding/{gabor,gabor-linear}/.")
     args = parser.parse_args()
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
@@ -371,5 +560,6 @@ if __name__ == '__main__':
          weight_alpha=args.weight_alpha, lambd=args.lambd,
          mask=args.mask, mask_desc=args.mask_desc,
          spherical_noise=args.spherical_noise,
+         geodesic_noise=args.geodesic_noise, geodesic_hemi=args.geodesic_hemi,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed, debug=args.debug)
+         smoothed=args.smoothed, debug=args.debug, model_type=args.model)

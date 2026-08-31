@@ -97,6 +97,21 @@ def session_to_condition(subject_id: str, session: int) -> str:
     return "inverse_cdf" if session == 1 else "cdf"
 
 
+def _has_decoded_trials(fn: Path) -> bool:
+    """True when a decode _pars.tsv holds at least one trial.
+
+    Since the zero-voxel fix, a cell where no fold was decodable still writes
+    a header-only file so Snakemake gets its sentinel. Such a file must not be
+    mistaken for a usable result.
+    """
+    try:
+        with open(fn) as f:
+            f.readline()          # header
+            return bool(f.readline().strip())
+    except OSError:
+        return False
+
+
 def load_posteriors(subject: str, smoothed_suffix: str, mask: str = "NPCr",
                     n_voxels: int = 100, lambd: float = 0.1):
     """Return dict with truth/grid/posteriors/run_keys/conditions."""
@@ -107,6 +122,9 @@ def load_posteriors(subject: str, smoothed_suffix: str, mask: str = "NPCr",
     if not fn.exists():
         return None
     df = pd.read_csv(fn, sep="\t", index_col=[0, 1, 2])
+    if df.empty:
+        # No fold was decodable for this cell — treat it as absent.
+        return None
     truth = df["true_value_chf"].to_numpy(dtype=np.float32)
     grid = np.asarray(df.columns[1:], dtype=np.float32)
     posteriors = df.iloc[:, 1:].to_numpy(dtype=np.float32)
@@ -827,7 +845,7 @@ def discover_subjects(lambd: float, n_voxels: int) -> list[str]:
     for p in sorted(DERIV.glob("sub-*")):
         fn = (p / "func"
               / f"{p.name}_mask-NPCr_nvoxels-{n_voxels}_noise-full{lam_tag}_pars.tsv")
-        if fn.exists():
+        if fn.exists() and _has_decoded_trials(fn):
             out.append(p.name.removeprefix("sub-"))
     return out
 
