@@ -48,6 +48,8 @@ APRF_VARIANTS = {
     "aprf_gauss_session_shift_cv": ("aprf-gauss-shift.cv",      "cvr2"),
     "vonmises":               ("vonmises",               "r2"),
     "vonmises_cv":            ("vonmises.cv",            "cvr2"),
+    "aprf_linear":            ("aprf-linear",            "r2"),
+    "aprf_linear_cv":         ("aprf-linear.cv",         "cvr2"),
 }
 
 # Surface-sampling sentinel directories (these match the ENCODER dir names,

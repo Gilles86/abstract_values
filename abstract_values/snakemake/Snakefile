@@ -187,6 +187,7 @@ R2_MODEL_DIRS = {
     "aprf-session-shift":       "aprf_session_shift",
     "aprf-gauss":               "aprf_gauss",
     "aprf-gauss-session-shift": "aprf_gauss_session_shift",
+    "aprf-linear":              "aprf_linear",
 }
 
 # cvR² model_dirs -> (fit_cv_rule sentinel variant, smooth-passes-through-as-is)
@@ -198,6 +199,7 @@ CVR2_MODEL_DIRS = {
     "aprf-shift.cv":        "aprf_session_shift_cv",
     "aprf-gauss.cv":        "aprf_gauss_cv",
     "aprf-gauss-shift.cv":  "aprf_gauss_session_shift_cv",
+    "aprf-linear.cv":       "aprf_linear_cv",
 }
 
 def cvr2_aggregate_sentinel(subject, model_dir, smooth):
@@ -226,6 +228,7 @@ def subject_targets(subject):
             "aprf_weighted", "aprf_weighted_cv",
             "aprf_gauss", "aprf_gauss_cv",
             "vonmises", "vonmises_cv",
+            "aprf_linear", "aprf_linear_cv",
         )]
         # session-shift only if subject has >= 2 MRI sessions. Includes the
         # fwhm-shift / fully-shifted / vonmises-shift "ladder" variants used
@@ -247,8 +250,10 @@ def subject_targets(subject):
 
         # Surface sampling: R² for full-fit models, cvR² (after aggregation)
         # for the *.cv variants. The session-shift pair only if ≥ 2 sessions.
-        r2_dirs   = ["aprf", "vonmises", "aprf-weighted", "aprf-gauss"]
-        cvr2_dirs = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv", "aprf-gauss.cv"]
+        r2_dirs   = ["aprf", "vonmises", "aprf-weighted", "aprf-gauss",
+                     "aprf-linear"]
+        cvr2_dirs = ["aprf.cv", "vonmises.cv", "aprf-weighted.cv",
+                     "aprf-gauss.cv", "aprf-linear.cv"]
         if len(sessions) >= 2:
             r2_dirs += ["aprf-session-shift", "aprf-gauss-session-shift"]
             cvr2_dirs += ["aprf-shift.cv", "aprf-gauss-shift.cv"]
@@ -347,9 +352,17 @@ rule fmriprep:
         cpus_per_task=16, mem_mb=64_000, runtime=22*60,
     params:
         bold2anat_init=config.get("bold2anat_init", "auto"),
+        # Subjects whose head pose false-positives FreeSurfer's talairach_afd
+        # gate need recon-all's `-notal-check`. fmriprep doesn't expose it, so
+        # fmriprep.sh bind-mounts a patched recon-all when NOTAL_CHECK=1. See
+        # prepare/cluster_preproc/make_notalcheck_reconall.sh for the rationale.
+        notal_check=lambda w: int(
+            w.subject in config.get("notal_check_subjects", [])
+        ),
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} "
         "BOLD2ANAT_INIT={params.bold2anat_init} "
+        "NOTAL_CHECK={params.notal_check} "
         "bash {REPO}/abstract_values/prepare/cluster_preproc/fmriprep.sh"
 
 
@@ -501,6 +514,37 @@ rule fit_aprf_null_cv:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "MODEL=null "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_linear:
+    # Ramp, not bump: signed slope + intercept in CHF value (LinearValuePRF).
+    # The baseline for "is this voxel's value response actually tuned?" in
+    # cvr2_model_comparison.py and visualize_r2_all_models.py. Fit by one
+    # closed-form OLS, so it finishes far inside the shared budget below.
+    # Historically hand-run for 24 of 28 subjects and left out of every new
+    # subject's targets (sub-22/26/27/28 had no linear fit until 2026-08-31);
+    # a rule keeps it in step with the cohort.
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_linear", "{smooth}")
+    log: "logs/fit_aprf_linear{smooth}_{subject}.log"
+    resources: **_aprf_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=linear "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+rule fit_aprf_linear_cv:
+    input: f"{DERIV}/glmsingle{{smooth}}/sub-{{subject}}/_done.touch"
+    output: aprf_r2("{subject}", "aprf_linear_cv", "{smooth}")
+    log: "logs/fit_aprf_linear_cv{smooth}_{subject}.log"
+    resources: **_aprf_cv_resources()
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "MODEL=linear "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/encoding_models/slurm_jobs/fit_aprf_cv.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"

@@ -55,3 +55,11 @@ fmriprep_deriv: "fmriprep"
 # Force BOLD-to-anat coregistration target to T1w. Default fmriprep behavior
 # (auto) uses T2w when present, which is unreliable for our cross-session T2w.
 bold2anat_init: "t1w"
+
+# Subjects that need FreeSurfer's talairach_afd goodness-of-fit gate skipped
+# (recon-all `-notal-check`). The gate false-positives on subjects whose head
+# was rotated far enough in the scanner; the talairach transform itself is
+# fine. sub-27: 34 deg yaw, pval=0.0034 vs threshold=0.0050, singular values
+# 1.081/1.037/1.034 (near-uniform => sane near-rigid fit).
+# See prepare/cluster_preproc/make_notalcheck_reconall.sh.
+notal_check_subjects: ["27"]
