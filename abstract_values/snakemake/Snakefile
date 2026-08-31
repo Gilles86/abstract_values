@@ -202,6 +202,18 @@ CVR2_MODEL_DIRS = {
     "aprf-linear.cv":       "aprf_linear_cv",
 }
 
+# Wildcard-constraint alternations for `model_dir`, derived from the two dicts
+# above so registering a new variant there is enough — the aggregate_cvr2 /
+# sample_r2_to_surface constraints used to be hand-written copies and silently
+# went stale (aprf-linear was missing from both). Longest-first so leftmost
+# alternation can't stop at a prefix (`aprf` inside `aprf-linear`).
+def _model_dir_alternation(dirs):
+    return "|".join(re.escape(d) for d in sorted(dirs, key=len, reverse=True))
+
+CVR2_DIRS_RE    = _model_dir_alternation(CVR2_MODEL_DIRS)
+SURFACE_DIRS_RE = _model_dir_alternation(list(R2_MODEL_DIRS) + list(CVR2_MODEL_DIRS))
+
+
 def cvr2_aggregate_sentinel(subject, model_dir, smooth):
     """Sentinel for the per-subject mean-cvR² volume aggregation."""
     return (f"{DERIV}/encoding_models/{model_dir}{smooth}/"
@@ -738,7 +750,7 @@ rule aggregate_cvr2:
     wildcard_constraints:
         # Restrict to known CV dirs so we don't accidentally try to aggregate
         # a non-CV model dir (the per-run files don't exist there).
-        model_dir = r"(aprf|vonmises|aprf-weighted|aprf-shift|aprf-gauss|aprf-gauss-shift)\.cv",
+        model_dir = CVR2_DIRS_RE,
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} MODEL_DIR={wildcards.model_dir} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
@@ -792,10 +804,7 @@ rule sample_r2_to_surface:
     wildcard_constraints:
         # Restrict to the dirs we actually surface-sample, so wildcard
         # inference can't grab an unrelated `encoding_models/*` subdir.
-        model_dir = (r"(aprf|vonmises|aprf-weighted|aprf-session-shift|"
-                     r"aprf-gauss|aprf-gauss-session-shift|"
-                     r"aprf\.cv|vonmises\.cv|aprf-weighted\.cv|aprf-shift\.cv|"
-                     r"aprf-gauss\.cv|aprf-gauss-shift\.cv)"),
+        model_dir = SURFACE_DIRS_RE,
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} "
         "MODEL_DIR={wildcards.model_dir} "
