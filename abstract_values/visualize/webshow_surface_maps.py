@@ -228,8 +228,13 @@ def save_static(ds, cbars, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, vtx in ds.items():
         fn = out_dir / f"{name.replace('.', '_')}_flatmap.png"
+        # with_rois/with_sulci render the subject's overlay SVG, which
+        # pycortex rasterises by shelling out to Inkscape — not installed
+        # here, and a freshly imported subject has no drawn ROIs anyway.
         fig = cortex.quickflat.make_figure(vtx, with_curvature=False,
-                                           with_colorbar=False)
+                                           with_colorbar=False,
+                                           with_rois=False, with_sulci=False,
+                                           with_labels=False)
         fig.savefig(str(fn), dpi=180, bbox_inches="tight")
         plt.close(fig)
         print(f"  wrote {fn}")
@@ -262,9 +267,15 @@ def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     cx_subject = cx_subject or f"abstractvalue.sub-{subject}"
 
+    # `types` lists MORPH TARGETS only. Flat must never go in here: pycortex
+    # picks the flat surface up on its own (BrainCTM loads it and stores it as
+    # UV coordinates, which is what drives the viewer's flatten slider), while
+    # addSurf("flat") would renormalise it into the fiducial bounding box —
+    # and the flat surface's z axis is constant, so that divides by zero and
+    # OpenCTM rejects the mesh with a bare CTM_INVALID_MESH.
     types = ("inflated",)
     if has_flatmap(cx_subject):
-        types = ("flat", "inflated")
+        print(f"  {cx_subject} has flat surfaces — flatten view enabled")
     else:
         print(f"  note: {cx_subject} has no flat surfaces — inflated only "
               f"(run autoflatten + cortex.freesurfer.import_flat to add them)")
