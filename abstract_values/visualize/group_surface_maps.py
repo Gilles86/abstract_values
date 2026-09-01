@@ -47,7 +47,7 @@ import numpy as np
 
 from abstract_values.utils.data import BIDS_FOLDER
 from abstract_values.visualize.webshow_surface_maps import (
-    DEFAULT_WEBGL_ROOT, blended, save_colorbar_pdf, serve_directory,
+    DEFAULT_WEBGL_ROOT, blended, live, save_colorbar_pdf, serve_directory,
     write_root_index)
 
 mpl.rcParams.update({
@@ -121,8 +121,15 @@ def mean_map(deriv, subjects, model, desc, smoothed=False):
 # ── group webgl bundle ───────────────────────────────────────────────────────
 
 def build_group_datasets(deriv, subjects, smoothed_variants=(False, True),
-                         min_count=None):
+                         min_count=None, colorbars="live"):
     ds, cbars = {}, []
+
+    def make(values, alpha, vmin, vmax, cmap):
+        if colorbars == "live":
+            return live(values, alpha, CX_FSAVERAGE, vmin, vmax, cmap,
+                        nonce=len(ds))
+        return blended(values, alpha, CX_FSAVERAGE, vmin, vmax, cmap)
+
     for sm in smoothed_variants:
         sm_tag = "smoothed" if sm else "unsmoothed"
         print(f"group  smoothed={sm}")
@@ -136,7 +143,7 @@ def build_group_datasets(deriv, subjects, smoothed_variants=(False, True),
             # a display parameter to soften.
             alpha = (count >= thr).astype(np.float32)
             name = f"Subjects beating null n={n} ({sm_tag})"
-            ds[name] = blended(count, alpha, CX_FSAVERAGE, thr, float(n), "hot")
+            ds[name] = make(count, alpha, thr, float(n), "hot")
             cbars.append((f"Subjects with cvR2 > null (of {n})", "hot", thr, n))
             print(f"  count: max {int(count.max())}/{n}, "
                   f"{100 * (count >= thr).mean():.1f}% of vertices >= {thr:.0f}")
@@ -152,7 +159,7 @@ def build_group_datasets(deriv, subjects, smoothed_variants=(False, True),
             thr = vmax / 4.0
             alpha = np.clip((m - thr) / max(vmax - thr, 1e-6), 0, 1).astype(np.float32)
             name = f"{label} n={n} ({sm_tag})"
-            ds[name] = blended(m, alpha, CX_FSAVERAGE, thr, vmax, "hot")
+            ds[name] = make(m, alpha, thr, vmax, "hot")
             cbars.append((f"{label} (n={n})", "hot", thr, vmax))
             print(f"  {label}: n={n}, range [{np.nanmin(m):.3g}, {np.nanmax(m):.3g}]")
     return ds, cbars
@@ -245,6 +252,10 @@ def main():
     p.add_argument("--smoothed", action="store_true",
                    help="Contact sheet: use the smoothed variant")
     p.add_argument("--ncol", type=int, default=6)
+    p.add_argument("--colorbars", default="live", choices=["live", "baked"],
+                   help="'live' (default): Vertex2D, so the viewer shows a "
+                        "real colorbar and the sliders work. 'baked': "
+                        "pre-blended onto curvature.")
     args = p.parse_args()
 
     deriv = Path(args.bids_folder) / "derivatives"
@@ -260,7 +271,8 @@ def main():
         dest = Path(args.static_html) if args.static_html else \
             Path(args.out_root) / "group"
         ds, cbars = build_group_datasets(deriv, subjects,
-                                         min_count=args.min_count)
+                                         min_count=args.min_count,
+                                         colorbars=args.colorbars)
         if not ds:
             raise SystemExit("No group data built.")
         dest.mkdir(parents=True, exist_ok=True)

@@ -104,6 +104,58 @@ def r2_alpha(r2, thr, sigma):
     return np.nan_to_num(a, nan=0.0).astype(np.float32)
 
 
+def ensure_alpha_cmap(name):
+    """Return the name of a 2D "<name>_alpha" colormap, generating it if needed.
+
+    A ``blend_curvature`` dataset is pre-blended RGB, so the viewer has no
+    vmin/vmax/cmap left to introspect and cannot draw a real colorbar. A
+    ``Vertex2D`` keeps them live: dim1 carries the value, dim2 indexes a 2D
+    colormap whose alpha channel ramps 0 -> 1, so thresholding still reads as
+    transparency AND the viewer shows the colormap with working sliders.
+
+    Pycortex ships a handful of ``*_alpha`` maps but not one per matplotlib
+    colormap, so build any missing one: 256x256 RGBA, dim1 across (the
+    colormap), dim2 down (alpha, opaque at the top to match the shipped maps).
+    """
+    cmapdir = Path(cortex.options.config.get("webgl", "colormaps"))
+    target = f"{name}_alpha"
+    out = cmapdir / f"{target}.png"
+    if out.exists():
+        return target
+    import matplotlib.pyplot as _plt
+    from matplotlib.image import imsave
+    n = 256
+    rgb = _plt.get_cmap(name)(np.linspace(0, 1, n))[:, :3]          # (n, 3)
+    img = np.repeat(rgb[None, :, :], n, axis=0)                     # (n, n, 3)
+    alpha = np.linspace(1.0, 0.0, n)[:, None]                       # opaque on top
+    img = np.dstack([img, np.repeat(alpha, n, axis=1)])
+    cmapdir.mkdir(parents=True, exist_ok=True)
+    imsave(str(out), img.astype(np.float32))
+    print(f"  generated 2D colormap {out}")
+    return target
+
+
+def live(values, alpha, cx_subject, vmin, vmax, cmap, vmin2=0.0, vmax2=1.0,
+         nonce=0):
+    """Vertex2D carrying its own colorbar, as an alternative to `blended`.
+
+    `nonce` works around a pycortex packing limitation. A BrainData's name is
+    a read-only hash of its array, and Package.reorder is not dedup-aware: if
+    two datasets hand it bit-identical arrays it serialises that one slot
+    twice, and the second pass finds bytes where it expects an ndarray and
+    dies with "byte indices must be integers or slices, not tuple". The
+    parameter maps legitimately share one alpha mask (the same
+    cvR2-beats-null gate), so scale each copy by 1 - nonce*1e-6 to keep the
+    arrays distinct. The colormap quantises alpha to 256 levels, so a
+    perturbation this small cannot change a rendered pixel.
+    """
+    alpha = np.nan_to_num(alpha).astype(np.float32) * (1.0 - nonce * 1e-6)
+    return cortex.Vertex2D(np.nan_to_num(values).astype(np.float32), alpha,
+                           cx_subject, vmin=vmin, vmax=vmax,
+                           vmin2=vmin2, vmax2=vmax2,
+                           cmap=ensure_alpha_cmap(cmap))
+
+
 def blended(values, alpha, cx_subject, vmin, vmax, cmap):
     v = cortex.Vertex(np.nan_to_num(values).astype(np.float32), cx_subject,
                       vmin=vmin, vmax=vmax, cmap=cmap)
@@ -112,7 +164,8 @@ def blended(values, alpha, cx_subject, vmin, vmax, cmap):
 
 def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
                    cx_subject=None, r2_thr=0.05, r2_sigma=0.01,
-                   cv_sigma=0.01, alpha_source="cvr2-null"):
+                   cv_sigma=0.01, alpha_source="cvr2-null",
+                   colorbars="live"):
     """Returns (datasets dict, colorbar specs list)."""
     deriv = Path(bids_folder) / "derivatives"
     cx_subject = cx_subject or f"abstractvalue.sub-{subject}"
@@ -127,8 +180,12 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
         if values is None:
             print(f"  skip {key}: surface files missing")
             return
-        ds[dataset_name(label, smoothed)] = blended(values, alpha, cx_subject,
-                                                    vmin, vmax, cmap)
+        if colorbars == "live":
+            vtx = live(values, alpha, cx_subject, vmin, vmax, cmap,
+                       nonce=len(ds))
+        else:
+            vtx = blended(values, alpha, cx_subject, vmin, vmax, cmap)
+        ds[dataset_name(label, smoothed)] = vtx
         cbars.append((label, cmap, vmin, vmax))
         print(f"  {key}: range [{np.nanmin(values):.3g}, {np.nanmax(values):.3g}]")
 
@@ -229,8 +286,12 @@ def drop_duplicate_datasets(ds, cbars):
     """
     seen, keep_ds, keep_cbars = {}, {}, []
     for (name, vtx), cbar in zip(ds.items(), cbars):
-        arr = np.stack([vtx.red.data, vtx.green.data,
-                        vtx.blue.data]).astype(np.uint8)
+        if hasattr(vtx, "red"):                      # VertexRGB (baked)
+            arr = np.stack([vtx.red.data, vtx.green.data,
+                            vtx.blue.data]).astype(np.uint8)
+        else:                                        # Vertex2D (live)
+            arr = np.stack([np.nan_to_num(vtx.dim1.data),
+                            np.nan_to_num(vtx.dim2.data)]).astype(np.float32)
         key = hash(arr.tobytes())
         if key in seen:
             print(f"  WARNING: {name} is bit-identical to {seen[key]} — "
@@ -422,6 +483,13 @@ def main():
                    help="R² alpha threshold, fraction scale (default 0.05)")
     p.add_argument("--r2-sigma", type=float, default=0.01,
                    help="Gaussian-CDF width of the R² alpha ramp")
+    p.add_argument("--colorbars", default="live", choices=["live", "baked"],
+                   help="'live' (default): Vertex2D against a 2D *_alpha "
+                        "colormap, so the viewer shows a real colorbar and "
+                        "the vmin/vmax sliders work. 'baked': pre-blend onto "
+                        "curvature (blend_curvature) — crisper against the "
+                        "anatomy, but the viewer can only draw a meaningless "
+                        "0-255 swatch, so the ranges live in colorbars.pdf.")
     p.add_argument("--alpha-source", default="cvr2-null",
                    choices=["cvr2-null", "r2"],
                    help="What masks the parameter maps (mode/fwhm/amplitude). "
@@ -465,13 +533,17 @@ def main():
         raise SystemExit("A subject is required unless --serve-all is given.")
 
     variants = ([False, True] if args.both_smoothing else [args.smoothed])
+    # Static PNGs always use the baked form: pre-blending onto curvature reads
+    # better on paper, and the PDF carries the real ranges anyway.
+    colorbars = "baked" if args.static_png else args.colorbars
     ds, cbars = {}, []
     for sm in variants:
         print(f"sub-{args.subject}  smoothed={sm}")
         d, c = build_datasets(args.subject, args.bids_folder, smoothed=sm,
                               cx_subject=args.cx_subject,
                               r2_thr=args.r2_thr, r2_sigma=args.r2_sigma,
-                              alpha_source=args.alpha_source)
+                              alpha_source=args.alpha_source,
+                              colorbars=colorbars)
         ds.update(d)
         cbars.extend(c)
 
