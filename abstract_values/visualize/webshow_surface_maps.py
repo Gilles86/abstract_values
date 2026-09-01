@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cortex
@@ -54,6 +55,21 @@ from scipy.stats import norm
 from abstract_values.utils.data import BIDS_FOLDER
 
 MODE_VMIN, MODE_VMAX = 2.0, 42.0
+
+# Where per-subject bundles are written, one directory each, so a single
+# server at the root can browse every processed subject.
+DEFAULT_WEBGL_ROOT = Path(BIDS_FOLDER) / "derivatives" / "qa" / "webgl"
+
+
+def dataset_name(label, smoothed):
+    """Viewer-facing name for one map.
+
+    Pycortex lists these verbatim, so they have to say what the map IS
+    without the reader holding a legend in their head. Leading with the
+    quantity keeps the smoothed/unsmoothed pair adjacent when sorted.
+    Kept to plain ASCII: the names become JSON keys and DOM ids.
+    """
+    return f"{label} ({'smoothed' if smoothed else 'unsmoothed'})"
 
 
 def _load_hemi(deriv, model, subject, hemi, desc, smoothed):
@@ -111,8 +127,8 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
         if values is None:
             print(f"  skip {key}: surface files missing")
             return
-        ds[f"{subject}{tag}.{key}"] = blended(values, alpha, cx_subject,
-                                              vmin, vmax, cmap)
+        ds[dataset_name(label, smoothed)] = blended(values, alpha, cx_subject,
+                                                    vmin, vmax, cmap)
         cbars.append((label, cmap, vmin, vmax))
         print(f"  {key}: range [{np.nanmin(values):.3g}, {np.nanmax(values):.3g}]")
 
@@ -153,41 +169,41 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
         # a real preference — drop them rather than paint the cortex red.
         in_range = ((mode >= MODE_VMIN) & (mode <= MODE_VMAX)).astype(np.float32)
         add("mode", mode, alpha_signal * in_range, MODE_VMIN, MODE_VMAX,
-            "nipy_spectral", "Preferred value (CHF)")
+            "nipy_spectral", "Preferred value CHF")
 
     fwhm = L("aprf", "fwhm")
     if fwhm is not None and alpha_signal is not None:
         add("fwhm", fwhm, alpha_signal, 0.0, MODE_VMAX - MODE_VMIN,
-            "viridis", "Tuning FWHM (CHF)")
+            "viridis", "Tuning width FWHM CHF")
 
     amp = L("aprf", "amplitude")
     if amp is not None and alpha_signal is not None:
         lim = float(np.nanpercentile(np.abs(amp), 99)) or 1.0
         add("amplitude", amp, alpha_signal, -lim, lim, "RdBu_r",
-            "Amplitude (a.u.)")
+            "Response amplitude")
 
     if r2 is not None:
         vmax = float(np.nanpercentile(r2[r2 > 0], 99.9)) if (r2 > 0).any() else 0.3
-        add("aprf_r2", r2, alpha_r2, r2_thr, vmax, "hot", "aPRF R²")
+        add("aprf_r2", r2, alpha_r2, r2_thr, vmax, "hot", "aPRF full-fit R2")
 
     gabor = L("aprf", "gabor-r2")
     if gabor is not None:
         vmax = (float(np.nanpercentile(gabor[gabor > 0], 99.9))
                 if (gabor > 0).any() else 0.3)
         add("gabor_r2", gabor, r2_alpha(gabor, r2_thr, r2_sigma),
-            r2_thr, vmax, "hot", "Gabor (von Mises) R²")
+            r2_thr, vmax, "hot", "Orientation von Mises R2")
 
     # ── cross-validated maps ────────────────────────────────────────────────
     if cv is not None:
         lim = float(np.nanpercentile(np.abs(cv), 99)) or 0.05
         add("aprf_cvr2", cv, r2_alpha(cv, 0.0, cv_sigma), -lim, lim,
-            "RdBu_r", "aPRF cvR²")
+            "RdBu_r", "aPRF cross-validated cvR2")
 
     if cv is not None and null is not None:
         delta = cv - null
         lim = float(np.nanpercentile(np.abs(delta), 99)) or 0.05
         add("aprf_vs_null", delta, r2_alpha(delta, 0.0, cv_sigma), -lim, lim,
-            "RdBu_r", "cvR²: aPRF − null")
+            "RdBu_r", "Signal cvR2 aPRF minus null")
     elif cv is not None:
         print("  skip aprf_vs_null: aprf-null.cv has no fsnative surface")
 
@@ -195,7 +211,7 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
         delta = lin - cv
         lim = float(np.nanpercentile(np.abs(delta), 99)) or 0.05
         add("linear_vs_aprf", delta, r2_alpha(np.abs(delta), 0.0, cv_sigma),
-            -lim, lim, "PuOr_r", "cvR²: linear − aPRF")
+            -lim, lim, "PuOr_r", "Ramp vs bump cvR2 linear minus aPRF")
 
     return ds, cbars
 
@@ -314,6 +330,57 @@ def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
     return out_dir
 
 
+def write_root_index(root):
+    """Generate a landing page listing every subject bundle under `root`.
+
+    http.server's own directory listing works, but it shows the raw folder
+    names and gives no hint which bundles are stale. This lists subjects in
+    the project's usual order (numeric first, pilots last) with the date each
+    bundle was built.
+    """
+    root = Path(root)
+    rows = []
+    for d in sorted(root.glob("sub-*")):
+        idx = d / "index.html"
+        if not idx.exists():
+            continue
+        label = d.name.removeprefix("sub-")
+        built = datetime.fromtimestamp(idx.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+        rows.append((label, d.name, built, size / 1e6))
+
+    rows.sort(key=lambda r: (0, int(r[0])) if r[0].isdigit() else (1, 0))
+
+    items = "\n".join(
+        f'      <li><a href="{name}/index.html">sub-{label}</a>'
+        f'<span>{built} &middot; {mb:.0f} MB</span></li>'
+        for label, name, built, mb in rows)
+    html = f"""<!doctype html>
+<meta charset="utf-8">
+<title>aPRF surface maps</title>
+<style>
+  body {{ font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 3rem auto;
+         max-width: 40rem; color: #222; }}
+  h1 {{ font-size: 1.25rem; font-weight: 600; }}
+  p.sub {{ color: #666; margin-top: -0.5rem; }}
+  ul {{ list-style: none; padding: 0; }}
+  li {{ display: flex; justify-content: space-between; align-items: baseline;
+        padding: 0.5rem 0; border-bottom: 1px solid #eee; }}
+  a {{ text-decoration: none; color: #1a5fb4; font-weight: 500; }}
+  a:hover {{ text-decoration: underline; }}
+  span {{ color: #888; font-size: 0.85em; font-variant-numeric: tabular-nums; }}
+</style>
+<h1>aPRF surface maps</h1>
+<p class="sub">{len(rows)} subject bundle(s), individual (fsnative) space.</p>
+<ul>
+{items}
+</ul>
+"""
+    (root / "index.html").write_text(html)
+    print(f"Wrote root index ({len(rows)} subjects) -> {root / 'index.html'}")
+    return root / "index.html"
+
+
 def serve_directory(directory, port):
     """Serve `directory` over HTTP until interrupted, and open a browser."""
     import functools
@@ -338,7 +405,9 @@ def main():
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("subject", help="Subject label without 'sub-', e.g. 29")
+    p.add_argument("subject", nargs="?", default=None,
+                   help="Subject label without 'sub-', e.g. 29. Omit when "
+                        "using --serve-all.")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     p.add_argument("--smoothed", action="store_true",
                    help="Load the _smoothed BOLD variant")
@@ -356,20 +425,41 @@ def main():
                         "'cvr2-null' (default): show a vertex only where "
                         "cvR²(aPRF) beats cvR²(aprf-null.cv) — the project's "
                         "per-voxel signal test. 'r2': legacy full-fit R² >= "
-                        "--r2-thr, which is neither cross-validated nor "
-                        "parameter-count-fair and lets overfit noise through.")
+                        "--r2-thr, which is not held-out and empirically ~8x "
+                        "stricter, hiding most modest-effect cortex.")
     p.add_argument("--static-png", default=None,
                    help="Write static flatmap PNGs to this directory instead "
                         "of launching the viewer")
     p.add_argument("--static-html", default=None,
-                   help="Write a self-contained webgl bundle to this directory "
-                        "(cortex.webgl.make_static) instead of launching the "
-                        "live viewer. Serve it with any static file server; "
-                        "--serve does that for you.")
+                   help="Explicit bundle destination, overriding the default "
+                        "<out-root>/sub-<subject>.")
     p.add_argument("--serve", type=int, nargs="?", const=8000, default=None,
                    help="After --static-html, serve that directory over HTTP "
                         "on this port (default 8000) and open a browser.")
+    p.add_argument("--out-root", default=str(DEFAULT_WEBGL_ROOT),
+                   help=f"Root holding one bundle per subject "
+                        f"(default {DEFAULT_WEBGL_ROOT}). A build with no "
+                        f"--static-html writes to <out-root>/sub-<subject>.")
+    p.add_argument("--live", action="store_true",
+                   help="Launch the in-process cortex.webgl viewer instead of "
+                        "writing a bundle. Dies when this process exits; the "
+                        "bundle does not.")
+    p.add_argument("--serve-all", type=int, nargs="?", const=8000, default=None,
+                   help="Serve every subject bundle under --out-root on this "
+                        "port (default 8000), behind a generated index. "
+                        "Takes no subject argument.")
     args = p.parse_args()
+
+    if args.serve_all is not None:
+        root = Path(args.out_root)
+        if not root.exists():
+            raise SystemExit(f"No bundle root at {root} — build a subject first.")
+        write_root_index(root)
+        serve_directory(root, args.serve_all)
+        return
+
+    if args.subject is None:
+        raise SystemExit("A subject is required unless --serve-all is given.")
 
     variants = ([False, True] if args.both_smoothing else [args.smoothed])
     ds, cbars = {}, []
@@ -391,9 +481,13 @@ def main():
         save_static(ds, cbars, args.static_png)
         return
 
-    if args.static_html:
-        out = write_static_html(ds, cbars, args.static_html, args.subject,
-                                args.cx_subject)
+    if not args.live:
+        # Default: write a bundle into <out-root>/sub-XX. It outlives this
+        # process, unlike cortex.webgl.show, whose server thread is a daemon
+        # and dies the moment the interpreter exits.
+        dest = args.static_html or (Path(args.out_root) / f"sub-{args.subject}")
+        out = write_static_html(ds, cbars, dest, args.subject, args.cx_subject)
+        write_root_index(out.parent)
         if args.serve is not None:
             serve_directory(out, args.serve)
         return
