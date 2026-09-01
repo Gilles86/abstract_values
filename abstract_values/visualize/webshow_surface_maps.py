@@ -39,6 +39,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import time
 from datetime import datetime
@@ -348,49 +349,132 @@ def _gradient_css(cmap, n=24):
 
 
 def inject_legend(index_html, names, cbars):
-    """Add a collapsible colorbar panel to a make_static page.
+    """Add a colorbar panel to a make_static page that follows the active map.
 
     blend_curvature bakes data and curvature into one RGB image, which is what
     makes these maps read well against the anatomy — but it leaves pycortex no
-    vmin/vmax/cmap to build a colorbar from, and its own swatch would be a
-    meaningless 0-255 ramp. Rather than give that up for Vertex2D's shader
-    blending, draw the legend ourselves from the ranges we already know, as
-    plain CSS gradients appended to the page.
+    vmin/vmax/cmap to build a colorbar from. So draw the legend ourselves from
+    the ranges we already hold, and show only the map currently on screen:
+    with both smoothing variants there are 16 of them, and a wall of scales is
+    no more use than none.
+
+    Tracking is done by wrapping ``mriview.Viewer.prototype.setData`` — the
+    single funnel every dataset switch goes through, whether it came from the
+    dropdown, a keypress or the URL. If that global is ever missing the panel
+    falls back to listing everything rather than showing nothing.
     """
     index_html = Path(index_html)
     html = index_html.read_text()
-    if "id=\"aprf-legend\"" in html:
+    if 'id="aprf-legend"' in html:
         return
-    rows = []
-    for name, (label, cmap, vmin, vmax) in zip(names, cbars):
-        rows.append(
-            f'<div class="cb"><div class="cb-name">{name}</div>'
-            f'<div class="cb-bar" style="background:{_gradient_css(cmap)}"></div>'
-            f'<div class="cb-lim"><span>{vmin:.3g}</span>'
-            f'<span>{label}</span><span>{vmax:.3g}</span></div></div>')
+    entries = {
+        name: {"cmap": _gradient_css(cmap), "label": label,
+               "vmin": f"{vmin:.3g}", "vmax": f"{vmax:.3g}"}
+        for name, (label, cmap, vmin, vmax) in zip(names, cbars)}
+
     panel = """
 <style>
 #aprf-legend { position: fixed; left: 12px; bottom: 12px; z-index: 10000;
-  font: 11px/1.35 -apple-system, system-ui, sans-serif; color: #eee;
+  font: 11px/1.4 -apple-system, system-ui, sans-serif; color: #eee;
   background: rgba(20,20,20,.88); border: 1px solid #444; border-radius: 6px;
-  padding: 6px 10px; max-height: 46vh; overflow-y: auto; max-width: 300px; }
-#aprf-legend summary { cursor: pointer; font-weight: 600; outline: none; }
-#aprf-legend .cb { margin: 7px 0 0; }
-#aprf-legend .cb-name { font-size: 10px; color: #bbb; margin-bottom: 2px; }
-#aprf-legend .cb-bar { height: 9px; border-radius: 2px; border: 1px solid #555; }
+  padding: 8px 10px; width: 250px; }
+#aprf-legend .cb-name { font-size: 10px; color: #cfcfcf; margin-bottom: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#aprf-legend .cb-bar { height: 10px; border-radius: 2px; border: 1px solid #555; }
 #aprf-legend .cb-lim { display: flex; justify-content: space-between;
-  font-size: 9px; color: #999; font-variant-numeric: tabular-nums; }
-#aprf-legend .cb-lim span:nth-child(2) { color: #ddd; }
+  font-size: 9px; color: #9a9a9a; font-variant-numeric: tabular-nums;
+  margin-top: 2px; }
+#aprf-legend .cb-lim b { color: #ddd; font-weight: 500; }
+#aprf-legend.all { max-height: 46vh; overflow-y: auto; }
+#aprf-legend.all .cb { margin-bottom: 8px; }
+#aprf-toggle { float: right; cursor: pointer; color: #888; font-size: 10px;
+  border: 1px solid #555; border-radius: 3px; padding: 0 4px; }
 </style>
-<details id="aprf-legend" open><summary>Colour scales</summary>
-""" + "\n".join(rows) + """
-</details>
+<div id="aprf-legend"><span id="aprf-toggle">all</span><div id="aprf-body"></div></div>
+<script>
+(function () {
+  var CB = __ENTRIES__;
+  var showAll = false, current = null;
+  function row(name, e) {
+    return '<div class="cb"><div class="cb-name">' + name + '</div>' +
+           '<div class="cb-bar" style="background:' + e.cmap + '"></div>' +
+           '<div class="cb-lim"><span>' + e.vmin + '</span><b>' + e.label +
+           '</b><span>' + e.vmax + '</span></div></div>';
+  }
+  function render() {
+    var body = document.getElementById('aprf-body');
+    var panel = document.getElementById('aprf-legend');
+    if (!body) return;
+    if (showAll) {
+      panel.className = 'all';
+      body.innerHTML = Object.keys(CB).map(function (k) { return row(k, CB[k]); }).join('');
+    } else {
+      panel.className = '';
+      var k = (current && CB[current]) ? current : Object.keys(CB)[0];
+      body.innerHTML = CB[k] ? row(k, CB[k])
+        : '<div class="cb-name">No map selected</div>';
+    }
+  }
+  function setCurrent(name) {
+    if (name instanceof Array) name = name[0];
+    current = name;
+    if (!showAll) render();
+  }
+  // pycortex selects the first dataset during load, which happens before the
+  // hook below is installed — so read the active view directly rather than
+  // showing nothing until the user switches. `figure` is an implicit global
+  // (assigned without var in the generated page).
+  function probe() {
+    try {
+      var roots = [typeof figure !== 'undefined' ? figure : null];
+      for (var i = 0; i < roots.length; i++) {
+        var r = roots[i];
+        if (!r) continue;
+        if (r.active && r.active.name) return r.active.name;
+        for (var k in r) {
+          var c = r[k];
+          if (c && c.active && c.active.name) return c.active.name;
+        }
+      }
+    } catch (err) {}
+    return null;
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var t = document.getElementById('aprf-toggle');
+    if (t) t.onclick = function () { showAll = !showAll; t.textContent = showAll ? 'one' : 'all'; render(); };
+    render();
+  });
+  // Wrap the single funnel every dataset switch goes through.
+  var tries = 0;
+  var iv = setInterval(function () {
+    if (typeof mriview !== 'undefined' && mriview.Viewer && mriview.Viewer.prototype.setData) {
+      clearInterval(iv);
+      var orig = mriview.Viewer.prototype.setData;
+      mriview.Viewer.prototype.setData = function (name) {
+        var r = orig.apply(this, arguments);
+        try { setCurrent(this.active ? this.active.name : name); } catch (err) { setCurrent(name); }
+        return r;
+      };
+      var found = probe();
+      if (found) setCurrent(found);
+    } else if (++tries > 100) {   // ~10 s; viewer never appeared
+      clearInterval(iv);
+      showAll = true;
+      var t = document.getElementById('aprf-toggle');
+      if (t) t.textContent = 'one';
+      render();
+    }
+  }, 100);
+})();
+</script>
 """
+    panel = panel.replace("__ENTRIES__", json.dumps(entries))
     marker = "</body>"
     html = (html.replace(marker, panel + marker) if marker in html
             else html + panel)
     index_html.write_text(html)
-    print(f"  injected {len(rows)} colorbars into {index_html.name}")
+    print(f"  injected a tracking legend for {len(entries)} maps "
+          f"into {index_html.name}")
 
 
 def save_colorbar_pdf(cbars, out_path):
