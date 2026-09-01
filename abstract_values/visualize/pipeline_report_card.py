@@ -41,10 +41,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import nibabel as nib
 import numpy as np
 import pandas as pd
+from nilearn import image as nimage
 
 from abstract_values.utils.data import BIDS_FOLDER, Subject
+from abstract_values.visualize.compare_cvr2_models import _resample_mask
 
 mpl.rcParams.update({
     "font.family": "Helvetica",
@@ -78,21 +81,26 @@ def discover_subjects(bids_folder: Path) -> list[str]:
     return sorted(subs, key=lambda s: (0 if s[0].isdigit() else 1, s))
 
 
-def _mask_bool(sub: Subject, roi: str, hemi: str | None) -> np.ndarray | None:
+def _load_img(path: Path):
+    """Load a derivative NIfTI as a 3D image, or None if it is not there."""
+    if not path.exists():
+        return None
+    img = nib.load(str(path))
+    return nimage.index_img(img, 0) if img.ndim == 4 else img
+
+
+def _mask_bool(sub: Subject, roi: str, hemi: str | None, ref_img):
+    """ROI mask on the reference image's grid.
+
+    The masks are written at T1w anatomical resolution (1 mm) while every
+    functional derivative sits on the 2.5x2.5x3 mm BOLD grid, so this always
+    needs the nearest-neighbour resample.
+    """
     try:
         m = sub.get_roi_mask(roi, hemi=hemi)
     except FileNotFoundError:
         return None
-    return np.asarray(m.get_fdata()) > 0
-
-
-def _load_vol(path: Path) -> np.ndarray | None:
-    if not path.exists():
-        return None
-    import nibabel as nib
-    img = nib.load(str(path))
-    data = np.asarray(img.dataobj)
-    return data[..., 0] if data.ndim == 4 else data
+    return _resample_mask(m, ref_img)
 
 
 def motion_row(sub: Subject) -> dict:
@@ -122,17 +130,18 @@ def motion_row(sub: Subject) -> dict:
 
 def glmsingle_row(sub: Subject) -> dict:
     """Median GLMsingle type-D R² (already in percent) inside two ROIs."""
-    r2 = _load_vol(sub.bids_folder / "derivatives" / "glmsingle" /
-                   f"sub-{sub.subject_id}" / "func" /
-                   f"sub-{sub.subject_id}_task-abstractvalue_"
-                   f"space-T1w_desc-R2_pe.nii.gz")
+    r2_img = _load_img(sub.bids_folder / "derivatives" / "glmsingle" /
+                       f"sub-{sub.subject_id}" / "func" /
+                       f"sub-{sub.subject_id}_task-abstractvalue_"
+                       f"space-T1w_desc-R2_pe.nii.gz")
     out = {"glm_r2_npcr": np.nan, "glm_r2_v1": np.nan}
-    if r2 is None:
+    if r2_img is None:
         return out
+    r2 = np.asarray(r2_img.get_fdata())
     for key, roi, hemi in [("glm_r2_npcr", "NPCr", None),
                            ("glm_r2_v1", "BensonV1", "LR")]:
-        m = _mask_bool(sub, roi, hemi)
-        if m is None or m.shape != r2.shape:
+        m = _mask_bool(sub, roi, hemi, r2_img)
+        if m is None:
             continue
         vals = r2[m]
         vals = vals[np.isfinite(vals)]
@@ -146,17 +155,19 @@ def cvr2_row(sub: Subject, model: str = "aprf.cv",
     """% of NPCr voxels where the aPRF's cvR² beats the null model's, and the
     median margin. Volumetric (T1w) so it stays in register with the ROI mask."""
     def cv(mdl):
-        return _load_vol(sub.bids_folder / "derivatives" / "encoding_models" /
+        return _load_img(sub.bids_folder / "derivatives" / "encoding_models" /
                          mdl / f"sub-{sub.subject_id}" / "func" /
                          f"sub-{sub.subject_id}_task-abstractvalue_"
                          f"space-T1w_desc-cvr2_pe.nii.gz")
 
     out = {"cvr2_win_npcr": np.nan, "cvr2_delta_npcr": np.nan}
-    a, n = cv(model), cv(null_model)
-    m = _mask_bool(sub, "NPCr", None)
-    if a is None or n is None or m is None or a.shape != m.shape:
+    a_img, n_img = cv(model), cv(null_model)
+    if a_img is None or n_img is None:
         return out
-    delta = a[m] - n[m]
+    m = _mask_bool(sub, "NPCr", None, a_img)
+    if m is None:
+        return out
+    delta = np.asarray(a_img.get_fdata())[m] - np.asarray(n_img.get_fdata())[m]
     delta = delta[np.isfinite(delta)]
     if delta.size:
         out["cvr2_win_npcr"] = float(100.0 * (delta > 0).mean())
