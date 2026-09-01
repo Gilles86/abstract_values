@@ -374,21 +374,27 @@ def inject_legend(index_html, names, cbars):
 
     panel = """
 <style>
-#aprf-legend { position: fixed; left: 12px; bottom: 12px; z-index: 10000;
-  font: 11px/1.4 -apple-system, system-ui, sans-serif; color: #eee;
-  background: rgba(20,20,20,.88); border: 1px solid #444; border-radius: 6px;
-  padding: 8px 10px; width: 250px; }
-#aprf-legend .cb-name { font-size: 10px; color: #cfcfcf; margin-bottom: 4px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#aprf-legend .cb-bar { height: 10px; border-radius: 2px; border: 1px solid #555; }
+#aprf-legend { position: fixed; left: 20px; bottom: 20px; z-index: 10000;
+  font: 16px/1.45 -apple-system, system-ui, sans-serif; color: #f2f2f2;
+  background: rgba(18,18,18,.92); border: 1px solid #4a4a4a; border-radius: 10px;
+  padding: 16px 20px 18px; width: 30vw; min-width: 380px; max-width: 620px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+#aprf-legend .cb-name { font-size: 17px; font-weight: 600; color: #fff;
+  margin-bottom: 10px; line-height: 1.25; }
+#aprf-legend .cb-bar { height: 30px; border-radius: 4px; border: 1px solid #666; }
 #aprf-legend .cb-lim { display: flex; justify-content: space-between;
-  font-size: 9px; color: #9a9a9a; font-variant-numeric: tabular-nums;
-  margin-top: 2px; }
-#aprf-legend .cb-lim b { color: #ddd; font-weight: 500; }
-#aprf-legend.all { max-height: 46vh; overflow-y: auto; }
-#aprf-legend.all .cb { margin-bottom: 8px; }
-#aprf-toggle { float: right; cursor: pointer; color: #888; font-size: 10px;
-  border: 1px solid #555; border-radius: 3px; padding: 0 4px; }
+  align-items: baseline; font-size: 14px; color: #b6b6b6;
+  font-variant-numeric: tabular-nums; margin-top: 7px; gap: 14px; }
+#aprf-legend .cb-lim b { color: #f2f2f2; font-weight: 500; font-size: 13px;
+  text-align: center; }
+#aprf-legend.all { max-height: 72vh; overflow-y: auto; }
+#aprf-legend.all .cb { margin-bottom: 18px; }
+#aprf-legend.all .cb-name { font-size: 14px; margin-bottom: 6px; }
+#aprf-legend.all .cb-bar { height: 20px; }
+#aprf-toggle { float: right; cursor: pointer; color: #cfcfcf; font-size: 13px;
+  border: 1px solid #666; border-radius: 5px; padding: 3px 10px;
+  margin: -4px -6px 0 10px; user-select: none; }
+#aprf-toggle:hover { color: #fff; border-color: #999; background: rgba(255,255,255,.08); }
 </style>
 <div id="aprf-legend"><span id="aprf-toggle">all</span><div id="aprf-body"></div></div>
 <script>
