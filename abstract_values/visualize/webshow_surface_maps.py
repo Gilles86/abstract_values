@@ -175,6 +175,33 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
     return ds, cbars
 
 
+def drop_duplicate_datasets(ds, cbars):
+    """Remove datasets whose blended RGB is bit-identical to an earlier one.
+
+    Pycortex keys datasets inside ``Package`` by a content hash of the RGB
+    array, but ``Package.reorder()`` is not dedup-aware: it reprocesses the
+    shared slot twice and the second pass hits already-serialised bytes,
+    dying with ``TypeError: byte indices must be integers or slices, not
+    tuple`` — an error that says nothing about the real cause. Duplicates are
+    always a bug upstream (an all-NaN alpha, or two descs pointing at the
+    same source volume), so warn loudly rather than dropping silently.
+    """
+    seen, keep_ds, keep_cbars = {}, {}, []
+    for (name, vtx), cbar in zip(ds.items(), cbars):
+        arr = np.stack([vtx.red.data, vtx.green.data,
+                        vtx.blue.data]).astype(np.uint8)
+        key = hash(arr.tobytes())
+        if key in seen:
+            print(f"  WARNING: {name} is bit-identical to {seen[key]} — "
+                  f"dropping it (pycortex cannot pack duplicates). "
+                  f"Check the source files for these two descs.")
+            continue
+        seen[key] = name
+        keep_ds[name] = vtx
+        keep_cbars.append(cbar)
+    return keep_ds, keep_cbars
+
+
 def save_colorbar_pdf(cbars, out_path):
     fig, axes = plt.subplots(len(cbars), 1, figsize=(5, 1.15 * len(cbars)))
     axes = np.atleast_1d(axes)
@@ -209,6 +236,68 @@ def save_static(ds, cbars, out_dir):
     save_colorbar_pdf(cbars, out_dir / "colorbars.pdf")
 
 
+def has_flatmap(cx_subject):
+    """True if the pycortex subject has flat surfaces.
+
+    A subject imported straight from FreeSurfer has none — flat maps need
+    either manual Freeview cuts or an autoflatten run — and asking the
+    viewer for a 'flat' type it does not have makes it fail at load.
+    """
+    try:
+        cortex.db.get_surf(cx_subject, "flat", merge=True, nudge=True)
+        return True
+    except Exception:
+        return False
+
+
+def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
+    """Write a self-contained webgl bundle servable by any static file server.
+
+    Unlike ``cortex.webgl.show``, nothing here depends on a live Python
+    process: the output is plain HTML/JS/binary that survives the script
+    exiting, can be rsynced elsewhere, and can be reopened later without
+    rebuilding the datasets.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cx_subject = cx_subject or f"abstractvalue.sub-{subject}"
+
+    types = ("inflated",)
+    if has_flatmap(cx_subject):
+        types = ("flat", "inflated")
+    else:
+        print(f"  note: {cx_subject} has no flat surfaces — inflated only "
+              f"(run autoflatten + cortex.freesurfer.import_flat to add them)")
+
+    print(f"Building static webgl bundle in {out_dir} ...")
+    cortex.webgl.make_static(str(out_dir), ds, types=types,
+                             title=f"sub-{subject} aPRF surface maps",
+                             recache=False)
+    save_colorbar_pdf(cbars, out_dir / "colorbars.pdf")
+    print(f"Wrote static bundle → {out_dir / 'index.html'}")
+    return out_dir
+
+
+def serve_directory(directory, port):
+    """Serve `directory` over HTTP until interrupted, and open a browser."""
+    import functools
+    import http.server
+    import socketserver
+
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler,
+                                directory=str(directory))
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
+        url = f"http://localhost:{port}/index.html"
+        print(f"\n=== SERVING ===\nOpen this URL:  {url}\n"
+              f"Serving {directory}\n===============\n", flush=True)
+        subprocess.run(["open", url])
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nStopped.")
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -228,6 +317,14 @@ def main():
     p.add_argument("--static-png", default=None,
                    help="Write static flatmap PNGs to this directory instead "
                         "of launching the viewer")
+    p.add_argument("--static-html", default=None,
+                   help="Write a self-contained webgl bundle to this directory "
+                        "(cortex.webgl.make_static) instead of launching the "
+                        "live viewer. Serve it with any static file server; "
+                        "--serve does that for you.")
+    p.add_argument("--serve", type=int, nargs="?", const=8000, default=None,
+                   help="After --static-html, serve that directory over HTTP "
+                        "on this port (default 8000) and open a browser.")
     args = p.parse_args()
 
     variants = ([False, True] if args.both_smoothing else [args.smoothed])
@@ -243,8 +340,17 @@ def main():
     if not ds:
         raise SystemExit("No surface data found — run sample_aprf_to_surface.py first.")
 
+    ds, cbars = drop_duplicate_datasets(ds, cbars)
+
     if args.static_png:
         save_static(ds, cbars, args.static_png)
+        return
+
+    if args.static_html:
+        out = write_static_html(ds, cbars, args.static_html, args.subject,
+                                args.cx_subject)
+        if args.serve is not None:
+            serve_directory(out, args.serve)
         return
 
     # cortex.webgl.show()'s server thread is daemon=True and dies the moment
