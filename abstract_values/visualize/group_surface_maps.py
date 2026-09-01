@@ -47,8 +47,8 @@ import numpy as np
 
 from abstract_values.utils.data import BIDS_FOLDER
 from abstract_values.visualize.webshow_surface_maps import (
-    DEFAULT_WEBGL_ROOT, blended, live, save_colorbar_pdf, serve_directory,
-    write_root_index)
+    DEFAULT_WEBGL_ROOT, blended, inject_legend, live, save_colorbar_pdf,
+    serve_directory, write_root_index)
 
 mpl.rcParams.update({
     "font.family": "Helvetica",
@@ -121,7 +121,7 @@ def mean_map(deriv, subjects, model, desc, smoothed=False):
 # ── group webgl bundle ───────────────────────────────────────────────────────
 
 def build_group_datasets(deriv, subjects, smoothed_variants=(False, True),
-                         min_count=None, colorbars="live"):
+                         min_count=None, colorbars="baked"):
     ds, cbars = {}, []
 
     def make(values, alpha, vmin, vmax, cmap):
@@ -252,10 +252,10 @@ def main():
     p.add_argument("--smoothed", action="store_true",
                    help="Contact sheet: use the smoothed variant")
     p.add_argument("--ncol", type=int, default=6)
-    p.add_argument("--colorbars", default="live", choices=["live", "baked"],
-                   help="'live' (default): Vertex2D, so the viewer shows a "
-                        "real colorbar and the sliders work. 'baked': "
-                        "pre-blended onto curvature.")
+    p.add_argument("--colorbars", default="baked", choices=["baked", "live"],
+                   help="'baked' (default): blend_curvature plus an injected "
+                        "legend panel. 'live': Vertex2D with pycortex's own "
+                        "colorbar, but washed-out shader blending.")
     args = p.parse_args()
 
     deriv = Path(args.bids_folder) / "derivatives"
@@ -284,6 +284,7 @@ def main():
                                  curvature_contrast=0.28,
                                  curvature_smoothness=2.0)
         save_colorbar_pdf(cbars, dest / "colorbars.pdf")
+        inject_legend(dest / "index.html", list(ds.keys()), cbars)
         write_root_index(dest.parent)
         print(f"Wrote group bundle → {dest / 'index.html'}")
         if args.serve is not None:

@@ -183,7 +183,7 @@ def blended(values, alpha, cx_subject, vmin, vmax, cmap):
 def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
                    cx_subject=None, r2_thr=0.05, r2_sigma=0.01,
                    cv_sigma=0.01, alpha_source="cvr2-null",
-                   colorbars="live"):
+                   colorbars="baked"):
     """Returns (datasets dict, colorbar specs list)."""
     deriv = Path(bids_folder) / "derivatives"
     cx_subject = cx_subject or f"abstractvalue.sub-{subject}"
@@ -338,6 +338,61 @@ def drop_duplicate_datasets(ds, cbars):
     return keep_ds, keep_cbars
 
 
+def _gradient_css(cmap, n=24):
+    """CSS linear-gradient approximating a matplotlib colormap."""
+    import matplotlib.pyplot as _plt
+    cols = _plt.get_cmap(cmap)(np.linspace(0, 1, n))[:, :3]
+    stops = ", ".join(
+        "rgb(%d,%d,%d)" % tuple(int(round(255 * c)) for c in row) for row in cols)
+    return f"linear-gradient(to right, {stops})"
+
+
+def inject_legend(index_html, names, cbars):
+    """Add a collapsible colorbar panel to a make_static page.
+
+    blend_curvature bakes data and curvature into one RGB image, which is what
+    makes these maps read well against the anatomy — but it leaves pycortex no
+    vmin/vmax/cmap to build a colorbar from, and its own swatch would be a
+    meaningless 0-255 ramp. Rather than give that up for Vertex2D's shader
+    blending, draw the legend ourselves from the ranges we already know, as
+    plain CSS gradients appended to the page.
+    """
+    index_html = Path(index_html)
+    html = index_html.read_text()
+    if "id=\"aprf-legend\"" in html:
+        return
+    rows = []
+    for name, (label, cmap, vmin, vmax) in zip(names, cbars):
+        rows.append(
+            f'<div class="cb"><div class="cb-name">{name}</div>'
+            f'<div class="cb-bar" style="background:{_gradient_css(cmap)}"></div>'
+            f'<div class="cb-lim"><span>{vmin:.3g}</span>'
+            f'<span>{label}</span><span>{vmax:.3g}</span></div></div>')
+    panel = """
+<style>
+#aprf-legend { position: fixed; left: 12px; bottom: 12px; z-index: 10000;
+  font: 11px/1.35 -apple-system, system-ui, sans-serif; color: #eee;
+  background: rgba(20,20,20,.88); border: 1px solid #444; border-radius: 6px;
+  padding: 6px 10px; max-height: 46vh; overflow-y: auto; max-width: 300px; }
+#aprf-legend summary { cursor: pointer; font-weight: 600; outline: none; }
+#aprf-legend .cb { margin: 7px 0 0; }
+#aprf-legend .cb-name { font-size: 10px; color: #bbb; margin-bottom: 2px; }
+#aprf-legend .cb-bar { height: 9px; border-radius: 2px; border: 1px solid #555; }
+#aprf-legend .cb-lim { display: flex; justify-content: space-between;
+  font-size: 9px; color: #999; font-variant-numeric: tabular-nums; }
+#aprf-legend .cb-lim span:nth-child(2) { color: #ddd; }
+</style>
+<details id="aprf-legend" open><summary>Colour scales</summary>
+""" + "\n".join(rows) + """
+</details>
+"""
+    marker = "</body>"
+    html = (html.replace(marker, panel + marker) if marker in html
+            else html + panel)
+    index_html.write_text(html)
+    print(f"  injected {len(rows)} colorbars into {index_html.name}")
+
+
 def save_colorbar_pdf(cbars, out_path):
     fig, axes = plt.subplots(len(cbars), 1, figsize=(5, 1.15 * len(cbars)))
     axes = np.atleast_1d(axes)
@@ -427,6 +482,7 @@ def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
                              curvature_contrast=0.28,
                              curvature_smoothness=2.0)
     save_colorbar_pdf(cbars, out_dir / "colorbars.pdf")
+    inject_legend(out_dir / "index.html", list(ds.keys()), cbars)
     print(f"Wrote static bundle → {out_dir / 'index.html'}")
     return out_dir
 
@@ -523,13 +579,14 @@ def main():
                    help="R² alpha threshold, fraction scale (default 0.05)")
     p.add_argument("--r2-sigma", type=float, default=0.01,
                    help="Gaussian-CDF width of the R² alpha ramp")
-    p.add_argument("--colorbars", default="live", choices=["live", "baked"],
-                   help="'live' (default): Vertex2D against a 2D *_alpha "
-                        "colormap, so the viewer shows a real colorbar and "
-                        "the vmin/vmax sliders work. 'baked': pre-blend onto "
-                        "curvature (blend_curvature) — crisper against the "
-                        "anatomy, but the viewer can only draw a meaningless "
-                        "0-255 swatch, so the ranges live in colorbars.pdf.")
+    p.add_argument("--colorbars", default="baked", choices=["baked", "live"],
+                   help="'baked' (default): blend_curvature, which composites "
+                        "data onto curvature in Python and reads far better "
+                        "against the anatomy. Its ranges are drawn as an "
+                        "injected legend panel and written to colorbars.pdf. "
+                        "'live': Vertex2D against a 2D *_alpha colormap — "
+                        "gives pycortex's own colorbar and working sliders, "
+                        "but the shader-side alpha blending looks washed out.")
     p.add_argument("--alpha-source", default="cvr2-null",
                    choices=["cvr2-null", "r2"],
                    help="What masks the parameter maps (mode/fwhm/amplitude). "
