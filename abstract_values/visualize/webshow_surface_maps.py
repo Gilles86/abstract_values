@@ -96,7 +96,7 @@ def blended(values, alpha, cx_subject, vmin, vmax, cmap):
 
 def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
                    cx_subject=None, r2_thr=0.05, r2_sigma=0.01,
-                   cv_sigma=0.01):
+                   cv_sigma=0.01, alpha_source="cvr2-null"):
     """Returns (datasets dict, colorbar specs list)."""
     deriv = Path(bids_folder) / "derivatives"
     cx_subject = cx_subject or f"abstractvalue.sub-{subject}"
@@ -119,23 +119,52 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
     r2 = L("aprf", "r2")
     alpha_r2 = r2_alpha(r2, r2_thr, r2_sigma) if r2 is not None else None
 
+    cv = L("aprf.cv", "cvr2")
+    null = L("aprf-null.cv", "cvr2")
+    lin = L("aprf-linear.cv", "cvr2")
+
+    # Which mask decides "there is value signal in this vertex".
+    #
+    # Full-fit R² is not held-out, so its absolute scale does not mean what a
+    # fixed cut like 0.05 implies, and the cut is arbitrary besides. The
+    # project's per-voxel test is cvR²(model) > cvR²(null): held-out, and fair
+    # across models with different parameter counts.
+    #
+    # Empirically on sub-29 the two are nested rather than in conflict —
+    # R² >= 0.05 keeps 1.7% of vertices (5.0% smoothed) and is almost a strict
+    # subset of the 14.2% (25.5%) that beat the null. So the R² cut was not
+    # letting overfit vertices through so much as hiding ~8x more real,
+    # modest-effect cortex than it showed.
+    if alpha_source == "cvr2-null" and cv is not None and null is not None:
+        alpha_signal = r2_alpha(cv - null, 0.0, cv_sigma)
+        print("  alpha: cvR²(aPRF) > cvR²(aprf-null.cv)")
+    elif alpha_source == "cvr2-null":
+        alpha_signal = alpha_r2
+        print("  WARNING: alpha falls back to full-fit R² — aprf.cv / "
+              "aprf-null.cv fsnative surfaces missing. Parameter maps will "
+              "show overfit vertices.")
+    else:
+        alpha_signal = alpha_r2
+        print(f"  alpha: full-fit R² >= {r2_thr}")
+
     mode = L("aprf", "mode")
-    if mode is not None and alpha_r2 is not None:
+    if mode is not None and alpha_signal is not None:
         # Modes pinned at the edge of the fitted range are unidentified, not
         # a real preference — drop them rather than paint the cortex red.
         in_range = ((mode >= MODE_VMIN) & (mode <= MODE_VMAX)).astype(np.float32)
-        add("mode", mode, alpha_r2 * in_range, MODE_VMIN, MODE_VMAX,
+        add("mode", mode, alpha_signal * in_range, MODE_VMIN, MODE_VMAX,
             "nipy_spectral", "Preferred value (CHF)")
 
     fwhm = L("aprf", "fwhm")
-    if fwhm is not None and alpha_r2 is not None:
-        add("fwhm", fwhm, alpha_r2, 0.0, MODE_VMAX - MODE_VMIN,
+    if fwhm is not None and alpha_signal is not None:
+        add("fwhm", fwhm, alpha_signal, 0.0, MODE_VMAX - MODE_VMIN,
             "viridis", "Tuning FWHM (CHF)")
 
     amp = L("aprf", "amplitude")
-    if amp is not None and alpha_r2 is not None:
+    if amp is not None and alpha_signal is not None:
         lim = float(np.nanpercentile(np.abs(amp), 99)) or 1.0
-        add("amplitude", amp, alpha_r2, -lim, lim, "RdBu_r", "Amplitude (a.u.)")
+        add("amplitude", amp, alpha_signal, -lim, lim, "RdBu_r",
+            "Amplitude (a.u.)")
 
     if r2 is not None:
         vmax = float(np.nanpercentile(r2[r2 > 0], 99.9)) if (r2 > 0).any() else 0.3
@@ -149,10 +178,6 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
             r2_thr, vmax, "hot", "Gabor (von Mises) R²")
 
     # ── cross-validated maps ────────────────────────────────────────────────
-    cv = L("aprf.cv", "cvr2")
-    null = L("aprf-null.cv", "cvr2")
-    lin = L("aprf-linear.cv", "cvr2")
-
     if cv is not None:
         lim = float(np.nanpercentile(np.abs(cv), 99)) or 0.05
         add("aprf_cvr2", cv, r2_alpha(cv, 0.0, cv_sigma), -lim, lim,
@@ -325,6 +350,14 @@ def main():
                    help="R² alpha threshold, fraction scale (default 0.05)")
     p.add_argument("--r2-sigma", type=float, default=0.01,
                    help="Gaussian-CDF width of the R² alpha ramp")
+    p.add_argument("--alpha-source", default="cvr2-null",
+                   choices=["cvr2-null", "r2"],
+                   help="What masks the parameter maps (mode/fwhm/amplitude). "
+                        "'cvr2-null' (default): show a vertex only where "
+                        "cvR²(aPRF) beats cvR²(aprf-null.cv) — the project's "
+                        "per-voxel signal test. 'r2': legacy full-fit R² >= "
+                        "--r2-thr, which is neither cross-validated nor "
+                        "parameter-count-fair and lets overfit noise through.")
     p.add_argument("--static-png", default=None,
                    help="Write static flatmap PNGs to this directory instead "
                         "of launching the viewer")
@@ -344,7 +377,8 @@ def main():
         print(f"sub-{args.subject}  smoothed={sm}")
         d, c = build_datasets(args.subject, args.bids_folder, smoothed=sm,
                               cx_subject=args.cx_subject,
-                              r2_thr=args.r2_thr, r2_sigma=args.r2_sigma)
+                              r2_thr=args.r2_thr, r2_sigma=args.r2_sigma,
+                              alpha_source=args.alpha_source)
         ds.update(d)
         cbars.extend(c)
 
