@@ -156,6 +156,24 @@ def live(values, alpha, cx_subject, vmin, vmax, cmap, vmin2=0.0, vmax2=1.0,
                            cmap=ensure_alpha_cmap(cmap))
 
 
+def signal_alpha(delta, pct=95.0):
+    """Opacity for a "beats the null" map: gate on sign, scale by magnitude.
+
+    A pure ``delta > 0`` gate makes a vertex that beats its null by 1e-6 as
+    loud as one that beats it by 0.15, which is what turns these maps into
+    confetti. The sign is still the test — nothing negative is ever shown —
+    but opacity then ramps linearly to a robust high percentile of the
+    positive margins, so the eye is drawn to effect size instead of to the
+    sheer number of vertices that scraped past zero.
+    """
+    delta = np.nan_to_num(delta, nan=-np.inf)
+    pos = delta[delta > 0]
+    if pos.size == 0:
+        return np.zeros_like(delta, dtype=np.float32)
+    scale = float(np.percentile(pos, pct)) or float(pos.max())
+    return np.clip(delta / max(scale, 1e-9), 0.0, 1.0).astype(np.float32)
+
+
 def blended(values, alpha, cx_subject, vmin, vmax, cmap):
     v = cortex.Vertex(np.nan_to_num(values).astype(np.float32), cx_subject,
                       vmin=vmin, vmax=vmax, cmap=cmap)
@@ -209,8 +227,8 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
     # letting overfit vertices through so much as hiding ~8x more real,
     # modest-effect cortex than it showed.
     if alpha_source == "cvr2-null" and cv is not None and null is not None:
-        alpha_signal = r2_alpha(cv - null, 0.0, cv_sigma)
-        print("  alpha: cvR²(aPRF) > cvR²(aprf-null.cv)")
+        alpha_signal = signal_alpha(cv - null)
+        print("  alpha: cvR²(aPRF) > cvR²(aprf-null.cv), opacity ∝ margin")
     elif alpha_source == "cvr2-null":
         alpha_signal = alpha_r2
         print("  WARNING: alpha falls back to full-fit R² — aprf.cv / "
@@ -226,7 +244,7 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
         # a real preference — drop them rather than paint the cortex red.
         in_range = ((mode >= MODE_VMIN) & (mode <= MODE_VMAX)).astype(np.float32)
         add("mode", mode, alpha_signal * in_range, MODE_VMIN, MODE_VMAX,
-            "nipy_spectral", "Preferred value CHF")
+            "turbo", "Preferred value CHF")
 
     fwhm = L("aprf", "fwhm")
     if fwhm is not None and alpha_signal is not None:
@@ -251,23 +269,39 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
             r2_thr, vmax, "hot", "Orientation von Mises R2")
 
     # ── cross-validated maps ────────────────────────────────────────────────
+    # These two are one-sided in practice: negative cvR2 just means "no signal
+    # here", so the alpha gate hides it. Painting that with a diverging
+    # colormap advertises a blue half that never appears — use a sequential
+    # ramp anchored at 0 and say what is actually shown.
     if cv is not None:
-        lim = float(np.nanpercentile(np.abs(cv), 99)) or 0.05
-        add("aprf_cvr2", cv, r2_alpha(cv, 0.0, cv_sigma), -lim, lim,
-            "RdBu_r", "aPRF cross-validated cvR2")
+        vmax = float(np.nanpercentile(cv[cv > 0], 99)) if (cv > 0).any() else 0.05
+        add("aprf_cvr2", cv, signal_alpha(cv), 0.0, vmax, "hot",
+            "aPRF cross-validated cvR2")
 
     if cv is not None and null is not None:
         delta = cv - null
-        lim = float(np.nanpercentile(np.abs(delta), 99)) or 0.05
-        add("aprf_vs_null", delta, r2_alpha(delta, 0.0, cv_sigma), -lim, lim,
-            "RdBu_r", "Signal cvR2 aPRF minus null")
+        vmax = (float(np.nanpercentile(delta[delta > 0], 99))
+                if (delta > 0).any() else 0.05)
+        add("aprf_vs_null", delta, signal_alpha(delta), 0.0, vmax, "hot",
+            "Signal cvR2 aPRF minus null")
     elif cv is not None:
         print("  skip aprf_vs_null: aprf-null.cv has no fsnative surface")
 
+    # This one is genuinely two-sided — positive means a monotonic ramp in
+    # value beats a tuned bump, negative the reverse — so it keeps a diverging
+    # map, with opacity on the magnitude of the difference either way.
     if cv is not None and lin is not None:
         delta = lin - cv
         lim = float(np.nanpercentile(np.abs(delta), 99)) or 0.05
-        add("linear_vs_aprf", delta, r2_alpha(np.abs(delta), 0.0, cv_sigma),
+        # Gate on there being value signal at all before asking which shape
+        # fits it better. |linear - aPRF| is non-zero essentially everywhere,
+        # so without the gate the whole cortex lights up with a comparison
+        # between two models that both explain nothing at that vertex.
+        if null is not None:
+            gate = (np.nan_to_num(cv - null, nan=-np.inf) > 0).astype(np.float32)
+        else:
+            gate = (np.nan_to_num(cv, nan=-np.inf) > 0).astype(np.float32)
+        add("linear_vs_aprf", delta, gate * signal_alpha(np.abs(delta)),
             -lim, lim, "PuOr_r", "Ramp vs bump cvR2 linear minus aPRF")
 
     return ds, cbars
@@ -383,9 +417,15 @@ def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
               f"(run autoflatten + cortex.freesurfer.import_flat to add them)")
 
     print(f"Building static webgl bundle in {out_dir} ...")
+    # Default curvature is near-binary dark/light grey, which fights the data
+    # for attention. Flatten it into a soft background: lower contrast, a
+    # little smoothing so the gyral/sulcal pattern still orients you.
     cortex.webgl.make_static(str(out_dir), ds, types=types,
                              title=f"sub-{subject} aPRF surface maps",
-                             recache=False)
+                             recache=False,
+                             curvature_brightness=0.62,
+                             curvature_contrast=0.28,
+                             curvature_smoothness=2.0)
     save_colorbar_pdf(cbars, out_dir / "colorbars.pdf")
     print(f"Wrote static bundle → {out_dir / 'index.html'}")
     return out_dir

@@ -279,7 +279,10 @@ def main():
         print(f"\nBuilding group bundle in {dest} ...")
         cortex.webgl.make_static(str(dest), ds, types=("inflated",),
                                  title=f"Group aPRF maps (n={len(subjects)})",
-                                 recache=False)
+                                 recache=False,
+                                 curvature_brightness=0.62,
+                                 curvature_contrast=0.28,
+                                 curvature_smoothness=2.0)
         save_colorbar_pdf(cbars, dest / "colorbars.pdf")
         write_root_index(dest.parent)
         print(f"Wrote group bundle → {dest / 'index.html'}")
