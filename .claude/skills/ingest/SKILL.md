@@ -32,6 +32,7 @@ Parse the user's arguments:
 ```
 NETWORK_MRI="/Volumes/g_econ_department$/projects/2026/dehollander_bedi_ruff_abstract_values/data/sourcedata/mri"
 NETWORK_BEHAVIOR="/Volumes/g_econ_department$/projects/2026/dehollander_bedi_ruff_abstract_values/data/sourcedata/behavior"
+NETWORK_BIDS="/Volumes/g_econ_department$/projects/2026/dehollander_bedi_ruff_abstract_values/data"
 BIDS_ROOT="/data/ds-abstractvalue"
 CLUSTER="sciencecluster"
 CLUSTER_BIDS="/shares/zne.uzh/gdehol/ds-abstractvalue"
@@ -129,6 +130,26 @@ rsync -av "$BIDS_ROOT/sourcedata/behavior/sub-{subject}/" "$CLUSTER:$CLUSTER_BID
 
 Under `--scope behavior`: stop here without syncing to cluster.
 
+### Step 4b: Backup BIDS data to the department SMB share
+
+Only if any MRI was BIDS-converted this run (mirrors the cluster-sync condition in
+Step 4). The g_econ share's `sourcedata/` is already the master copy of raw MRI/behavior
+(that's where Step 1/2 pull from) — this step backs up the **converted BIDS** tree
+(`$BIDS_ROOT/sub-{subject}/`) alongside it, so the department archive holds essential
+data in both raw and BIDS form, independent of the cluster copy.
+
+Use openrsync-safe flags (macOS ships protocol-29 rsync; `-a` chokes on SMB ACLs) and
+retry on the mount's occasional mid-transfer drop (see the **data-archival** skill):
+```bash
+for i in 1 2 3; do
+  rsync -rt --modify-window=2 --partial "$BIDS_ROOT/sub-{subject}/" "$NETWORK_BIDS/sub-{subject}/" && break
+  sleep 5
+done
+```
+Serialize subjects (don't run multiple of these rsyncs concurrently against the SMB
+mount). This step is a backup, not a dependency for anything downstream — if the mount
+is flaky or off-VPN, warn and continue; don't block cluster submission on it.
+
 ### Step 5: Run the cluster pipeline (Snakemake driver)
 
 Skip when `--scope` is `behavior`/`behavior-cluster` or no MRI was processed.
@@ -140,8 +161,11 @@ The cluster side is **Snakemake**, not `ingest_new_session.sh` (legacy). The ful
 ROI masks are Snakemake rules now — no manual `create_roi_masks.py` step (the
 "Prerequisite check" below is obsolete for this path).
 
-**5a.** Add the subject to `snakemake/config.yaml` (`"{subject}"` under `subjects:`,
-`"{subject}": {n_sessions}` under `subject_sessions:`), commit, push.
+**5a.** Nothing to edit — subjects and session counts are auto-discovered from
+`{bids_folder}/sub-*/ses-*/func` at config-load (see Snakefile). Once Step 4's rsync has
+landed the subject's BIDS data on the cluster, the next driver run (or resume) picks it
+up automatically. (`subjects_include`/`subjects_exclude` in `config.yaml` exist only to
+override auto-discovery for debugging — not something to touch for a normal ingest.)
 
 **5b.** Decide whether to (re)submit the driver. **Only ever one driver per repo workdir**
 — `run_driver.sh` runs `snakemake --unlock` on startup, so a second driver rips the lock
@@ -177,9 +201,30 @@ upstream. Surface the error (`tail` the nbconvert traceback) but keep going.
 Don't worry about git noise: `.gitattributes` configures `nbstripout` so executed outputs
 are stripped on commit. Local working copy keeps outputs; collaborators see clean diffs.
 
+### Step 6b: Surface bundle (local, after the cluster pipeline finishes)
+
+Not part of the snakemake graph — the pycortex filestore and the flat maps live on
+the Mac, not the cluster, so this can only run locally and only once the encoding
+models are done. Mention it in the summary rather than running it during ingestion.
+
+```bash
+# first time for a subject: also submit the ~35 min flatten job
+bash abstract_values/prepare/build_surface_bundle.sh {subject} --flatten
+# re-run once autoflatten finishes to pick up the flatten view
+bash abstract_values/prepare/build_surface_bundle.sh {subject}
+```
+
+Each step is skipped when its output exists, so re-running is cheap. It writes
+`derivatives/qa/webgl/sub-{subject}/`; browse every processed subject with:
+
+```bash
+python -m abstract_values.visualize.webshow_surface_maps --serve-all
+```
+
 ### Step 7: Report summary
 
 Print a summary table of all submitted SLURM jobs with their IDs and dependencies.
+Remind the user that step 6b still has to be run locally once the cluster jobs finish.
 
 ## Prerequisite check
 

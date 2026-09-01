@@ -340,7 +340,7 @@ def write_root_index(root):
     """
     root = Path(root)
     rows = []
-    for d in sorted(root.glob("sub-*")):
+    for d in sorted(list(root.glob("sub-*")) + list(root.glob("group"))):
         idx = d / "index.html"
         if not idx.exists():
             continue
@@ -349,10 +349,13 @@ def write_root_index(root):
         size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
         rows.append((label, d.name, built, size / 1e6))
 
-    rows.sort(key=lambda r: (0, int(r[0])) if r[0].isdigit() else (1, 0))
+    # group first, then study subjects numerically, pilots last
+    rows.sort(key=lambda r: (-1, 0) if r[1] == "group"
+              else ((0, int(r[0])) if r[0].isdigit() else (1, 0)))
 
     items = "\n".join(
-        f'      <li><a href="{name}/index.html">sub-{label}</a>'
+        f'      <li><a href="{name}/index.html">'
+        f'{"Group (all subjects)" if name == "group" else f"sub-{label}"}</a>'
         f'<span>{built} &middot; {mb:.0f} MB</span></li>'
         for label, name, built, mb in rows)
     html = f"""<!doctype html>
