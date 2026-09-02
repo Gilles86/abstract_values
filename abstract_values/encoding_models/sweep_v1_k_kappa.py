@@ -390,19 +390,19 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
     print(f"  null model: mean cvR2(all V1)={float(null_cvr2.mean()):+.4f} "
           f"(predict train mean; the true 0-signal baseline)")
 
-    cv_cols = ["subject", "n_basis", "kappa", "n_v1", "n_sel", "mean_cvr2_sel",
+    cv_cols = ["subject", "n_basis", "kappa", "alpha", "n_v1", "n_sel", "mean_cvr2_sel",
                "median_cvr2_sel", "mean_cvr2_all", "frac_pos_sel"]
     if decode:
         cv_cols += ["decode_mean_abs_err_deg", "decode_median_abs_err_deg",
                     "decode_circ_sd_deg", "decode_circ_corr", "decode_mean_n_sel"]
     p_dec = out_dir / f"{base}_desc-decodetrials{smooth_label}.tsv"
-    hist_cols = ["subject", "n_basis", "kappa", "session", "condition",
+    hist_cols = ["subject", "n_basis", "kappa", "alpha", "session", "condition",
                  "orientation_deg", "count"]
     # per-voxel cvR2 over ALL V1 voxels (every config) -- lets the local
     # plotter define "signal voxels" (e.g. cvR2>0 in >=1 config) and compute
     # signal-restricted means, since most V1 voxels are untuned noise whose
     # negative cvR2 drags the all-voxel mean below zero.
-    vox_cols = ["subject", "n_basis", "kappa", "voxel", "cvr2"]
+    vox_cols = ["subject", "n_basis", "kappa", "alpha", "voxel", "cvr2"]
 
     import csv
     from contextlib import ExitStack
@@ -479,7 +479,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
 
                 # per-voxel cvR2 (all V1 voxels) for post-hoc signal selection
                 for vox, val in cvr2.items():
-                    w_vox.writerow([subject, n_basis, kappa, vox, float(val)])
+                    w_vox.writerow([subject, n_basis, kappa, alpha, vox, float(val)])
 
                 # preferred-orientation histogram, full-data per-session weights,
                 # over the fixed selected voxel set
@@ -504,7 +504,8 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
 
                 done += 1
                 msg = (f"  [{done}/{n_total}] n_basis={n_basis:2d} "
-                       f"kappa={kappa:<4g} mean cvR2(sel)={row['mean_cvr2_sel']:+.4f}")
+                       f"kappa={kappa:<7.3g} alpha={alpha:<6g} "
+                       f"mean cvR2(sel)={row['mean_cvr2_sel']:+.4f}")
                 if decode:
                     msg += (f"  decode |err|={row['decode_mean_abs_err_deg']:.1f}deg"
                             f" (n_sel~{row['decode_mean_n_sel']:.0f})")
