@@ -205,6 +205,41 @@ def family_vote(deriv, subjects, models, ori, val, smoothed=False):
     return np.vstack(votes), np.vstack(sigs)
 
 
+def value_only_modal(deriv, subjects, value_models, gate, colours, tag):
+    """Modal winner among the aPRF variants alone, ignoring vonMises.
+
+    Gated on a value model beating the null by itself, so the question is
+    "given there is value signal here, which parameterisation fits it" rather
+    than "is this value cortex".
+    """
+    votes, sigs = [], []
+    for s in subjects:
+        stack, null, kept = load_stack(deriv, s, value_models, False)
+        if stack is None or len(kept) != len(value_models):
+            continue
+        votes.append(np.argmax(stack, axis=0).astype(np.int8))
+        sigs.append(stack.max(axis=0) > null)
+    if not votes:
+        return {}
+    votes, sigs = np.vstack(votes), np.vstack(sigs)
+    den = np.maximum(sigs.sum(axis=0), 1)
+    frac = np.vstack([((votes == m) & sigs).sum(axis=0) / den
+                      for m in range(len(value_models))])
+    modal = np.argmax(frac, axis=0).astype(np.float32)
+    top = np.sort(frac, axis=0)
+    margin = top[-1] - top[-2]
+    cmap = mpl.colors.ListedColormap(colours)
+    labels = [l for _, l, _ in value_models]
+    name = f"Modal aPRF variant{tag} ({' / '.join(labels)})"
+    vtx = blended(modal, gate * np.clip((margin - 0.10) / 0.30, 0, 1),
+                  CX_FSAVERAGE, -0.5, len(value_models) - 0.5, cmap)
+    for m, l in enumerate(labels):
+        print(f"      {l:11s} modal at "
+              f"{100 * np.mean(modal[gate.astype(bool)] == m):5.1f}% of gated vertices")
+    return {name: (vtx, (f"Modal aPRF variant: {' / '.join(labels)}", cmap,
+                         -0.5, len(value_models) - 0.5))}
+
+
 def build_winner_datasets(deriv, subjects, models=CANDIDATES,
                           smoothing=(False, True), min_prevalence=0.5):
     ds, cbars = {}, []
@@ -292,6 +327,17 @@ def build_winner_datasets(deriv, subjects, models=CANDIDATES,
                                  -0.5, 1.5, fam_cmap)
                 cbars.append(("Modal family: vonMises / any aPRF",
                               fam_cmap, -0.5, 1.5))
+                # Within the value family only: which parameterisation wins,
+                # ignoring vonMises entirely. Restricted to vertices where a
+                # value model beats the null on its own, so this is "given
+                # there is value signal, which shape fits it".
+                vm = [models[i] for i in val]
+                sub_ds = value_only_modal(deriv, subjects_used[sm], vm, gate,
+                                          [colours[i] for i in val], tag)
+                for nm2, (vtx2, cb2) in sub_ds.items():
+                    ds[nm2] = vtx2
+                    cbars.append(cb2)
+
                 g = gate.astype(bool)
                 print(f"    modal family: any aPRF wins at "
                       f"{100 * np.mean(modal_fam[g] == 1):.1f}% of gated "
