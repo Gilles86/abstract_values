@@ -432,6 +432,8 @@ def main():
         if not ds:
             raise SystemExit("No surfaces found for the browser.")
         dest.mkdir(parents=True, exist_ok=True)
+        for stale in (dest / "data").glob("*"):   # see write_static_html
+            stale.unlink()
         print(f"\nBuilding browser ({len(ds)} maps) in {dest} ...")
         cortex.webgl.make_static(str(dest), ds, types=("inflated",),
                                  title=f"Per-subject {args.browse_desc.upper()} "
@@ -465,6 +467,8 @@ def main():
         if not ds:
             raise SystemExit("No group data built.")
         dest.mkdir(parents=True, exist_ok=True)
+        for stale in (dest / "data").glob("*"):   # see write_static_html
+            stale.unlink()
         print(f"\nBuilding group bundle in {dest} ...")
         cortex.webgl.make_static(str(dest), ds, types=("inflated",),
                                  title=f"Group aPRF maps (n={len(subjects)})",

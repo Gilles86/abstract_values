@@ -561,6 +561,12 @@ def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
         print(f"  note: {cx_subject} has no flat surfaces — inflated only "
               f"(run autoflatten + cortex.freesurfer.import_flat to add them)")
 
+    # make_static never removes files it did not write this run, so a rebuild
+    # with different datasets leaves the old ones behind: unreferenced, but
+    # they accumulate (a browser bundle reached 235 MB across three builds).
+    for stale in (out_dir / "data").glob("*"):
+        stale.unlink()
+
     print(f"Building static webgl bundle in {out_dir} ...")
     # Default curvature is near-binary dark/light grey, which fights the data
     # for attention. Flatten it into a soft background: lower contrast, a
