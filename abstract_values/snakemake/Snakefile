@@ -224,6 +224,18 @@ def surface_sample_sentinel(subject, model_dir, smooth):
     return (f"{DERIV}/encoding_models/{model_dir}{smooth}/"
             f"sub-{subject}/.surface_sampled")
 
+
+def aprf_params_sentinel(subject, smooth):
+    """Sentinel for sampling the aPRF *parameter* volumes to the surface.
+
+    sample_r2_to_surface only ever samples (cv)R². Everything describing the
+    tuning itself — mode (preferred value, CHF), fwhm, amplitude, baseline,
+    plus the von Mises R² as `gabor-r2` — needs sample_aprf_to_surface, which
+    was historically run by hand and so existed for only 11 of 29 subjects.
+    """
+    return (f"{DERIV}/encoding_models/aprf{smooth}/"
+            f"sub-{subject}/.aprf_params_sampled")
+
 # Terminal targets per subject
 def subject_targets(subject):
     sessions = sessions_for(subject)
@@ -268,9 +280,17 @@ def subject_targets(subject):
                      "aprf-gauss.cv", "aprf-linear.cv"]
         if len(sessions) >= 2:
             r2_dirs += ["aprf-session-shift", "aprf-gauss-session-shift"]
-            cvr2_dirs += ["aprf-shift.cv", "aprf-gauss-shift.cv"]
+            # fwhm-shift / fully-shifted were fitted by subject_targets above
+            # but never surface-sampled, so every group-level surface analysis
+            # silently skipped them. Sample them like the rest.
+            cvr2_dirs += ["aprf-shift.cv", "aprf-gauss-shift.cv",
+                          "aprf-fwhm-shift.cv", "aprf-fully-shifted.cv"]
         for md in r2_dirs + cvr2_dirs:
             targets.append(surface_sample_sentinel(subject, md, sfx))
+
+        # aPRF tuning parameters on the surface (mode / fwhm / amplitude /
+        # baseline / gabor-r2). Not covered by the (cv)R² sampling above.
+        targets.append(aprf_params_sentinel(subject, sfx))
 
         # Decoding fan-out (sentinel files; actual TSVs at derivatives/decoding/...)
         for roi in DECODE_ROIS:
@@ -812,6 +832,32 @@ rule sample_r2_to_surface:
         "FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
         "bash {REPO}/abstract_values/surface/slurm_jobs/sample_r2_to_surface.sh && "
+        "mkdir -p $(dirname {output}) && touch {output}"
+
+
+rule sample_aprf_params_to_surface:
+    """Sample the aPRF parameter volumes to fsnative + fsaverage GIfTIs.
+
+    Companion to sample_r2_to_surface, which only handles (cv)R². This covers
+    mode / fwhm / amplitude / baseline plus the von Mises R² written as
+    `gabor-r2`, so preferred-value maps are available for every subject rather
+    than the handful the script happened to be run on by hand.
+    """
+    input:
+        # The aPRF fit supplies mode/fwhm/amplitude/baseline...
+        aprf = lambda wc: aprf_r2(wc.subject, "aprf", wc.smooth),
+        # ...and the vonmises fit supplies the gabor-r2 channel.
+        vonmises = lambda wc: aprf_r2(wc.subject, "vonmises", wc.smooth),
+        fmriprep = rules.fmriprep.output,
+    output:
+        f"{DERIV}/encoding_models/aprf{{smooth}}/sub-{{subject}}/.aprf_params_sampled",
+    log: "logs/sample_aprf_params_to_surface{smooth}_{subject}.log"
+    resources: cpus_per_task=4, mem_mb=16_000, runtime=60,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} "
+        "FMRIPREP_DERIV={FMRIPREP_DERIV} "
+        "SMOOTHED=$([[ '{wildcards.smooth}' == '_smoothed' ]] && echo 1 || echo 0) "
+        "bash {REPO}/abstract_values/surface/slurm_jobs/sample_aprf_to_surface.sh && "
         "mkdir -p $(dirname {output}) && touch {output}"
 
 
