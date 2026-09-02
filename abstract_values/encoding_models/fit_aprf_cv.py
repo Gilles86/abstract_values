@@ -18,6 +18,7 @@ After all folds: save the cohort mean cv-R² NIfTI under
 Examples:
     python fit_aprf_cv.py pil01
     python fit_aprf_cv.py pil01 --model session-shift
+    python fit_aprf_cv.py pil01 --model fwhm-only-shift
     python fit_aprf_cv.py pil01 --model fwhm-shift
     python fit_aprf_cv.py pil01 --model fully-shifted --debug
     python fit_aprf_cv.py pil01 --model null
@@ -46,10 +47,14 @@ def save_f32(img, path):
                     img.affine).to_filename(str(path))
 
 
-def get_paradigm(sub, sessions, needs_session: bool):
-    """Paradigm DataFrame indexed by (session, run, trial). 'x' is the
-    objective CHF value; 'session' (when needed) is the 0-based session
-    index float for SessionShifted* models.
+def get_paradigm(sub, sessions, needs_session: bool,
+                 space: str = 'value'):
+    """Paradigm DataFrame indexed by (session, run, trial).
+
+    'x' is the objective CHF value, or — with ``space='orientation'`` — the
+    gabor orientation in radians wrapped to [0, pi), for models fitted in
+    orientation space. 'session' (when needed) is the 0-based session index
+    float for SessionShifted* models.
 
     The MultiIndex carries the ACTUAL session number (e.g. 1, 2) so
     leave-one-run-out folds can be selected by session+run."""
@@ -60,8 +65,10 @@ def get_paradigm(sub, sessions, needs_session: bool):
         for run in runs:
             run_ev = events.loc[run].reset_index().sort_values('onset')
             for _, row in run_ev[run_ev['event_type'] == 'gabor'].iterrows():
+                stim = (np.deg2rad(float(row['orientation'])) % np.pi
+                        if space == 'orientation' else float(row['value']))
                 rows.append({'session': session, 'run': run,
-                              'x': float(row['value']),
+                              'x': stim,
                               'session_idx': float(ses_idx)})
     df = pd.DataFrame(rows).astype({'x': np.float32,
                                        'session_idx': np.float32})
@@ -111,7 +118,8 @@ def main(subject, n_iterations=1000, mask=None,
         n_iterations = 50
 
     # ── paradigm + betas + masker ────────────────────────────────────────────
-    paradigm = get_paradigm(sub, sessions, spec.needs_session)
+    paradigm = get_paradigm(sub, sessions, spec.needs_session,
+                            space=spec.stimulus_space)
     value_min = float(paradigm['x'].min())
     value_max = float(paradigm['x'].max())
     print(f"  {len(paradigm)} trials  value range: "

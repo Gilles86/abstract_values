@@ -85,6 +85,25 @@ def fit_one_model(spec: ModelSpec,
               f"{float(r2.mean()):.4f}  (≈ 0 by construction)")
         return pd.DataFrame(index=data.columns), r2
 
+    # ── Linear-model special case ────────────────────────────────────────────
+    # No shape (location/width) parameters to grid-search over — amplitude
+    # (slope) + baseline are linear in the model, so one closed-form OLS
+    # regression (via refine_baseline_and_amplitude) is the exact fit.
+    # positive_amplitude=False because the slope is signed, unlike the pRF
+    # bump amplitude every other spec fits with the (default) positive clip.
+    if spec.is_linear:
+        model = spec.cls(**spec.cls_kwargs)
+        fitter = ParameterFitter(model, data, paradigm)
+        init_pars = pd.DataFrame({'amplitude': 1.0, 'baseline': 0.0},
+                                  index=data.columns, dtype=np.float32)
+        pars = fitter.refine_baseline_and_amplitude(init_pars,
+                                                       positive_amplitude=False)
+        pred = model.predict(parameters=pars, paradigm=paradigm)
+        r2 = get_rsq(data, pred)
+        print(f"{log_prefix}[{spec.name}] mean R² = {float(r2.mean()):.4f}  "
+              f"(closed-form OLS)")
+        return pars[spec.save_params].copy(), r2
+
     model = spec.cls(**spec.cls_kwargs)
     fitter = ParameterFitter(model, data, paradigm)
 
@@ -121,7 +140,17 @@ def fit_one_model(spec: ModelSpec,
             n_fwhm = 8  if debug else 15
 
         modes      = np.linspace(value_min, value_max, n_mode).astype(np.float32)
-        fwhms      = np.linspace(1.0, value_max - value_min, n_fwhm).astype(np.float32)
+        # Second axis: FWHM over the stimulus range by default, but a von
+        # Mises concentration is positive and unbounded above, so it wants a
+        # geometric sweep instead — a linear kappa grid spends nearly all its
+        # points on tuning widths too broad to distinguish.
+        g2_kind, g2_lo, g2_hi = getattr(spec, 'grid2', ('linear', 1.0, None))
+        if g2_hi is None:
+            g2_hi = value_max - value_min
+        if g2_kind == 'log':
+            fwhms = np.geomspace(g2_lo, g2_hi, n_fwhm).astype(np.float32)
+        else:
+            fwhms = np.linspace(g2_lo, g2_hi, n_fwhm).astype(np.float32)
         amplitudes = np.array([1.0], dtype=np.float32)
         baselines  = np.array([0.0], dtype=np.float32)
 
@@ -132,13 +161,23 @@ def fit_one_model(spec: ModelSpec,
             grid_pars = fitter.fit_grid(modes, fwhms,
                                           amplitudes, baselines,
                                           use_correlation_cost=True)
-        else:                                       # grid_dims == 2
+        elif spec.grid_dims == 2:                    # 2-mode grid (shift models)
             n_points = n_mode * n_mode * n_fwhm
             print(f"{log_prefix}[{spec.name}] grid "
                   f"{n_mode}×{n_mode}×{n_fwhm} = {n_points} points…")
             grid_pars = fitter.fit_grid(modes, modes, fwhms,
                                           amplitudes, baselines,
                                           use_correlation_cost=True)
+        elif spec.grid_dims == 3:                    # 1 mode × 2-fwhm grid (fwhm-only-shift)
+            n_points = n_mode * n_fwhm * n_fwhm
+            print(f"{log_prefix}[{spec.name}] grid "
+                  f"{n_mode}×{n_fwhm}×{n_fwhm} = {n_points} points…")
+            grid_pars = fitter.fit_grid(modes, fwhms, fwhms,
+                                          amplitudes, baselines,
+                                          use_correlation_cost=True)
+        else:
+            raise ValueError(f"Spec {spec.name!r} has unsupported grid_dims="
+                             f"{spec.grid_dims!r} (expected 0, 1, 2, or 3).")
         grid_pars = fitter.refine_baseline_and_amplitude(grid_pars)
 
         print(f"{log_prefix}[{spec.name}] descent ({n_iter_eff} iters)…")

@@ -136,6 +136,69 @@ class GaussianValuePRF(GaussianPRF):
         return norm(x, mode, sigma) * amplitude + baseline
 
 
+class FwhmOnlyShiftedLogGaussianPRF(GaussianPRF):
+    """LogGaussianPRF where FWHM shifts freely between sessions; mode is
+    shared across sessions.
+
+    The width-only mirror of :class:`SessionShiftedLogGaussianPRF`
+    (mode-only shift). Together with :class:`FwhmShiftedLogGaussianPRF`
+    (both shift) and :class:`FullyShiftedLogGaussianPRF` (everything
+    shifts), this completes the nested model-comparison ladder for asking
+    *which* parameter(s) actually reorganize between conditions:
+      SessionShiftedLogGaussianPRF   — mode only
+      FwhmOnlyShiftedLogGaussianPRF  — fwhm only   (this class)
+      FwhmShiftedLogGaussianPRF      — mode + fwhm
+      FullyShiftedLogGaussianPRF     — everything
+
+    Parameters (per voxel)
+    ----------------------
+    mode      : log-Gaussian mode, shared across sessions (CHF; softplus)
+    fwhm_1    : FWHM in session 1 (CHF; softplus)
+    fwhm_2    : FWHM in session 2 (CHF; softplus)
+    amplitude : peak response amplitude  (shared across sessions)
+    baseline  : additive offset           (shared)
+
+    Paradigm
+    --------
+    DataFrame with columns ``['x', 'session']`` (see
+    :class:`SessionShiftedLogGaussianPRF`).
+
+    Prediction
+    ----------
+    amplitude * LogNormal_mode_fwhm(x; mode, fwhm_eff) + baseline
+    where  fwhm_eff = fwhm_1 if session == 0 else fwhm_2
+    """
+
+    parameter_labels = ['mode', 'fwhm_1', 'fwhm_2', 'amplitude', 'baseline']
+
+    def __init__(self, allow_neg_amplitudes=True, **kwargs):
+        if allow_neg_amplitudes:
+            self.transformations = ['softplus', 'softplus', 'softplus',
+                                    'identity', 'identity']
+        else:
+            self.transformations = ['softplus', 'softplus', 'softplus',
+                                    'softplus', 'identity']
+
+        self._basis_predictions_without_amplitude = self._session_predict
+        self._basis_predictions_with_amplitude    = self._session_predict
+
+        GaussianPRF.__init__(self, allow_neg_amplitudes=allow_neg_amplitudes,
+                             model_stimulus_amplitude=True, **kwargs)
+
+    def _session_predict(self, paradigm, parameters):
+        x       = paradigm[..., None, 0]
+        session = paradigm[..., None, 1]
+
+        mode      = parameters[:, None, :, 0]
+        fwhm_1    = parameters[:, None, :, 1]
+        fwhm_2    = parameters[:, None, :, 2]
+        amplitude = parameters[:, None, :, 3]
+        baseline  = parameters[:, None, :, 4]
+
+        fwhm = ops.where(session < 0.5, fwhm_1, fwhm_2)
+        return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
+
+
 class FwhmShiftedLogGaussianPRF(GaussianPRF):
     """LogGaussianPRF where the mode AND FWHM shift per session.
 
@@ -251,6 +314,51 @@ class FullyShiftedLogGaussianPRF(GaussianPRF):
         baseline  = ops.where(is_ses1, base_1, base_2)
 
         return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
+
+
+class LinearValuePRF(GaussianPRF):
+    """Linear (non-tuned) encoding model on the value dimension.
+
+    Baseline comparison for the Gaussian/log-Gaussian pRF variants: no
+    location/width shape parameters, just a straight line in CHF value.
+    Tests whether a voxel's response to value looks more like a tuned
+    bump (aPRF) or a monotonic ramp.
+
+    Parameters (per voxel)
+    ----------------------
+    amplitude : linear slope relating CHF value to response (identity —
+                signed, can be negative, unlike the pRF bump amplitude)
+    baseline  : response at value = 0 (identity)
+
+    Prediction
+    ----------
+    amplitude * x + baseline
+
+    Fitting
+    -------
+    Linear in both parameters, so it is fit by a single closed-form OLS
+    regression (``ParameterFitter.refine_baseline_and_amplitude``, with
+    ``positive_amplitude=False`` since the slope is signed) — no grid
+    search, no gradient descent needed. See ``ModelSpec.is_linear`` in
+    ``model_specs.py`` and its dispatch in ``fit_pipeline.py``.
+    """
+
+    parameter_labels = ['amplitude', 'baseline']
+
+    def __init__(self, **kwargs):
+        self.transformations = ['identity', 'identity']
+
+        self._basis_predictions_without_amplitude = self._linear_predict
+        self._basis_predictions_with_amplitude = self._linear_predict
+
+        GaussianPRF.__init__(self, model_stimulus_amplitude=False, **kwargs)
+
+    def _linear_predict(self, paradigm, parameters):
+        x         = paradigm[..., None, 0]
+        amplitude = parameters[:, None, :, 0]
+        baseline  = parameters[:, None, :, 1]
+
+        return amplitude * x + baseline
 
 
 class SessionShiftedGaussianValuePRF(GaussianPRF):

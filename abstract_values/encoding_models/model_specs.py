@@ -19,21 +19,24 @@ A :class:`ModelSpec` carries everything the generic fit pipeline
 
 The registry itself lives in :data:`MODEL_SPECS`. Look up by short
 ``model_type`` tag (``'standard'``, ``'session-shift'``,
-``'fwhm-shift'``, ``'fully-shifted'``, ``'gaussian'``,
-``'gauss-session-shift'``).
+``'fwhm-only-shift'``, ``'fwhm-shift'``, ``'fully-shifted'``,
+``'gaussian'``, ``'gauss-session-shift'``).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Type
 
-from braincoder.models import LogGaussianPRF, EncodingModel
+from braincoder.models import (
+    AxialVonMisesPRF, LogGaussianPRF, EncodingModel)
 from abstract_values.encoding_models.models import (
     SessionShiftedLogGaussianPRF,
+    FwhmOnlyShiftedLogGaussianPRF,
     FwhmShiftedLogGaussianPRF,
     FullyShiftedLogGaussianPRF,
     GaussianValuePRF,
     SessionShiftedGaussianValuePRF,
+    LinearValuePRF,
 )
 
 
@@ -63,6 +66,8 @@ class ModelSpec:
         1 = single-mode grid (``fit_grid(modes, fwhms, ...)``)
         2 = 2-mode grid for shift models
             (``fit_grid(modes, modes, fwhms, ...)``)
+        3 = 1-mode × 2-fwhm grid for fwhm-only-shift models
+            (``fit_grid(modes, fwhms, fwhms, ...)``)
         0 = no grid — must warm-start.
     warm_start_from : str
         Spec name to warm-start from (e.g. ``'session-shift'``). Empty
@@ -98,6 +103,27 @@ class ModelSpec:
     # baseline used as a reference for cvR² comparisons).
     is_null: bool = False
 
+    # Linear model marker: when True, the fit pipeline skips the grid
+    # search / gradient descent entirely and fits the (signed) amplitude
+    # + baseline with one closed-form OLS regression — see
+    # LinearValuePRF and fit_pipeline.fit_one_model.
+    is_linear: bool = False
+
+    # Which stimulus dimension the paradigm carries. 'value' is the
+    # objective CHF value (the default, and what every aPRF variant uses);
+    # 'orientation' is the gabor orientation in radians, for models that
+    # live in orientation space. The two are bijectively related within a
+    # session but the mapping INVERTS between sessions, which is precisely
+    # what makes fitting in one space rather than the other a testable
+    # claim rather than a reparameterisation.
+    stimulus_space: str = 'value'
+
+    # Second grid axis. LogGaussianPRF-family models sweep FWHM linearly
+    # over the stimulus range; a von Mises sweeps concentration (kappa),
+    # which is positive, unbounded above and best sampled geometrically.
+    # (kind, lo, hi) with hi=None meaning "the stimulus range".
+    grid2: tuple = ('linear', 1.0, None)
+
 
 # ── Registry ────────────────────────────────────────────────────────────────
 # Order matters only for the warm-start chain (warm_start_from must
@@ -128,6 +154,36 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         grid_dims=1,
     ),
 
+    # ── orientation space ───────────────────────────────────────────────
+    # The architectural twin of 'standard': ONE bell-shaped tuning function,
+    # but in orientation rather than value space. Without this cell the only
+    # orientation model is the 8-weight von Mises basis set, so any
+    # value-vs-orientation comparison confounds space with architecture.
+    'vonmises-prf': ModelSpec(
+        name='vonmises-prf',
+        cls=AxialVonMisesPRF,
+        save_params=['mu', 'kappa', 'amplitude', 'baseline'],
+        out_subdir='vonmises-prf',
+        cv_out_subdir='vonmises-prf.cv',
+        grid_dims=1,
+        stimulus_space='orientation',
+        # kappa: 0.5 is near-flat over a pi-periodic axis, 50 is sharper than
+        # any plausible voxel-level tuning.
+        grid2=('log', 0.5, 50.0),
+    ),
+    'vonmises-prf-session-shift': ModelSpec(
+        name='vonmises-prf-session-shift',
+        cls=AxialVonMisesPRF,
+        needs_session=True,
+        save_params=['mu_1', 'mu_2', 'kappa', 'amplitude', 'baseline'],
+        out_subdir='vonmises-prf-session-shift',
+        cv_out_subdir='vonmises-prf-shift.cv',
+        grid_dims=2,
+        stimulus_space='orientation',
+        grid2=('log', 0.5, 50.0),
+        warm_start_from='vonmises-prf',
+    ),
+
     'session-shift': ModelSpec(
         name='session-shift',
         cls=SessionShiftedLogGaussianPRF,
@@ -136,6 +192,16 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         out_subdir='aprf-session-shift',
         cv_out_subdir='aprf-shift.cv',
         grid_dims=2,
+    ),
+
+    'fwhm-only-shift': ModelSpec(
+        name='fwhm-only-shift',
+        cls=FwhmOnlyShiftedLogGaussianPRF,
+        needs_session=True,
+        save_params=['mode', 'fwhm_1', 'fwhm_2', 'amplitude', 'baseline'],
+        out_subdir='aprf-fwhm-only-shift',
+        cv_out_subdir='aprf-fwhm-only-shift.cv',
+        grid_dims=3,
     ),
 
     'fwhm-shift': ModelSpec(
@@ -188,6 +254,18 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         out_subdir='aprf-gauss-session-shift',
         cv_out_subdir='aprf-gauss-shift.cv',
         grid_dims=2,
+    ),
+
+    'linear': ModelSpec(
+        name='linear',
+        cls=LinearValuePRF,
+        cls_kwargs={},
+        needs_session=False,
+        save_params=['amplitude', 'baseline'],
+        out_subdir='aprf-linear',
+        cv_out_subdir='aprf-linear.cv',
+        grid_dims=0,          # unused — dispatch goes through is_linear
+        is_linear=True,
     ),
 }
 

@@ -14,10 +14,13 @@ Available variants (see ``--model`` choices):
   null                — baseline (no parameters, predicts training mean)
   standard            — joint LogGaussianPRF (mode, fwhm, amp, baseline)
   session-shift       — mode shifts per session                (5 params)
+  fwhm-only-shift     — fwhm shifts per session, mode shared    (5 params)
   fwhm-shift          — mode + fwhm shift per session          (6 params)
   fully-shifted       — all 4 params shift per session         (8 params)
   gaussian            — joint symmetric Gaussian PRF
   gauss-session-shift — symmetric Gaussian with mode shift     (5 params)
+  linear              — signed slope + baseline (no tuning bump); fit by
+                         one closed-form OLS regression, not grid+descent
 
 Output: ``derivatives/encoding_models/<spec.out_subdir>/sub-<S>/func/``
 with one NIfTI per ``spec.save_params`` entry (plus ``desc-r2``).
@@ -25,6 +28,7 @@ with one NIfTI per ``spec.save_params`` entry (plus ``desc-r2``).
 Examples:
     python fit_aprf.py pil01
     python fit_aprf.py pil01 --model session-shift
+    python fit_aprf.py pil01 --model fwhm-only-shift
     python fit_aprf.py pil01 --model fwhm-shift
     python fit_aprf.py pil01 --model fully-shifted --debug
 """
@@ -51,9 +55,15 @@ def save_f32(img, path):
                     img.affine).to_filename(str(path))
 
 
-def get_value_paradigm(sub, sessions, needs_session: bool):
-    """Return paradigm DataFrame with column 'x' (CHF) and, if
-    ``needs_session``, a 'session' column (0-based session index).
+def get_value_paradigm(sub, sessions, needs_session: bool,
+                       space: str = 'value'):
+    """Return paradigm DataFrame with column 'x' and, if ``needs_session``,
+    a 'session' column (0-based session index).
+
+    ``space='value'`` puts the objective CHF value in 'x'; ``'orientation'``
+    puts the gabor orientation in radians, wrapped to [0, pi) because
+    orientation is axial. Same trials, same order — only the stimulus
+    dimension the model is asked to explain differs.
 
     Row order matches gabor betas: session → run (sorted) → events
     sorted by onset, gabor only. For ``needs_session=True`` the
@@ -67,7 +77,9 @@ def get_value_paradigm(sub, sessions, needs_session: bool):
         for run in runs:
             run_ev = events.loc[run].reset_index().sort_values('onset')
             for _, row in run_ev[run_ev['event_type'] == 'gabor'].iterrows():
-                rows.append((float(row['value']), float(ses_idx)))
+                stim = (np.deg2rad(float(row['orientation'])) % np.pi
+                        if space == 'orientation' else float(row['value']))
+                rows.append((stim, float(ses_idx)))
     arr = np.asarray(rows, dtype=np.float32)
     if not needs_session:
         return pd.DataFrame({'x': arr[:, 0]})
@@ -99,7 +111,8 @@ def main(subject, mask=None, n_iterations=1000, model_type='standard',
           f"[abstract pRF on objective value  model={spec.name}]")
 
     # ── paradigm ─────────────────────────────────────────────────────────────
-    paradigm = get_value_paradigm(sub, sessions, spec.needs_session)
+    paradigm = get_value_paradigm(sub, sessions, spec.needs_session,
+                                  space=spec.stimulus_space)
     value_min = float(paradigm['x'].min())
     value_max = float(paradigm['x'].max())
     print(f"  {len(paradigm)} trials  value range: "
