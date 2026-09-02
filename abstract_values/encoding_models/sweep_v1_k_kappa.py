@@ -38,8 +38,8 @@ the encoding sweep. Decoding columns are added to the cvr2summary TSV.
 Outputs (one job per subject; loops the grid internally)
 --------------------------------------------------------
   derivatives/experiments/v1_k_kappa_sweep/sub-<S>/func/
-    sub-<S>_task-abstractvalue_mask-BensonV1_desc-cvr2summary{_smoothed}.tsv
-    sub-<S>_task-abstractvalue_mask-BensonV1_desc-preferredhist{_smoothed}.tsv
+    sub-<S>_task-abstractvalue_mask-{roi}_desc-cvr2summary{_smoothed}.tsv
+    sub-<S>_task-abstractvalue_mask-{roi}_desc-preferredhist{_smoothed}.tsv
 
 Usage
 -----
@@ -234,7 +234,7 @@ def _decode_oos(data, paradigm, basis_pars, fdr_thr, fallback_n=100,
 
 
 def compare_cv(subject, n_basis, kappa, r2_thr=0.05, top_n=100,
-               smoothed=False, bids_folder=BIDS_FOLDER):
+               smoothed=False, bids_folder=BIDS_FOLDER, roi='BensonV1', roi_hemi='LR'):
     """Print-only diagnostic: joint vs session-shift cvR2 for one (k, kappa),
     summarised over all V1 / R2>thr / top-N (by independent joint R2), with
     the true-null reference. Writes nothing (safe to run alongside a sweep)."""
@@ -242,7 +242,7 @@ def compare_cv(subject, n_basis, kappa, r2_thr=0.05, top_n=100,
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
     smooth_label = "_smoothed" if smoothed else ""
-    mask_img = sub.get_roi_mask("BensonV1", hemi="LR")
+    mask_img = sub.get_roi_mask(roi, hemi=roi_hemi)
     betas_img = sub.get_single_trial_estimates(sessions, desc="gabor",
                                                smoothed=smoothed)
     masker = NiftiMasker(mask_img=mask_img, target_affine=betas_img.affine,
@@ -278,7 +278,7 @@ def compare_cv(subject, n_basis, kappa, r2_thr=0.05, top_n=100,
 
 def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             decode=False, fdr_alpha=0.05, spherical=True, noise_iter=1000,
-            fallback_n=100, cv_mode="joint", smoothed=False, bids_folder=BIDS_FOLDER):
+            fallback_n=100, cv_mode="joint", smoothed=False, bids_folder=BIDS_FOLDER, roi='BensonV1', roi_hemi='LR'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -293,7 +293,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
           f"r2_thr={r2_thr}  cv={cv_mode}  decode={decode}  smoothed={smoothed}")
 
     # ── shared inputs: V1 mask, betas, paradigm ───────────────────────────────
-    mask_img = sub.get_roi_mask("BensonV1", hemi="LR")
+    mask_img = sub.get_roi_mask(roi, hemi=roi_hemi)
     betas_img = sub.get_single_trial_estimates(sessions, desc="gabor",
                                                smoothed=smoothed)
     masker = NiftiMasker(mask_img=mask_img,
@@ -347,7 +347,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
     out_dir = (bids_folder / "derivatives" / "experiments"
                / "v1_k_kappa_sweep" / f"sub-{subject}" / "func")
     out_dir.mkdir(parents=True, exist_ok=True)
-    base = f"sub-{subject}_task-abstractvalue_mask-BensonV1"
+    base = f"sub-{subject}_task-abstractvalue_mask-{roi}"
     p_cv = out_dir / f"{base}_desc-cvr2summary{smooth_label}.tsv"
     p_hist = out_dir / f"{base}_desc-preferredhist{smooth_label}.tsv"
     p_vox = out_dir / f"{base}_desc-cvr2voxels{smooth_label}.tsv"
@@ -498,19 +498,31 @@ def main():
     p.add_argument("--compare-cv", action="store_true",
                    help="Print-only diagnostic: joint vs session-shift cvR2 for "
                         "the first (n_basis, kappa); writes nothing.")
+    p.add_argument("--roi", default="BensonV1",
+                   help="ROI desc for the mask. Use "
+                        "BensonV1ecc075-375 for V1 restricted to the "
+                        "eccentricity band the gabor annulus actually drives "
+                        "(0.75-3.75 deg) — only ~20%% of V1, the rest is "
+                        "unstimulated cortex that dilutes every estimate.")
+    p.add_argument("--roi-hemi", default="LR",
+                   help="hemi entity for the mask ('LR', 'L', 'R', or 'none')")
     p.add_argument("--smoothed", action="store_true")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     args = p.parse_args()
+    # 'none' means omit the hemi entity entirely (NPCr-style masks)
+    roi_hemi = None if args.roi_hemi.lower() == 'none' else args.roi_hemi
     if args.compare_cv:
         compare_cv(args.subject, args.n_basis[0], args.kappa[0],
                    r2_thr=args.r2_thr, smoothed=args.smoothed,
-                   bids_folder=args.bids_folder)
+                   bids_folder=args.bids_folder,
+                   roi=args.roi, roi_hemi=roi_hemi)
         return
     run_one(args.subject, args.n_basis, args.kappa, r2_thr=args.r2_thr,
             decode=args.decode, fdr_alpha=args.fdr_alpha,
             spherical=not args.full_noise, noise_iter=args.noise_iter,
             cv_mode=args.cv_mode, smoothed=args.smoothed,
-            bids_folder=args.bids_folder)
+            bids_folder=args.bids_folder,
+            roi=args.roi, roi_hemi=roi_hemi)
 
 
 if __name__ == "__main__":
