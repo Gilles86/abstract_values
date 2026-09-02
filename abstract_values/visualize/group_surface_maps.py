@@ -171,17 +171,53 @@ def build_group_datasets(deriv, subjects, smoothed_variants=(False, True),
 BROWSE_MODELS = [("aprf", "aPRF"), ("vonmises", "vonMises")]
 
 
+NULL_MODEL = "aprf-null.cv"
+
+
+def _cv_dir(model):
+    """The cross-validated dir for a model dir (aprf -> aprf.cv)."""
+    return model if model.endswith(".cv") else f"{model}.cv"
+
+
+def beats_null(deriv, model, subject, smoothed=False):
+    """Boolean per-vertex mask: this model's cvR2 beats the null model's.
+
+    ``aprf-null.cv`` predicts the training mean, so it is a valid baseline for
+    any encoding model fitted to the same betas — vonMises included. Returns
+    None if either surface is missing, so the caller can say so rather than
+    silently showing an unmasked map.
+    """
+    cv = load_fsaverage(deriv, _cv_dir(model), subject, "cvr2", smoothed)
+    null = load_fsaverage(deriv, NULL_MODEL, subject, "cvr2", smoothed)
+    if cv is None or null is None:
+        return None
+    return np.isfinite(cv - null) & ((cv - null) > 0)
+
+
 def build_browse_datasets(deriv, subjects, desc="r2", smoothed=False,
-                          models=BROWSE_MODELS, colorbars="baked"):
-    """One dataset per (model, subject) on fsaverage, for flipping through.
+                          models=BROWSE_MODELS, colorbars="baked",
+                          floor_pct=25.0, mask="cvr2-null",
+                          mean_prevalence=0.25):
+    """One dataset per (model, subject) on fsaverage, plus the group mean.
 
-    Every subject in a model shares one colour scale — the 99th percentile of
-    that model's pooled values. Per-subject autoscaling would make a weak
-    subject look as strong as a good one, which defeats the whole point of
-    paging through them.
+    Every subject in a model shares one colour scale — floor to the 99th
+    percentile of that model's pooled values. Per-subject autoscaling would
+    make a weak subject look as strong as a good one, which defeats the whole
+    point of paging through them.
 
-    Names are built so an alphabetical dataset list walks subject-by-subject
-    within a model, then moves to the next model.
+    With ``mask="cvr2-null"`` a vertex is drawn only where that subject's
+    cross-validated R2 beats their own null model. That is the project's
+    per-voxel signal test, and it is what stops the whole brain washing red:
+    99.5% of cortex carries full-fit R2 > 0, because a full fit is not
+    held-out and will always explain some noise.
+
+    `floor_pct` then sets where opacity starts within what survives, as a
+    percentile of the masked values, so strong vertices still read louder than
+    marginal ones.
+
+    The group mean is built on the same scale and named to sort first, so
+    paging through a model starts from the cohort picture and then walks the
+    subjects that make it up.
     """
     ds, cbars = {}, []
     tag = " smoothed" if smoothed else ""
@@ -195,20 +231,66 @@ def build_browse_datasets(deriv, subjects, desc="r2", smoothed=False,
             print(f"  skip {pretty}: no fsaverage {desc} surfaces")
             continue
 
-        pooled = np.concatenate(list(maps.values()))
-        pos = pooled[pooled > 0]
-        vmax = float(np.percentile(pos, 99)) if pos.size else 0.1
-        print(f"  {pretty} {desc}: n={len(maps)}, shared scale 0–{vmax:.3g}")
+        gates, no_gate = {}, []
+        if mask == "cvr2-null":
+            for sub in maps:
+                g = beats_null(deriv, model, sub, smoothed)
+                if g is None:
+                    no_gate.append(sub)
+                    g = np.ones_like(maps[sub], dtype=bool)
+                gates[sub] = g
+            if no_gate:
+                print(f"    no cv/null surfaces, shown unmasked: "
+                      f"{' '.join(no_gate)}")
+        else:
+            gates = {sub: np.ones_like(m, dtype=bool) for sub, m in maps.items()}
 
-        for sub, m in maps.items():
-            alpha = np.clip(np.nan_to_num(m) / max(vmax, 1e-9), 0, 1).astype(np.float32)
-            name = f"{pretty} {desc.upper()}{tag} sub-{sub}"
+        # Scale from what actually survives the gate, not from all of cortex.
+        kept = np.concatenate([maps[s][gates[s]] for s in maps])
+        kept = kept[np.isfinite(kept)]
+        vmax = float(np.percentile(kept, 99)) if kept.size else 0.1
+        lo = float(np.percentile(kept, floor_pct)) if kept.size else 0.0
+        span = max(vmax - lo, 1e-9)
+        gated_frac = np.mean([g.mean() for g in gates.values()])
+        print(f"  {pretty} {desc}: n={len(maps)}, scale {lo:.4g}–{vmax:.4g}; "
+              f"{100 * gated_frac:.1f}% of vertices beat the null on average")
+
+        def emit(name, values, label, gate=None, scale=None):
+            v0, v1 = scale if scale else (lo, vmax)
+            alpha = np.clip((np.nan_to_num(values) - v0) / max(v1 - v0, 1e-9),
+                            0, 1).astype(np.float32)
+            if gate is not None:
+                alpha = alpha * gate.astype(np.float32)
             if colorbars == "live":
-                ds[name] = live(m, alpha, CX_FSAVERAGE, 0.0, vmax, "hot",
+                ds[name] = live(values, alpha, CX_FSAVERAGE, v0, v1, "hot",
                                 nonce=len(ds))
             else:
-                ds[name] = blended(m, alpha, CX_FSAVERAGE, 0.0, vmax, "hot")
-            cbars.append((f"{pretty} {desc.upper()} sub-{sub}", "hot", 0.0, vmax))
+                ds[name] = blended(values, alpha, CX_FSAVERAGE, v0, v1, "hot")
+            cbars.append((label, "hot", v0, v1))
+
+        # Group mean: gate on the majority of the cohort beating the null,
+        # matching the count map in the group bundle.
+        mean = np.nanmean(np.vstack(list(maps.values())), axis=0)
+        count = np.sum(np.vstack([gates[s] for s in maps]), axis=0)
+        mean_gate = count >= max(mean_prevalence * len(maps), 1)
+        # The mean needs its own scale. Averaging 29 noisy maps compresses the
+        # range hard, so re-using the per-subject scale leaves almost every
+        # mean value below the opacity floor and the map renders blank.
+        kept_mean = mean[mean_gate]
+        kept_mean = kept_mean[np.isfinite(kept_mean)]
+        if kept_mean.size:
+            m_scale = (float(np.percentile(kept_mean, floor_pct)),
+                       float(np.percentile(kept_mean, 99)))
+        else:
+            m_scale = (lo, vmax)
+        print(f"    mean: gate >= {mean_prevalence:.0%} of subjects "
+              f"({100 * mean_gate.mean():.2f}% of vertices), "
+              f"scale {m_scale[0]:.4g}–{m_scale[1]:.4g}")
+        emit(f"{pretty} {desc.upper()}{tag} MEAN n={len(maps)}", mean,
+             f"{pretty} {desc.upper()} group mean", mean_gate, m_scale)
+        for sub, m in maps.items():
+            emit(f"{pretty} {desc.upper()}{tag} sub-{sub}", m,
+                 f"{pretty} {desc.upper()} sub-{sub}", gates[sub])
     return ds, cbars
 
 
@@ -296,6 +378,20 @@ def main():
                         "dataset per (model, subject) so you can page through "
                         "the whole cohort in the viewer. Default destination "
                         "<out-root>/r2-browser.")
+    p.add_argument("--browse-floor", type=float, default=25.0,
+                   help="Percentile (of the values surviving the mask) at "
+                        "which opacity starts. Default 25.")
+    p.add_argument("--browse-mean-prevalence", type=float, default=0.25,
+                   help="Fraction of subjects that must beat the null at a "
+                        "vertex for it to show in the MEAN map (default 0.25). "
+                        "A majority gate leaves almost nothing: fsaverage "
+                        "registration scatter means the exact vertex carrying "
+                        "signal moves between subjects.")
+    p.add_argument("--browse-mask", default="cvr2-null",
+                   choices=["cvr2-null", "none"],
+                   help="'cvr2-null' (default): draw a vertex only where that "
+                        "subject's cvR2 beats their own aprf-null.cv. 'none': "
+                        "show the raw R2 everywhere.")
     p.add_argument("--browse-desc", default="r2", choices=["r2", "cvr2"],
                    help="Which map the browser shows (default r2; cvr2 reads "
                         "the .cv model dirs).")
@@ -329,7 +425,10 @@ def main():
                   if args.browse_desc == "cvr2" else BROWSE_MODELS)
         ds, cbars = build_browse_datasets(deriv, subjects, desc=args.browse_desc,
                                           smoothed=args.smoothed, models=models,
-                                          colorbars=args.colorbars)
+                                          colorbars=args.colorbars,
+                                          floor_pct=args.browse_floor,
+                                          mask=args.browse_mask,
+                                          mean_prevalence=args.browse_mean_prevalence)
         if not ds:
             raise SystemExit("No surfaces found for the browser.")
         dest.mkdir(parents=True, exist_ok=True)
