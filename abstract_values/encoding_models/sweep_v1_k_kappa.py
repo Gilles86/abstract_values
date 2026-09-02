@@ -301,6 +301,14 @@ def kappa_for_fwhm_ratio(n_basis, ratio):
     return float(np.log(2.0) / (1.0 - np.cos(fwhm)))
 
 
+# Above this the von Mises basis predictions come back NaN in float32
+# (verified: kappa=36 is fine, kappa=100 gives 620 NaNs, kappa=144 gives
+# 1384), which makes A'A non-invertible no matter how large the ridge is.
+# It caps how narrow a basis can get: at kappa=40 the FWHM is ~10.7 deg, so
+# n_basis=24 (7.5 deg spacing) cannot be sampled below ratio ~1.4.
+KAPPA_MAX = 40.0
+
+
 def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             fwhm_ratios=None,
             decode=False, fdr_alpha=0.05, spherical=True, noise_iter=1000,
@@ -391,7 +399,9 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
           f"(predict train mean; the true 0-signal baseline)")
 
     cv_cols = ["subject", "n_basis", "kappa", "alpha", "n_v1", "n_sel", "mean_cvr2_sel",
-               "median_cvr2_sel", "mean_cvr2_all", "frac_pos_sel"]
+               "median_cvr2_sel", "mean_cvr2_all", "frac_pos_sel",
+               "frac_beats_null_sel", "frac_beats_null_all",
+               "median_margin_sel"]
     if decode:
         cv_cols += ["decode_mean_abs_err_deg", "decode_median_abs_err_deg",
                     "decode_circ_sd_deg", "decode_circ_corr", "decode_mean_n_sel"]
@@ -438,6 +448,12 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             kappas = ([kappa_for_fwhm_ratio(n_basis, r) for r in fwhm_ratios]
                       if fwhm_ratios else list(kappa_list))
             for kappa in kappas:
+              if kappa > KAPPA_MAX:
+                  print(f"  skip n_basis={n_basis} kappa={kappa:.1f} "
+                        f"(> {KAPPA_MAX:g}: basis is NaN in float32)",
+                        flush=True)
+                  n_total -= len(alphas)
+                  continue
               for alpha in alphas:
                 basis_pars = make_basis_parameters(n_basis, kappa)
 
@@ -456,6 +472,17 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                     "median_cvr2_sel": float(cvr2_sel.median()),
                     "mean_cvr2_all": float(cvr2.mean()),
                     "frac_pos_sel": float((cvr2_sel > 0).mean()),
+                    # The honest summary. A whole-ROI mean cvR2 is dominated
+                    # by the many voxels with no signal at all, so its sign
+                    # says more about how much untuned cortex is in the mask
+                    # than about the model. Compare each voxel against its
+                    # OWN null cvR2 instead and report the prevalence.
+                    "frac_beats_null_sel": float(
+                        (cvr2_sel > null_cvr2.reindex(cvr2_sel.index)).mean()),
+                    "frac_beats_null_all": float(
+                        (cvr2 > null_cvr2.reindex(cvr2.index)).mean()),
+                    "median_margin_sel": float(
+                        (cvr2_sel - null_cvr2.reindex(cvr2_sel.index)).median()),
                 }
 
                 # out-of-sample decoding (FDR voxel selection, spherical noise)
@@ -505,7 +532,8 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                 done += 1
                 msg = (f"  [{done}/{n_total}] n_basis={n_basis:2d} "
                        f"kappa={kappa:<7.3g} alpha={alpha:<6g} "
-                       f"mean cvR2(sel)={row['mean_cvr2_sel']:+.4f}")
+                       f"beats-null={row['frac_beats_null_sel']:.0%} "
+                       f"margin={row['median_margin_sel']:+.4f}")
                 if decode:
                     msg += (f"  decode |err|={row['decode_mean_abs_err_deg']:.1f}deg"
                             f" (n_sel~{row['decode_mean_n_sel']:.0f})")
