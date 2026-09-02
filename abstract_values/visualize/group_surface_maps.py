@@ -194,7 +194,7 @@ def beats_null(deriv, model, subject, smoothed=False):
     return np.isfinite(cv - null) & ((cv - null) > 0)
 
 
-def build_browse_datasets(deriv, subjects, desc="r2", smoothed=False,
+def build_browse_datasets(deriv, subjects, desc="r2", smoothing=(False, True),
                           models=BROWSE_MODELS, colorbars="baked",
                           floor_pct=25.0, mask="cvr2-null",
                           mean_prevalence=0.25):
@@ -220,77 +220,82 @@ def build_browse_datasets(deriv, subjects, desc="r2", smoothed=False,
     subjects that make it up.
     """
     ds, cbars = {}, []
-    tag = " smoothed" if smoothed else ""
-    for model, pretty in models:
-        maps = {}
-        for sub in subjects:
-            m = load_fsaverage(deriv, model, sub, desc, smoothed)
-            if m is not None:
-                maps[sub] = m
-        if not maps:
-            print(f"  skip {pretty}: no fsaverage {desc} surfaces")
-            continue
+    for smoothed in smoothing:
+      # Each smoothing variant gets its own scale and its own gate: spatial
+      # smoothing inflates both R2 and the cvR2 margin, so sharing a scale
+      # would make the smoothed maps look uniformly better rather than
+      # differently resolved.
+      tag = " smoothed" if smoothed else ""
+      for model, pretty in models:
+          maps = {}
+          for sub in subjects:
+              m = load_fsaverage(deriv, model, sub, desc, smoothed)
+              if m is not None:
+                  maps[sub] = m
+          if not maps:
+              print(f"  skip {pretty}: no fsaverage {desc} surfaces")
+              continue
 
-        gates, no_gate = {}, []
-        if mask == "cvr2-null":
-            for sub in maps:
-                g = beats_null(deriv, model, sub, smoothed)
-                if g is None:
-                    no_gate.append(sub)
-                    g = np.ones_like(maps[sub], dtype=bool)
-                gates[sub] = g
-            if no_gate:
-                print(f"    no cv/null surfaces, shown unmasked: "
-                      f"{' '.join(no_gate)}")
-        else:
-            gates = {sub: np.ones_like(m, dtype=bool) for sub, m in maps.items()}
+          gates, no_gate = {}, []
+          if mask == "cvr2-null":
+              for sub in maps:
+                  g = beats_null(deriv, model, sub, smoothed)
+                  if g is None:
+                      no_gate.append(sub)
+                      g = np.ones_like(maps[sub], dtype=bool)
+                  gates[sub] = g
+              if no_gate:
+                  print(f"    no cv/null surfaces, shown unmasked: "
+                        f"{' '.join(no_gate)}")
+          else:
+              gates = {sub: np.ones_like(m, dtype=bool) for sub, m in maps.items()}
 
-        # Scale from what actually survives the gate, not from all of cortex.
-        kept = np.concatenate([maps[s][gates[s]] for s in maps])
-        kept = kept[np.isfinite(kept)]
-        vmax = float(np.percentile(kept, 99)) if kept.size else 0.1
-        lo = float(np.percentile(kept, floor_pct)) if kept.size else 0.0
-        span = max(vmax - lo, 1e-9)
-        gated_frac = np.mean([g.mean() for g in gates.values()])
-        print(f"  {pretty} {desc}: n={len(maps)}, scale {lo:.4g}–{vmax:.4g}; "
-              f"{100 * gated_frac:.1f}% of vertices beat the null on average")
+          # Scale from what actually survives the gate, not from all of cortex.
+          kept = np.concatenate([maps[s][gates[s]] for s in maps])
+          kept = kept[np.isfinite(kept)]
+          vmax = float(np.percentile(kept, 99)) if kept.size else 0.1
+          lo = float(np.percentile(kept, floor_pct)) if kept.size else 0.0
+          span = max(vmax - lo, 1e-9)
+          gated_frac = np.mean([g.mean() for g in gates.values()])
+          print(f"  {pretty} {desc}: n={len(maps)}, scale {lo:.4g}–{vmax:.4g}; "
+                f"{100 * gated_frac:.1f}% of vertices beat the null on average")
 
-        def emit(name, values, label, gate=None, scale=None):
-            v0, v1 = scale if scale else (lo, vmax)
-            alpha = np.clip((np.nan_to_num(values) - v0) / max(v1 - v0, 1e-9),
-                            0, 1).astype(np.float32)
-            if gate is not None:
-                alpha = alpha * gate.astype(np.float32)
-            if colorbars == "live":
-                ds[name] = live(values, alpha, CX_FSAVERAGE, v0, v1, "hot",
-                                nonce=len(ds))
-            else:
-                ds[name] = blended(values, alpha, CX_FSAVERAGE, v0, v1, "hot")
-            cbars.append((label, "hot", v0, v1))
+          def emit(name, values, label, gate=None, scale=None):
+              v0, v1 = scale if scale else (lo, vmax)
+              alpha = np.clip((np.nan_to_num(values) - v0) / max(v1 - v0, 1e-9),
+                              0, 1).astype(np.float32)
+              if gate is not None:
+                  alpha = alpha * gate.astype(np.float32)
+              if colorbars == "live":
+                  ds[name] = live(values, alpha, CX_FSAVERAGE, v0, v1, "hot",
+                                  nonce=len(ds))
+              else:
+                  ds[name] = blended(values, alpha, CX_FSAVERAGE, v0, v1, "hot")
+              cbars.append((label, "hot", v0, v1))
 
-        # Group mean: gate on the majority of the cohort beating the null,
-        # matching the count map in the group bundle.
-        mean = np.nanmean(np.vstack(list(maps.values())), axis=0)
-        count = np.sum(np.vstack([gates[s] for s in maps]), axis=0)
-        mean_gate = count >= max(mean_prevalence * len(maps), 1)
-        # The mean needs its own scale. Averaging 29 noisy maps compresses the
-        # range hard, so re-using the per-subject scale leaves almost every
-        # mean value below the opacity floor and the map renders blank.
-        kept_mean = mean[mean_gate]
-        kept_mean = kept_mean[np.isfinite(kept_mean)]
-        if kept_mean.size:
-            m_scale = (float(np.percentile(kept_mean, floor_pct)),
-                       float(np.percentile(kept_mean, 99)))
-        else:
-            m_scale = (lo, vmax)
-        print(f"    mean: gate >= {mean_prevalence:.0%} of subjects "
-              f"({100 * mean_gate.mean():.2f}% of vertices), "
-              f"scale {m_scale[0]:.4g}–{m_scale[1]:.4g}")
-        emit(f"{pretty} {desc.upper()}{tag} MEAN n={len(maps)}", mean,
-             f"{pretty} {desc.upper()} group mean", mean_gate, m_scale)
-        for sub, m in maps.items():
-            emit(f"{pretty} {desc.upper()}{tag} sub-{sub}", m,
-                 f"{pretty} {desc.upper()} sub-{sub}", gates[sub])
+          # Group mean: gate on the majority of the cohort beating the null,
+          # matching the count map in the group bundle.
+          mean = np.nanmean(np.vstack(list(maps.values())), axis=0)
+          count = np.sum(np.vstack([gates[s] for s in maps]), axis=0)
+          mean_gate = count >= max(mean_prevalence * len(maps), 1)
+          # The mean needs its own scale. Averaging 29 noisy maps compresses the
+          # range hard, so re-using the per-subject scale leaves almost every
+          # mean value below the opacity floor and the map renders blank.
+          kept_mean = mean[mean_gate]
+          kept_mean = kept_mean[np.isfinite(kept_mean)]
+          if kept_mean.size:
+              m_scale = (float(np.percentile(kept_mean, floor_pct)),
+                         float(np.percentile(kept_mean, 99)))
+          else:
+              m_scale = (lo, vmax)
+          print(f"    mean: gate >= {mean_prevalence:.0%} of subjects "
+                f"({100 * mean_gate.mean():.2f}% of vertices), "
+                f"scale {m_scale[0]:.4g}–{m_scale[1]:.4g}")
+          emit(f"{pretty} {desc.upper()}{tag} MEAN n={len(maps)}", mean,
+               f"{pretty} {desc.upper()} group mean", mean_gate, m_scale)
+          for sub, m in maps.items():
+              emit(f"{pretty} {desc.upper()}{tag} sub-{sub}", m,
+                   f"{pretty} {desc.upper()} sub-{sub}", gates[sub])
     return ds, cbars
 
 
@@ -392,6 +397,12 @@ def main():
                    help="'cvr2-null' (default): draw a vertex only where that "
                         "subject's cvR2 beats their own aprf-null.cv. 'none': "
                         "show the raw R2 everywhere.")
+    p.add_argument("--browse-smoothing", default="both",
+                   choices=["both", "unsmoothed", "smoothed"],
+                   help="Which BOLD-smoothing variants the browser holds "
+                        "(default both). Smoothed reads better at the group "
+                        "level — fsaverage registration scatter means the "
+                        "exact vertex carrying signal moves between subjects.")
     p.add_argument("--browse-desc", default="r2", choices=["r2", "cvr2"],
                    help="Which map the browser shows (default r2; cvr2 reads "
                         "the .cv model dirs).")
@@ -423,8 +434,10 @@ def main():
             Path(args.out_root) / "r2-browser"
         models = ([(f"{m}.cv", p) for m, p in BROWSE_MODELS]
                   if args.browse_desc == "cvr2" else BROWSE_MODELS)
+        smoothing = {"both": (False, True), "unsmoothed": (False,),
+                     "smoothed": (True,)}[args.browse_smoothing]
         ds, cbars = build_browse_datasets(deriv, subjects, desc=args.browse_desc,
-                                          smoothed=args.smoothed, models=models,
+                                          smoothing=smoothing, models=models,
                                           colorbars=args.colorbars,
                                           floor_pct=args.browse_floor,
                                           mask=args.browse_mask,
