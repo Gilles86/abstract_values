@@ -241,7 +241,7 @@ def value_only_modal(deriv, subjects, value_models, gate, colours, tag):
 
 
 def build_winner_datasets(deriv, subjects, models=CANDIDATES,
-                          smoothing=(False, True), min_prevalence=0.5):
+                          smoothing=(False, True), min_prevalence=0.4):
     ds, cbars = {}, []
     subjects_used = {}
     for sm in smoothing:
@@ -362,9 +362,9 @@ def main():
                         "<out-root>/model-winner)")
     p.add_argument("--out-root", default=str(DEFAULT_WEBGL_ROOT))
     p.add_argument("--serve", type=int, nargs="?", const=8000, default=None)
-    p.add_argument("--min-prevalence", type=float, default=0.5,
+    p.add_argument("--min-prevalence", type=float, default=0.4,
                    help="Fraction of subjects that must have signal at a "
-                        "vertex for it to be drawn (default 0.5, a majority). "
+                        "vertex for it to be drawn (default 0.4). "
                         "This is a "
                         "DISPLAY threshold, not a test: lowering it shows more "
                         "cortex, but the winner vote there rests on fewer "
