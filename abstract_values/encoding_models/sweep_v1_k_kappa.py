@@ -276,7 +276,33 @@ def compare_cv(subject, n_basis, kappa, r2_thr=0.05, top_n=100,
           f"{float((joint.loc[top] > null.loc[top]).mean()):.2f}")
 
 
+def kappa_for_fwhm_ratio(n_basis, ratio):
+    """Concentration giving a tuning width of ``ratio`` x the basis spacing.
+
+    Sweeping n_basis and kappa independently is the wrong parameterisation:
+    what controls whether a basis set can represent an arbitrary tuning curve
+    is its FWHM *relative to the spacing between basis functions*, and the
+    same kappa means very different things at n=4 and n=24. On the existing
+    grid the corners are degenerate — (kappa=1, n=24) is 24 near-identical
+    functions whose weights are unidentified, and (kappa=8, n=4) leaves gaps
+    the basis cannot represent — so most of a 29-subject sweep is spent on
+    combinations that fail for numerical rather than biological reasons.
+
+    For an axial von Mises over [0, pi), f(t) ~ exp(kappa*cos(2*(t-mu))),
+    half-max is at cos(FWHM) = 1 + ln(0.5)/kappa, so
+
+        kappa = ln(2) / (1 - cos(FWHM))
+
+    with FWHM in radians on the doubled angle. Well-tiled is ratio ~ 1-2.
+    """
+    spacing = np.pi / n_basis                  # radians, pi-periodic axis
+    fwhm = ratio * spacing
+    fwhm = float(np.clip(fwhm, 1e-3, np.pi - 1e-3))
+    return float(np.log(2.0) / (1.0 - np.cos(fwhm)))
+
+
 def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
+            fwhm_ratios=None,
             decode=False, fdr_alpha=0.05, spherical=True, noise_iter=1000,
             fallback_n=100, cv_mode="joint", smoothed=False, bids_folder=BIDS_FOLDER, roi='BensonV1', roi_hemi='LR'):
     bids_folder = Path(bids_folder)
@@ -379,7 +405,8 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
 
     import csv
     from contextlib import ExitStack
-    n_total = len(n_basis_list) * len(kappa_list)
+    n_total = len(n_basis_list) * (len(fwhm_ratios) if fwhm_ratios
+                                   else len(kappa_list))
     model = AxialVonMisesPRF()
 
     with ExitStack() as stack:
@@ -404,7 +431,12 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
 
         done = 0
         for n_basis in n_basis_list:
-            for kappa in kappa_list:
+            # When sweeping ratios, kappa is derived per n so that every cell
+            # has the same FWHM-to-spacing relationship (see
+            # kappa_for_fwhm_ratio); otherwise sweep kappa directly.
+            kappas = ([kappa_for_fwhm_ratio(n_basis, r) for r in fwhm_ratios]
+                      if fwhm_ratios else list(kappa_list))
+            for kappa in kappas:
                 basis_pars = make_basis_parameters(n_basis, kappa)
 
                 # cvR2 (per-voxel mean over folds)
@@ -498,6 +530,13 @@ def main():
     p.add_argument("--compare-cv", action="store_true",
                    help="Print-only diagnostic: joint vs session-shift cvR2 for "
                         "the first (n_basis, kappa); writes nothing.")
+    p.add_argument("--fwhm-ratio", type=float, nargs="+", default=None,
+                   help="Sweep tuning width as a MULTIPLE OF THE BASIS "
+                        "SPACING instead of raw kappa (e.g. 0.75 1.0 1.5 2.0 "
+                        "3.0). kappa is then derived per n_basis, so every "
+                        "cell is equally well tiled. Sweeping raw kappa "
+                        "confounds width with n: the same kappa is a gap at "
+                        "n=4 and near-collinear duplication at n=24.")
     p.add_argument("--roi", default="BensonV1",
                    help="ROI desc for the mask. Use "
                         "BensonV1ecc075-375 for V1 restricted to the "
@@ -522,7 +561,8 @@ def main():
             spherical=not args.full_noise, noise_iter=args.noise_iter,
             cv_mode=args.cv_mode, smoothed=args.smoothed,
             bids_folder=args.bids_folder,
-            roi=args.roi, roi_hemi=roi_hemi)
+            roi=args.roi, roi_hemi=roi_hemi,
+            fwhm_ratios=args.fwhm_ratio)
 
 
 if __name__ == "__main__":
