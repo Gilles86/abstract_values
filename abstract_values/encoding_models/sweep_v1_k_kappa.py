@@ -78,7 +78,7 @@ HIST_BINS = np.linspace(0, 180, 31)            # 30 bins over 0-180 deg
 HIST_CENTERS = 0.5 * (HIST_BINS[:-1] + HIST_BINS[1:])
 
 
-def _fit_weights_per_session(model, basis_pars, data, paradigm):
+def _fit_weights_per_session(model, basis_pars, data, paradigm, alpha=1.0):
     """Closed-form per-session weights. Returns {session: weights_df}."""
     sessions = paradigm.index.get_level_values("session")
     out = {}
@@ -88,11 +88,11 @@ def _fit_weights_per_session(model, basis_pars, data, paradigm):
             model, basis_pars,
             data.iloc[m].reset_index(drop=True),
             paradigm.loc[m].reset_index(drop=True)[["x"]],
-        ).fit()
+        ).fit(alpha=alpha)
     return out
 
 
-def _loo_cv_joint(model, basis_pars, data, paradigm):
+def _loo_cv_joint(model, basis_pars, data, paradigm, alpha=1.0):
     """Leave-one-run-out CV with a SINGLE joint weight set fit on all
     training runs (both sessions pooled). Correct for orientation, whose
     tuning is condition-invariant; uses 2x the training data and half the
@@ -104,7 +104,7 @@ def _loo_cv_joint(model, basis_pars, data, paradigm):
         test_mask = (sess == test_ses) & (runs == test_run)
         w = WeightFitter(model, basis_pars,
                          data.loc[~test_mask].reset_index(drop=True),
-                         paradigm.loc[~test_mask].reset_index(drop=True)[["x"]]).fit()
+                         paradigm.loc[~test_mask].reset_index(drop=True)[["x"]]).fit(alpha=alpha)
         test_data = data.loc[test_mask].reset_index(drop=True)
         test_par = paradigm.loc[test_mask].reset_index(drop=True)[["x"]]
         bp = model.basis_predictions(test_par, basis_pars)
@@ -114,7 +114,7 @@ def _loo_cv_joint(model, basis_pars, data, paradigm):
     return pd.concat(per_fold, axis=1).mean(axis=1)
 
 
-def _loo_cv_session_shift(model, basis_pars, data, paradigm):
+def _loo_cv_session_shift(model, basis_pars, data, paradigm, alpha=1.0):
     """Leave-one-run-out CV with per-session weights. Returns per-voxel
     mean cvR2 (Series indexed like data columns)."""
     sess = paradigm.index.get_level_values("session")
@@ -131,7 +131,7 @@ def _loo_cv_session_shift(model, basis_pars, data, paradigm):
         test_par = paradigm.loc[test_mask].reset_index(drop=True)[["x"]]
 
         wts_by_ses = _fit_weights_per_session(model, basis_pars,
-                                              train_data, train_par)
+                                              train_data, train_par, alpha)
         wts = wts_by_ses.get(test_ses, next(iter(wts_by_ses.values())))
         basis_pred = model.basis_predictions(test_par, basis_pars)
         test_pred = pd.DataFrame(basis_pred @ wts.values,
@@ -169,7 +169,7 @@ def _null_cvr2(data, paradigm):
     return pd.concat(per_fold, axis=1).mean(axis=1)
 
 
-def _nested_cv_r2(model, basis_pars, train_data, train_par):
+def _nested_cv_r2(model, basis_pars, train_data, train_par, alpha=1.0):
     """Inner leave-one-run-out CV R2 within the training set (unbiased,
     no circularity) -- used for voxel selection."""
     sess = train_par.index.get_level_values("session")
@@ -178,7 +178,7 @@ def _nested_cv_r2(model, basis_pars, train_data, train_par):
     for ses, run in sorted(set(zip(sess, runs))):
         itest = (sess == ses) & (runs == run)
         w = WeightFitter(model, basis_pars,
-                         train_data.loc[~itest], train_par.loc[~itest]).fit()
+                         train_data.loc[~itest], train_par.loc[~itest]).fit(alpha=alpha)
         bp = model.basis_predictions(train_par.loc[itest], basis_pars)
         pred = pd.DataFrame(bp @ w.values,
                             index=train_data.loc[itest].index,
@@ -187,7 +187,7 @@ def _nested_cv_r2(model, basis_pars, train_data, train_par):
     return pd.concat(inner, axis=1).mean(axis=1)
 
 
-def _decode_oos(data, paradigm, basis_pars, fdr_thr, fallback_n=100,
+def _decode_oos(data, paradigm, basis_pars, fdr_thr, fallback_n=100, alpha=1.0,
                 spherical=True, noise_iter=1000):
     """Leave-one-run-out out-of-sample decoding of orientation, FDR voxel
     selection on nested-CV R2. Returns (true_rad, decoded_rad, mean_n_sel)
@@ -205,7 +205,7 @@ def _decode_oos(data, paradigm, basis_pars, fdr_thr, fallback_n=100,
         train_data, test_data = data.loc[~test_mask], data.loc[test_mask]
         train_par, test_par = paradigm.loc[~test_mask], paradigm.loc[test_mask]
 
-        weights = WeightFitter(model, basis_pars, train_data, train_par).fit()
+        weights = WeightFitter(model, basis_pars, train_data, train_par).fit(alpha=alpha)
         cv_r2 = _nested_cv_r2(model, basis_pars, train_data, train_par)
         if fdr_thr is not None and np.isfinite(fdr_thr):
             sel = cv_r2[cv_r2 > fdr_thr].index
@@ -304,7 +304,8 @@ def kappa_for_fwhm_ratio(n_basis, ratio):
 def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             fwhm_ratios=None,
             decode=False, fdr_alpha=0.05, spherical=True, noise_iter=1000,
-            fallback_n=100, cv_mode="joint", smoothed=False, bids_folder=BIDS_FOLDER, roi='BensonV1', roi_hemi='LR'):
+            fallback_n=100, cv_mode="joint", smoothed=False, bids_folder=BIDS_FOLDER, roi='BensonV1', roi_hemi='LR',
+            alphas=(1.0,)):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -405,8 +406,8 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
 
     import csv
     from contextlib import ExitStack
-    n_total = len(n_basis_list) * (len(fwhm_ratios) if fwhm_ratios
-                                   else len(kappa_list))
+    n_total = (len(n_basis_list) * len(alphas)
+               * (len(fwhm_ratios) if fwhm_ratios else len(kappa_list)))
     model = AxialVonMisesPRF()
 
     with ExitStack() as stack:
@@ -437,13 +438,19 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
             kappas = ([kappa_for_fwhm_ratio(n_basis, r) for r in fwhm_ratios]
                       if fwhm_ratios else list(kappa_list))
             for kappa in kappas:
+              for alpha in alphas:
                 basis_pars = make_basis_parameters(n_basis, kappa)
 
-                # cvR2 (per-voxel mean over folds)
-                cvr2 = cv_fn(model, basis_pars, data, paradigm)
+                # cvR2 (per-voxel mean over folds). alpha is the L2 penalty on
+                # the basis weights: without it the closed-form lstsq is
+                # ill-conditioned for narrow or densely-packed bases, the SVD
+                # fails outright (Eigen::BDCSVD error 3) and the returned
+                # cvR2 is meaningless — we saw exact 1.0 on held-out data.
+                cvr2 = cv_fn(model, basis_pars, data, paradigm, alpha)
                 cvr2_sel = cvr2.loc[sel]
                 row = {
                     "subject": subject, "n_basis": n_basis, "kappa": kappa,
+                    "alpha": alpha,
                     "n_v1": n_v1, "n_sel": int(len(sel)),
                     "mean_cvr2_sel": float(cvr2_sel.mean()),
                     "median_cvr2_sel": float(cvr2_sel.median()),
@@ -487,6 +494,7 @@ def run_one(subject, n_basis_list, kappa_list, r2_thr=0.05,
                     for c, cnt in zip(HIST_CENTERS, counts):
                         w_hist.writerow({
                             "subject": subject, "n_basis": n_basis, "kappa": kappa,
+                    "alpha": alpha,
                             "session": ses, "condition": sub.get_mapping(ses),
                             "orientation_deg": float(c), "count": int(cnt),
                         })
@@ -530,6 +538,13 @@ def main():
     p.add_argument("--compare-cv", action="store_true",
                    help="Print-only diagnostic: joint vs session-shift cvR2 for "
                         "the first (n_basis, kappa); writes nothing.")
+    p.add_argument("--alpha", type=float, nargs="+", default=[1.0],
+                   help="L2 penalty on the basis weights (WeightFitter "
+                        "alpha). Pass several to sweep it, e.g. "
+                        "0.01 0.1 1 10 100. Without regularisation the "
+                        "closed-form weight fit is ill-conditioned for narrow "
+                        "or dense bases and returns garbage (cvR2 of exactly "
+                        "1.0 on held-out data).")
     p.add_argument("--fwhm-ratio", type=float, nargs="+", default=None,
                    help="Sweep tuning width as a MULTIPLE OF THE BASIS "
                         "SPACING instead of raw kappa (e.g. 0.75 1.0 1.5 2.0 "
@@ -562,7 +577,7 @@ def main():
             cv_mode=args.cv_mode, smoothed=args.smoothed,
             bids_folder=args.bids_folder,
             roi=args.roi, roi_hemi=roi_hemi,
-            fwhm_ratios=args.fwhm_ratio)
+            fwhm_ratios=args.fwhm_ratio, alphas=args.alpha)
 
 
 if __name__ == "__main__":
