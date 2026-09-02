@@ -165,6 +165,53 @@ def build_group_datasets(deriv, subjects, smoothed_variants=(False, True),
     return ds, cbars
 
 
+
+# ── per-subject R² browser ───────────────────────────────────────────────────
+
+BROWSE_MODELS = [("aprf", "aPRF"), ("vonmises", "vonMises")]
+
+
+def build_browse_datasets(deriv, subjects, desc="r2", smoothed=False,
+                          models=BROWSE_MODELS, colorbars="baked"):
+    """One dataset per (model, subject) on fsaverage, for flipping through.
+
+    Every subject in a model shares one colour scale — the 99th percentile of
+    that model's pooled values. Per-subject autoscaling would make a weak
+    subject look as strong as a good one, which defeats the whole point of
+    paging through them.
+
+    Names are built so an alphabetical dataset list walks subject-by-subject
+    within a model, then moves to the next model.
+    """
+    ds, cbars = {}, []
+    tag = " smoothed" if smoothed else ""
+    for model, pretty in models:
+        maps = {}
+        for sub in subjects:
+            m = load_fsaverage(deriv, model, sub, desc, smoothed)
+            if m is not None:
+                maps[sub] = m
+        if not maps:
+            print(f"  skip {pretty}: no fsaverage {desc} surfaces")
+            continue
+
+        pooled = np.concatenate(list(maps.values()))
+        pos = pooled[pooled > 0]
+        vmax = float(np.percentile(pos, 99)) if pos.size else 0.1
+        print(f"  {pretty} {desc}: n={len(maps)}, shared scale 0–{vmax:.3g}")
+
+        for sub, m in maps.items():
+            alpha = np.clip(np.nan_to_num(m) / max(vmax, 1e-9), 0, 1).astype(np.float32)
+            name = f"{pretty} {desc.upper()}{tag} sub-{sub}"
+            if colorbars == "live":
+                ds[name] = live(m, alpha, CX_FSAVERAGE, 0.0, vmax, "hot",
+                                nonce=len(ds))
+            else:
+                ds[name] = blended(m, alpha, CX_FSAVERAGE, 0.0, vmax, "hot")
+            cbars.append((f"{pretty} {desc.upper()} sub-{sub}", "hot", 0.0, vmax))
+    return ds, cbars
+
+
 # ── all-subjects contact sheet ───────────────────────────────────────────────
 
 def contact_sheet(deriv, subjects, out_pdf, smoothed=False, quantity="vs-null",
@@ -244,6 +291,14 @@ def main():
     p.add_argument("--min-count", type=int, default=None,
                    help="Display threshold for the count map (default: half "
                         "the subjects with data)")
+    p.add_argument("--browse", nargs="?", const="", default=None,
+                   help="Build a per-subject R² browser on fsaverage: one "
+                        "dataset per (model, subject) so you can page through "
+                        "the whole cohort in the viewer. Default destination "
+                        "<out-root>/r2-browser.")
+    p.add_argument("--browse-desc", default="r2", choices=["r2", "cvr2"],
+                   help="Which map the browser shows (default r2; cvr2 reads "
+                        "the .cv model dirs).")
     p.add_argument("--contact-sheet", default=None,
                    help="Write a one-page all-subjects flatmap PDF here")
     p.add_argument("--quantity", default="vs-null",
@@ -266,6 +321,41 @@ def main():
         contact_sheet(deriv, subjects, args.contact_sheet,
                       smoothed=args.smoothed, quantity=args.quantity,
                       ncol=args.ncol)
+
+    if args.browse is not None:
+        dest = Path(args.browse) if args.browse else \
+            Path(args.out_root) / "r2-browser"
+        models = ([(f"{m}.cv", p) for m, p in BROWSE_MODELS]
+                  if args.browse_desc == "cvr2" else BROWSE_MODELS)
+        ds, cbars = build_browse_datasets(deriv, subjects, desc=args.browse_desc,
+                                          smoothed=args.smoothed, models=models,
+                                          colorbars=args.colorbars)
+        if not ds:
+            raise SystemExit("No surfaces found for the browser.")
+        dest.mkdir(parents=True, exist_ok=True)
+        print(f"\nBuilding browser ({len(ds)} maps) in {dest} ...")
+        cortex.webgl.make_static(str(dest), ds, types=("inflated",),
+                                 title=f"Per-subject {args.browse_desc.upper()} "
+                                       f"browser (n={len(subjects)})",
+                                 recache=False,
+                                 curvature_brightness=0.62,
+                                 curvature_contrast=0.28,
+                                 curvature_smoothness=2.0)
+        # Every subject in a model shares one scale, so the PDF needs one
+        # bar per model, not per subject.
+        seen, uniq = set(), []
+        for label, cmap, vmin, vmax in cbars:
+            key = (cmap, round(vmin, 6), round(vmax, 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append((label.rsplit(" sub-", 1)[0], cmap, vmin, vmax))
+        save_colorbar_pdf(uniq, dest / "colorbars.pdf")
+        inject_legend(dest / "index.html", list(ds.keys()), cbars)
+        write_root_index(dest.parent)
+        print(f"Wrote browser → {dest / 'index.html'}")
+        if args.serve is not None:
+            serve_directory(dest.parent, args.serve)
 
     if args.static_html is not None:
         dest = Path(args.static_html) if args.static_html else \
@@ -290,9 +380,10 @@ def main():
         if args.serve is not None:
             serve_directory(dest.parent, args.serve)
 
-    if args.contact_sheet is None and args.static_html is None:
-        raise SystemExit("Nothing to do — pass --static-html and/or "
-                         "--contact-sheet.")
+    if (args.contact_sheet is None and args.static_html is None
+            and args.browse is None):
+        raise SystemExit("Nothing to do — pass --static-html, --browse "
+                         "and/or --contact-sheet.")
 
 
 if __name__ == "__main__":

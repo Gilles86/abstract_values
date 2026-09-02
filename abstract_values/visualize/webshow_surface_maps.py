@@ -587,7 +587,7 @@ def write_root_index(root):
     """
     root = Path(root)
     rows = []
-    for d in sorted(list(root.glob("sub-*")) + list(root.glob("group"))):
+    for d in sorted(x for x in root.iterdir() if x.is_dir()):
         idx = d / "index.html"
         if not idx.exists():
             continue
@@ -596,13 +596,21 @@ def write_root_index(root):
         size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
         rows.append((label, d.name, built, size / 1e6))
 
-    # group first, then study subjects numerically, pilots last
-    rows.sort(key=lambda r: (-1, 0) if r[1] == "group"
-              else ((0, int(r[0])) if r[0].isdigit() else (1, 0)))
+    # cohort-level bundles first, then study subjects numerically, pilots last
+    titles = {"group": "Group (all subjects)",
+              "r2-browser": "R² browser (every subject, both models)"}
+    order = {"group": -2, "r2-browser": -1}
+
+    def sort_key(r):
+        if r[1] in order:
+            return (order[r[1]], 0)
+        return (0, int(r[0])) if r[0].isdigit() else (1, 0)
+
+    rows.sort(key=sort_key)
 
     items = "\n".join(
         f'      <li><a href="{name}/index.html">'
-        f'{"Group (all subjects)" if name == "group" else f"sub-{label}"}</a>'
+        f'{titles.get(name, f"sub-{label}")}</a>'
         f'<span>{built} &middot; {mb:.0f} MB</span></li>'
         for label, name, built, mb in rows)
     html = f"""<!doctype html>
