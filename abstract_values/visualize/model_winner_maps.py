@@ -182,21 +182,51 @@ def summary_figure(deriv, subjects, out_pdf, models=CANDIDATES,
     print(f"Wrote {out_pdf}")
 
 
+def family_vote(deriv, subjects, models, ori, val, smoothed=False):
+    """Per subject: does the best value model beat the best orientation model?
+
+    Returns ``(vote, signal)``, both (n_subjects, n_vertices): vote is 1 where
+    the value family wins and 0 where orientation does; signal is the usual
+    "something beats this subject's own null" mask. Collapsing each family to
+    its best member first is the point — otherwise the value models split
+    their wins and none of them is individually modal.
+    """
+    votes, sigs = [], []
+    for s in subjects:
+        stack, null, kept = load_stack(deriv, s, models, smoothed)
+        if stack is None or len(kept) != len(models):
+            continue
+        best_ori = stack[ori].max(axis=0)
+        best_val = stack[val].max(axis=0)
+        votes.append((best_val > best_ori).astype(np.int8))
+        sigs.append(np.maximum(best_ori, best_val) > null)
+    if not votes:
+        return None
+    return np.vstack(votes), np.vstack(sigs)
+
+
 def build_winner_datasets(deriv, subjects, models=CANDIDATES,
-                          smoothing=(False, True), min_prevalence=0.25):
+                          smoothing=(False, True), min_prevalence=0.5):
     ds, cbars = {}, []
+    subjects_used = {}
     for sm in smoothing:
         tag = " smoothed" if sm else ""
         wins, signal, labels, used = winner_per_subject(deriv, subjects, models, sm)
         if wins is None:
             continue
+        subjects_used[sm] = used
         n = len(used)
         colours = [c for _, l, c in models if l in labels]
         prevalence = signal.mean(axis=0)
         gate = (prevalence >= min_prevalence).astype(np.float32)
-        print(f"  {'smoothed' if sm else 'unsmoothed'}: n={n}, "
-              f"{100 * gate.mean():.1f}% of vertices pass prevalence "
-              f">= {min_prevalence:.0%}")
+        # Report both filters. "No subject beats null" sounds like the
+        # decisive exclusion but is nearly toothless with 29 subjects: almost
+        # every vertex has someone clearing their own null somewhere. The
+        # prevalence threshold is what actually decides the map.
+        print(f"  {'smoothed' if sm else 'unsmoothed'}: n={n}; "
+              f"{100 * np.mean(prevalence == 0):.1f}% of vertices have no "
+              f"subject beating the null; "
+              f"{100 * gate.mean():.1f}% pass prevalence >= {min_prevalence:.0%}")
 
         # per-model: among subjects with signal here, how often does it win?
         frac = []
@@ -242,9 +272,32 @@ def build_winner_datasets(deriv, subjects, models=CANDIDATES,
                                CX_FSAVERAGE, -1.0, 1.0, "RdBu_r")
             cbars.append(("Value family - vonMises (win-fraction)",
                           "RdBu_r", -1.0, 1.0))
-            print(f"    value family beats vonMises at "
-                  f"{100 * np.mean(diff[gate.astype(bool)] > 0):.1f}% "
-                  f"of gated vertices")
+
+            # Two-category version of the modal map: per subject, does ANY
+            # value model beat ANY orientation model here? Then per vertex,
+            # which family the majority of subjects favour. Opacity is how
+            # lopsided that majority is, so a 28/29 vertex reads solid and a
+            # 15/14 split reads as near-background.
+            fam = family_vote(deriv, subjects_used[sm], models, ori, val, sm)
+            if fam is not None:
+                fvote, fsignal = fam
+                den = np.maximum(fsignal.sum(axis=0), 1)
+                val_share = ((fvote == 1) & fsignal).sum(axis=0) / den
+                modal_fam = (val_share > 0.5).astype(np.float32)
+                consistency = np.clip(np.abs(val_share - 0.5) * 2, 0, 1)
+                fam_cmap = mpl.colors.ListedColormap(
+                    [colours[ori[0]], colours[val[0]]])
+                nm = f"Modal family winner{tag} (vonMises vs any aPRF)"
+                ds[nm] = blended(modal_fam, gate * consistency, CX_FSAVERAGE,
+                                 -0.5, 1.5, fam_cmap)
+                cbars.append(("Modal family: vonMises / any aPRF",
+                              fam_cmap, -0.5, 1.5))
+                g = gate.astype(bool)
+                print(f"    modal family: any aPRF wins at "
+                      f"{100 * np.mean(modal_fam[g] == 1):.1f}% of gated "
+                      f"vertices (value family beats vonMises in the "
+                      f"win-fraction map at "
+                      f"{100 * np.mean(diff[g] > 0):.1f}%)")
     return ds, cbars
 
 
@@ -263,9 +316,14 @@ def main():
                         "<out-root>/model-winner)")
     p.add_argument("--out-root", default=str(DEFAULT_WEBGL_ROOT))
     p.add_argument("--serve", type=int, nargs="?", const=8000, default=None)
-    p.add_argument("--min-prevalence", type=float, default=0.25,
+    p.add_argument("--min-prevalence", type=float, default=0.5,
                    help="Fraction of subjects that must have signal at a "
-                        "vertex for it to be drawn (default 0.25)")
+                        "vertex for it to be drawn (default 0.5, a majority). "
+                        "Excluding only vertices where NOBODY beats the null "
+                        "removes just 0.8%% of smoothed cortex — with 29 "
+                        "subjects almost everywhere has someone clearing "
+                        "their own null, so this threshold is the real "
+                        "filter, not the null test.")
     p.add_argument("--smoothing", default="both",
                    choices=["both", "unsmoothed", "smoothed"])
     args = p.parse_args()
