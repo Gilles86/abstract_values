@@ -378,7 +378,7 @@ def inject_legend(index_html, names, cbars):
 
     panel = """
 <style>
-#aprf-legend { position: fixed; left: 20px; bottom: 20px; z-index: 10000;
+#aprf-legend { position: fixed; right: 20px; bottom: 20px; z-index: 10000;
   font: 16px/1.45 -apple-system, system-ui, sans-serif; color: #f2f2f2;
   background: rgba(18,18,18,.92); border: 1px solid #4a4a4a; border-radius: 10px;
   padding: 16px 20px 18px; width: 30vw; min-width: 380px; max-width: 620px;
