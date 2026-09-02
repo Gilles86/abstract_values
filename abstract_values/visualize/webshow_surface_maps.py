@@ -341,8 +341,12 @@ def drop_duplicate_datasets(ds, cbars):
 
 def _gradient_css(cmap, n=24):
     """CSS linear-gradient approximating a matplotlib colormap."""
+    import matplotlib as _mpl
     import matplotlib.pyplot as _plt
-    cols = _plt.get_cmap(cmap)(np.linspace(0, 1, n))[:, :3]
+    # Callers may pass a name or an already-built Colormap (the categorical
+    # winner map builds a ListedColormap on the fly).
+    cm = cmap if isinstance(cmap, _mpl.colors.Colormap) else _plt.get_cmap(cmap)
+    cols = cm(np.linspace(0, 1, n))[:, :3]
     stops = ", ".join(
         "rgb(%d,%d,%d)" % tuple(int(round(255 * c)) for c in row) for row in cols)
     return f"linear-gradient(to right, {stops})"
@@ -487,7 +491,9 @@ def save_colorbar_pdf(cbars, out_path):
     fig, axes = plt.subplots(len(cbars), 1, figsize=(5, 1.15 * len(cbars)))
     axes = np.atleast_1d(axes)
     for ax, (label, cmap, vmin, vmax) in zip(axes, cbars):
-        cb = ColorbarBase(ax, cmap=plt.get_cmap(cmap),
+        import matplotlib as _mpl
+        cm = cmap if isinstance(cmap, _mpl.colors.Colormap) else plt.get_cmap(cmap)
+        cb = ColorbarBase(ax, cmap=cm,
                           norm=Normalize(vmin=vmin, vmax=vmax),
                           orientation="horizontal")
         cb.set_label(label)
