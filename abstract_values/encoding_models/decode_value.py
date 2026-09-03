@@ -59,6 +59,10 @@ from braincoder.models import LogGaussianPRF, LinearModelWithBaseline
 from braincoder.optimize import ParameterFitter, ResidualFitter, WeightFitter
 from braincoder.utils import get_rsq
 
+from braincoder.models import AxialVonMisesPRF
+
+from abstract_values.encoding_models.decode_gabor import (
+    get_gabor_paradigm, make_basis_parameters as make_orientation_basis)
 from abstract_values.encoding_models.models import GaussianValuePRF
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 from abstract_values.encoding_models.geodesic_noise import (
@@ -147,13 +151,46 @@ def get_value_paradigm(sub, sessions):
     return df[['x']]
 
 
+#: The deployed orientation basis (fit_vonmises_model's defaults), used as the
+#: rival model when --rival-orientation is on.
+RIVAL_N_BASIS, RIVAL_KAPPA, RIVAL_ALPHA = 8, 2.0, 10.0
+
+
+def _rival_orientation_cv_r2(train_data, train_ori, n_basis=RIVAL_N_BASIS,
+                             kappa=RIVAL_KAPPA, alpha=RIVAL_ALPHA):
+    """Nested CV R2 of the von Mises orientation basis, on the same inner folds.
+
+    Within a session value is a deterministic function of orientation, so a
+    voxel tuned to either one fits both and "beats the null" cannot tell them
+    apart. "Does the value model beat the orientation model on held-out runs"
+    can -- and it has to be asked inside the fold, from the training runs only,
+    or the selection leaks the run being decoded.
+
+    Closed-form ridge weights, so this costs milliseconds per fold.
+    """
+    model = AxialVonMisesPRF()
+    basis_pars = make_orientation_basis(n_basis, kappa)
+    sess = train_ori.index.get_level_values('session')
+    runs = train_ori.index.get_level_values('run')
+    r2s = []
+    for inner_ses, inner_run in sorted(set(zip(sess, runs))):
+        te = (sess == inner_ses) & (runs == inner_run)
+        w = WeightFitter(model, basis_pars, train_data.loc[~te],
+                         train_ori.loc[~te]).fit(alpha=alpha)
+        bp = model.basis_predictions(train_ori.loc[te], basis_pars)
+        pred = pd.DataFrame(bp @ w.values, index=train_data.loc[te].index,
+                            columns=train_data.columns)
+        r2s.append(get_rsq(train_data.loc[te], pred))
+    return pd.concat(r2s, axis=1).mean(axis=1)
+
+
 def _run_weighted_folds(sub, sessions, paradigm, data, stimulus_range,
                         value_min, value_max,
                         n_voxels, fdr_alpha, p_signal_thr,
                         fdr_fallback_n_voxels,
                         n_basis, basis_fwhm,
                         weight_alpha, lambd, spherical_noise,
-                        smoothed, bids_folder, debug):
+                        smoothed, bids_folder, debug, rival_ori=None):
     """Basis-set (WeightFitter) decoding flow — value-axis analog of decode_gabor.
 
     Mirrors decode_gabor.py: 8 fixed log-Gaussian basis RFs, closed-form
@@ -213,12 +250,16 @@ def _run_weighted_folds(sub, sessions, paradigm, data, stimulus_range,
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
+            cv_r2_rival = (_rival_orientation_cv_r2(
+                train_data, rival_ori.loc[train_idx])
+                if rival_ori is not None else None)
             sel, status, msg = select_voxels(
                 cv_r2, mixture_model='aprf-weighted',
                 subject=sub.subject_id, bids_folder=bids_folder,
                 smoothed=smoothed, fdr_alpha=fdr_alpha,
                 p_signal_thr=p_signal_thr,
-                fdr_fallback_n_voxels=fdr_fallback_n_voxels)
+                fdr_fallback_n_voxels=fdr_fallback_n_voxels,
+                cv_r2_rival=cv_r2_rival)
             print(msg)
         else:
             basis_pred = model.basis_predictions(train_paradigm, basis_pars)
@@ -275,7 +316,7 @@ def _run_linear_folds(sub, sessions, paradigm, data, stimulus_range,
                       n_voxels, fdr_alpha, p_signal_thr,
                       fdr_fallback_n_voxels,
                       weight_alpha, lambd, spherical_noise,
-                      smoothed, bids_folder, debug):
+                      smoothed, bids_folder, debug, rival_ori=None):
     """Linear (signed-slope) decoding flow — value-axis analog of
     ``_run_weighted_folds``, but with a single linear regressor (the raw
     CHF value) instead of an 8-function log-Gaussian basis set.
@@ -340,12 +381,16 @@ def _run_linear_folds(sub, sessions, paradigm, data, stimulus_range,
                 inner_r2s.append(get_rsq(inner_test_data, inner_pred))
 
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
+            cv_r2_rival = (_rival_orientation_cv_r2(
+                train_data, rival_ori.loc[train_idx])
+                if rival_ori is not None else None)
             sel, status, msg = select_voxels(
                 cv_r2, mixture_model='aprf-linear',
                 subject=sub.subject_id, bids_folder=bids_folder,
                 smoothed=smoothed, fdr_alpha=fdr_alpha,
                 p_signal_thr=p_signal_thr,
-                fdr_fallback_n_voxels=fdr_fallback_n_voxels)
+                fdr_fallback_n_voxels=fdr_fallback_n_voxels,
+                cv_r2_rival=cv_r2_rival)
             print(msg)
         else:
             pred_train = _predict(model, train_paradigm, weights, baseline_df)
@@ -407,7 +452,8 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
          lambd=0.0, mask=None, mask_desc=None, spherical_noise=False,
          geodesic_noise=False, geodesic_hemi='R',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False, model_type='loggauss'):
+         smoothed=False, debug=False, model_type='loggauss',
+         rival_orientation=False):
     """If fdr_alpha is set, voxels are selected by FDR-thresholding the
     nested-CV R² using the whole-brain mixture. ``fdr_fallback_n_voxels``
     is used as a top-N fallback when the mixture is flagged degenerate.
@@ -448,6 +494,18 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
 
     # ── paradigm + data ───────────────────────────────────────────────────────
     paradigm = get_value_paradigm(sub, sessions)
+    # Selection rival: the same trials in orientation space. Only meaningful
+    # with the nested-CV floor (n_voxels=0), which is where cv_r2 exists.
+    rival_ori = None
+    if rival_orientation:
+        if n_voxels != 0:
+            raise SystemExit(
+                '--rival-orientation needs --n-voxels 0 (the nested-CV floor); '
+                'top-N by training R2 has no per-voxel cv_r2 to compare.')
+        rival_ori = get_gabor_paradigm(sub, sessions)
+        print(f'  rival: von Mises orientation basis '
+              f'(k={RIVAL_N_BASIS}, kappa={RIVAL_KAPPA}, alpha={RIVAL_ALPHA}) '
+              f'— keeping only voxels the value model beats it on')
     value_min = float(paradigm['x'].min())
     value_max = float(paradigm['x'].max())
     print(f'  {len(paradigm)} trials  value range: {value_min:.1f}–{value_max:.1f} CHF')
@@ -522,7 +580,7 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
             value_min, value_max,
             n_voxels, fdr_alpha, p_signal_thr, fdr_fallback_n_voxels,
             n_basis, basis_fwhm, weight_alpha, lambd, spherical_noise,
-            smoothed, bids_folder, debug)
+            smoothed, bids_folder, debug, rival_ori=rival_ori)
         warn_if_degraded(fold_meta, subject, mask_desc)
         pdfs = concat_posteriors(
             all_pdfs, stimulus_range,
@@ -540,7 +598,7 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
             sub, sessions, paradigm, data, stimulus_range,
             n_voxels, fdr_alpha, p_signal_thr, fdr_fallback_n_voxels,
             weight_alpha, lambd, spherical_noise,
-            smoothed, bids_folder, debug)
+            smoothed, bids_folder, debug, rival_ori=rival_ori)
         warn_if_degraded(fold_meta, subject, mask_desc)
         pdfs = concat_posteriors(
             all_pdfs, stimulus_range,
@@ -629,12 +687,15 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
             cv_r2 = pd.concat(inner_r2s, axis=1).mean(axis=1)
             cv_r2_null = (pd.concat(inner_null_r2s, axis=1).mean(axis=1)
                           if null_gate else None)
+            cv_r2_rival = (_rival_orientation_cv_r2(
+                train_data, rival_ori.loc[train_idx])
+                if rival_ori is not None else None)
             sel, status, msg = select_voxels(
                 cv_r2, mixture_model='aprf', subject=subject,
                 bids_folder=bids_folder, smoothed=smoothed,
                 fdr_alpha=fdr_alpha, p_signal_thr=p_signal_thr,
                 fdr_fallback_n_voxels=fdr_fallback_n_voxels,
-                cv_r2_null=cv_r2_null)
+                cv_r2_null=cv_r2_null, cv_r2_rival=cv_r2_rival)
             print(msg)
         else:
             pred_train = model.predict(parameters=pars, paradigm=train_paradigm)
@@ -724,6 +785,14 @@ if __name__ == '__main__':
                         help='Top-N voxels by cv-R² to use when the whole-brain '
                              'mixture is flagged degenerate (default: 100). '
                              'Applies to both --fdr-alpha and --p-signal-thr.')
+    parser.add_argument('--rival-orientation', action='store_true',
+                        help="Keep only voxels whose nested-CV R2 beats a von "
+                             "Mises ORIENTATION basis fit on the same inner "
+                             "folds -- 'voxels the value model wins', not just "
+                             "'voxels with signal'. Within a session value is a "
+                             "deterministic function of orientation, so beating "
+                             "the null alone cannot separate the two. Requires "
+                             "--n-voxels 0.")
     parser.add_argument('--null-gate', action='store_true',
                         help='Requires --n-voxels 0. Select voxels by nested '
                              'CV R² > nested CV R²_null (per-voxel training-mean '
@@ -783,4 +852,5 @@ if __name__ == '__main__':
          spherical_noise=args.spherical_noise,
          geodesic_noise=args.geodesic_noise, geodesic_hemi=args.geodesic_hemi,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
-         smoothed=args.smoothed, debug=args.debug, model_type=args.model)
+         smoothed=args.smoothed, debug=args.debug, model_type=args.model,
+         rival_orientation=args.rival_orientation)

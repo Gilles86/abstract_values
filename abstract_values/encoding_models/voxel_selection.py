@@ -43,7 +43,8 @@ USABLE_STATUSES = (STATUS_OK, STATUS_MIXTURE_DEGENERATE, STATUS_FDR_FALLBACK)
 
 def select_voxels(cv_r2, *, mixture_model, subject, bids_folder, smoothed,
                   fdr_alpha=None, p_signal_thr=None,
-                  fdr_fallback_n_voxels=100, cv_r2_null=None):
+                  fdr_fallback_n_voxels=100, cv_r2_null=None,
+                  cv_r2_rival=None):
     """Pick decoding voxels from nested-CV R².
 
     Parameters
@@ -64,6 +65,16 @@ def select_voxels(cv_r2, *, mixture_model, subject, bids_folder, smoothed,
     cv_r2_null : pd.Series or None
         Per-voxel null-model nested CV R².  When given, the floor becomes
         ``cv_r2 > cv_r2_null`` instead of ``cv_r2 > 0``.
+    cv_r2_rival : pd.Series or None
+        Per-voxel nested CV R² of a *competing* model, on the same inner
+        folds.  When given, a voxel must also beat it — the floor becomes the
+        elementwise max of the null and the rival.  This is what turns "voxels
+        that carry signal" into "voxels this model wins", the selection the
+        value-vs-orientation contrast needs: within a session value is a
+        deterministic function of orientation, so a voxel tuned to either fits
+        both, and only "which model wins across the mapping flip" separates
+        them.  Computed per fold from the training runs only, so it does not
+        leak the held-out run.
 
     Returns
     -------
@@ -75,7 +86,13 @@ def select_voxels(cv_r2, *, mixture_model, subject, bids_folder, smoothed,
         raise ValueError('fdr_alpha and p_signal_thr are mutually exclusive.')
 
     if fdr_alpha is None and p_signal_thr is None:
-        return _select_by_cv_floor(cv_r2, cv_r2_null)
+        return _select_by_cv_floor(cv_r2, cv_r2_null, cv_r2_rival)
+
+    if cv_r2_rival is not None:
+        raise ValueError(
+            'cv_r2_rival needs the nested-CV floor criterion (n_voxels=0 and '
+            'no fdr_alpha / p_signal_thr): the mixture criteria threshold one '
+            "model's R² distribution and have no notion of a rival.")
 
     return _select_by_mixture(
         cv_r2, mixture_model=mixture_model, subject=subject,
@@ -84,8 +101,11 @@ def select_voxels(cv_r2, *, mixture_model, subject, bids_folder, smoothed,
         fdr_fallback_n_voxels=fdr_fallback_n_voxels)
 
 
-def _select_by_cv_floor(cv_r2, cv_r2_null):
+def _select_by_cv_floor(cv_r2, cv_r2_null, cv_r2_rival=None):
     """``cv_r2 > 0`` (or ``> cv_r2_null``) — the only criterion that can be empty."""
+    if cv_r2_rival is not None:
+        return _select_by_winner(cv_r2, cv_r2_null, cv_r2_rival)
+
     if cv_r2_null is None:
         sel = cv_r2[cv_r2 > 0.0].index
         if len(sel) == 0:
@@ -199,3 +219,22 @@ def usable_folds(meta):
     if 'status' not in meta.columns:
         return meta
     return meta[meta['status'].isin(USABLE_STATUSES)]
+
+
+def _select_by_winner(cv_r2, cv_r2_null, cv_r2_rival):
+    """``cv_r2`` beats both the null and a rival model, per voxel."""
+    rival = cv_r2_rival.reindex(cv_r2.index)
+    floor = rival if cv_r2_null is None else \
+        pd.concat([rival, cv_r2_null.reindex(cv_r2.index)], axis=1).max(axis=1)
+    sel = cv_r2[cv_r2 > floor].index
+    beats_null = (len(cv_r2[cv_r2 > cv_r2_null.reindex(cv_r2.index)])
+                  if cv_r2_null is not None else len(cv_r2[cv_r2 > 0.0]))
+    if len(sel) == 0:
+        return sel, STATUS_EMPTY, (
+            f'    0/{len(cv_r2)} voxels win against the rival model '
+            f'({beats_null} beat the null) — fold is not decodable')
+    margin = float((cv_r2.loc[sel] - rival.loc[sel]).mean())
+    return sel, STATUS_OK, (
+        f'    {len(sel)} voxels selected  (beat the null AND the rival model; '
+        f'{beats_null} beat the null alone, mean margin over rival '
+        f'={margin:.3f})')
