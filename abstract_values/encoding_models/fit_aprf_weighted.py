@@ -39,6 +39,12 @@ from braincoder.optimize import WeightFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.models import GaussianValuePRF
+# Ridge penalty for the closed-form weight fit. Carried over from the
+# orientation-space V1 sweep (visualize/plot_v1_sweep.py), which is the
+# only place it was actually cross-validated -- the value-space basis has
+# not been swept, so treat 10 as a sane default rather than a tuned one.
+DEFAULT_ALPHA = 10.0
+
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
@@ -77,7 +83,7 @@ def make_basis_parameters(n_basis, value_min, value_max, fwhm=None):
     })
 
 
-def main(subject, n_basis=8, fwhm=None, mask=None,
+def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, basis='loggauss'):
     bids_folder = Path(bids_folder)
@@ -119,7 +125,11 @@ def main(subject, n_basis=8, fwhm=None, mask=None,
 
     # ── fit weights (closed-form least squares) ───────────────────────────────
     print('  fitting weights...')
-    weights = WeightFitter(model, basis_pars, data, paradigm).fit()
+    # Ridge, not plain lstsq. The V1 sweep (visualize/plot_v1_sweep.py, n=29)
+    # found alpha=10 beat alpha=1 in 29/29 subjects and beat the near-zero
+    # penalty this used to run with in 29/29; alpha=100 collapses, so 10 is a
+    # real interior optimum rather than "more is better".
+    weights = WeightFitter(model, basis_pars, data, paradigm).fit(alpha=alpha)
 
     # ── R² on training data ───────────────────────────────────────────────────
     basis_pred = model.basis_predictions(paradigm, basis_pars)
@@ -154,6 +164,8 @@ if __name__ == '__main__':
     parser.add_argument('--fwhm', type=float, default=None,
                         help='FWHM in CHF of each basis pRF '
                              '(default: 2× inter-basis spacing)')
+    parser.add_argument('--alpha', type=float, default=DEFAULT_ALPHA,
+                        help='Ridge penalty for the closed-form weight fit.')
     parser.add_argument('--mask', default=None)
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
@@ -164,7 +176,7 @@ if __name__ == '__main__':
                         help='Basis pRF family (default: loggauss)')
     args = parser.parse_args()
 
-    main(args.subject, n_basis=args.n_basis,
+    main(args.subject, n_basis=args.n_basis, alpha=args.alpha,
          fwhm=args.fwhm, mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
          basis=args.basis)

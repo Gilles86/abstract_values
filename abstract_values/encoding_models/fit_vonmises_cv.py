@@ -59,6 +59,12 @@ def get_gabor_paradigm_with_runs(sub, sessions):
     return df[['x']]
 
 
+# Ridge penalty chosen by the V1 sweep; see visualize/plot_v1_sweep.py.
+# alpha=10 beat alpha=1 in 29/29 subjects and the old unregularised fit in
+# 29/29; alpha=100 collapses, so this is an interior optimum.
+DEFAULT_ALPHA = 10.0
+
+
 def make_basis_parameters(n_basis, kappa):
     mus = np.linspace(0, np.pi, n_basis, endpoint=False).astype(np.float32)
     return pd.DataFrame({
@@ -69,7 +75,7 @@ def make_basis_parameters(n_basis, kappa):
     })
 
 
-def main(subject, n_basis=8, kappa=2.0, mask=None,
+def main(subject, n_basis=8, kappa=2.0, alpha=DEFAULT_ALPHA, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, session_shift=False):
     bids_folder = Path(bids_folder)
@@ -79,7 +85,7 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
     sessions = sorted(sub.get_sessions())
 
     print(f'sub-{subject}  all-sessions ({sessions})  '
-          f'n_basis={n_basis}  kappa={kappa}  [CV]')
+          f'n_basis={n_basis}  kappa={kappa}  alpha={alpha}  [CV]')
 
     # ── paradigm with run index ───────────────────────────────────────────────
     paradigm = get_gabor_paradigm_with_runs(sub, sessions)
@@ -152,7 +158,7 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
                     model, basis_pars,
                     train_data.iloc[ses_mask].reset_index(drop=True),
                     train_paradigm.iloc[ses_mask].reset_index(drop=True),
-                ).fit()
+                ).fit(alpha=alpha)
             # Predict the test fold with that session's weights. If the
             # test session wasn't in the training set (impossible under
             # leave-one-run-out with ≥2 runs/session, but guard anyway),
@@ -166,7 +172,7 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
         else:
             # Joint fit (legacy): one set of weights for all training trials.
             weights = WeightFitter(model, basis_pars, train_data,
-                                    train_paradigm).fit()
+                                    train_paradigm).fit(alpha=alpha)
             basis_pred = model.basis_predictions(test_paradigm, basis_pars)
             test_pred  = pd.DataFrame(basis_pred @ weights.values,
                                        index=test_data.index,
@@ -192,6 +198,9 @@ if __name__ == '__main__':
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--n-basis', type=int, default=8)
     parser.add_argument('--kappa', type=float, default=2.0)
+    parser.add_argument('--alpha', type=float, default=DEFAULT_ALPHA,
+                        help='Ridge penalty for the closed-form weight fit '
+                             '(V1 sweep optimum; 0 was the old behaviour).')
     parser.add_argument('--mask', default=None)
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
@@ -203,6 +212,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(args.subject, n_basis=args.n_basis,
-         kappa=args.kappa, mask=args.mask, bids_folder=args.bids_folder,
+         kappa=args.kappa, alpha=args.alpha, mask=args.mask,
+         bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
          session_shift=args.session_shift)

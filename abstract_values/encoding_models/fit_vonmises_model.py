@@ -70,6 +70,10 @@ def get_gabor_paradigm(sub, sessions):
     return pd.DataFrame({'x': arr[:, 0], 'session': arr[:, 1]})
 
 
+# Ridge penalty chosen by the V1 sweep; see visualize/plot_v1_sweep.py.
+DEFAULT_ALPHA = 10.0
+
+
 def make_basis_parameters(n_basis, kappa):
     """Fixed parameters for n_basis Von Mises basis functions (amplitude=1, baseline=0)."""
     mus = np.linspace(0, np.pi, n_basis, endpoint=False).astype(np.float32)
@@ -81,10 +85,16 @@ def make_basis_parameters(n_basis, kappa):
     })
 
 
-def _fit_weights_one_session(model, basis_pars, data_ses, paradigm_ses):
-    """Closed-form lstsq for the 8 basis weights on a single session's
-    trials. Returns weights DataFrame (n_basis × n_voxels) AND R²."""
-    weights = WeightFitter(model, basis_pars, data_ses, paradigm_ses).fit()
+def _fit_weights_one_session(model, basis_pars, data_ses, paradigm_ses,
+                             alpha=DEFAULT_ALPHA):
+    """Closed-form ridge for the basis weights on a single session's trials.
+
+    Returns weights DataFrame (n_basis x n_voxels) AND R2."""
+    # Ridge, not plain lstsq. The V1 sweep (visualize/plot_v1_sweep.py, n=29)
+    # found alpha=10 beat alpha=1 in 29/29 subjects and beat the near-zero
+    # penalty this used to run with in 29/29; alpha=100 collapses, so 10 is a
+    # real interior optimum rather than "more is better".
+    weights = WeightFitter(model, basis_pars, data_ses, paradigm_ses).fit(alpha=alpha)
     basis_pred = model.basis_predictions(paradigm_ses, basis_pars)
     pred = pd.DataFrame(basis_pred @ weights.values,
                          index=data_ses.index, columns=data_ses.columns)
@@ -92,7 +102,7 @@ def _fit_weights_one_session(model, basis_pars, data_ses, paradigm_ses):
     return weights, r2
 
 
-def main(subject, n_basis=8, kappa=2.0, mask=None,
+def main(subject, n_basis=8, kappa=2.0, alpha=DEFAULT_ALPHA, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
          smoothed=False, session_shift=False):
     """When ``session_shift=True``, fit the 8 basis weights *separately*
@@ -110,7 +120,8 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
 
     mode_label = "session-shift" if session_shift else "joint"
     print(f'sub-{subject}  all-sessions ({sessions})  '
-          f'n_basis={n_basis}  kappa={kappa}  mode={mode_label}')
+          f'n_basis={n_basis}  kappa={kappa}  alpha={alpha}  '
+          f'mode={mode_label}')
 
     # ── paradigm ─────────────────────────────────────────────────────────────
     paradigm = get_gabor_paradigm(sub, sessions)
@@ -143,7 +154,7 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
         # doesn't read it.
         paradigm_joint = paradigm[['x']].reset_index(drop=True)
         weights, r2 = _fit_weights_one_session(
-            model, basis_pars, data, paradigm_joint)
+            model, basis_pars, data, paradigm_joint, alpha)
         print(f'  mean R²={float(r2.mean()):.4f}')
 
         out_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises'
@@ -181,7 +192,7 @@ def main(subject, n_basis=8, kappa=2.0, mask=None,
             print(f'  session {ses}: no trials, skipping')
             continue
         weights, r2 = _fit_weights_one_session(
-            model, basis_pars, data_ses, paradigm_ses)
+            model, basis_pars, data_ses, paradigm_ses, alpha)
         print(f'  session {ses}: mean R²={float(r2.mean()):.4f}  '
               f'({len(data_ses)} trials)')
 
@@ -217,6 +228,11 @@ if __name__ == '__main__':
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--n-basis', type=int, default=8,
                         help='Number of Von Mises basis functions (default: 8)')
+    parser.add_argument('--alpha', type=float, default=DEFAULT_ALPHA,
+                        help='Ridge penalty for the closed-form weight fit. '
+                             'The V1 sweep (n=29) picked 10; the old '
+                             'unregularised behaviour lost in 29/29 subjects '
+                             'and alpha=100 collapses.')
     parser.add_argument('--kappa', type=float, default=2.0,
                         help='Von Mises concentration parameter (default: 2.0)')
     parser.add_argument('--mask', default=None,
@@ -231,6 +247,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(args.subject, n_basis=args.n_basis,
-         kappa=args.kappa, mask=args.mask, bids_folder=args.bids_folder,
+         kappa=args.kappa, alpha=args.alpha, mask=args.mask,
+         bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
          session_shift=args.session_shift)
