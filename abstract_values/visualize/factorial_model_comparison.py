@@ -122,11 +122,24 @@ def roi_mask(deriv, roi):
         return mask
     rv = cortex.get_roi_verts("fsaverage")
     mask = np.zeros(n, bool)
-    for side in ("_L", "_R"):
-        if roi + side in rv:
-            mask[rv[roi + side]] = True
-    if not mask.any() and roi in rv:
-        mask[rv[roi]] = True
+    # The project's volumetric masks encode hemisphere in the desc (NPCr /
+    # NPCl); the pycortex fsaverage overlay uses a _L/_R suffix instead. Accept
+    # both spellings so a name that works for get_roi_mask() works here too.
+    trailing = {"r": "_R", "l": "_L"}.get(roi[-1:])
+    if trailing and roi[:-1] + trailing in rv:
+        mask[rv[roi[:-1] + trailing]] = True
+    else:
+        for side in ("_L", "_R"):
+            if roi + side in rv:
+                mask[rv[roi + side]] = True
+        if not mask.any() and roi in rv:
+            mask[rv[roi]] = True
+    if not mask.any():
+        # Silently returning an empty mask makes every downstream statistic
+        # NaN, which reads as "no effect" rather than "wrong ROI name".
+        raise ValueError(
+            f"ROI {roi!r} matched no fsaverage vertices. Known overlay ROIs: "
+            f"{sorted(rv)[:12]}... (or a Benson name like BensonV1ecc075-375)")
     return mask
 
 
