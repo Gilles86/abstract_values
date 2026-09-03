@@ -45,7 +45,7 @@ Usage
 -----
   python -m abstract_values.encoding_models.sweep_npc_value 03
   python -m abstract_values.encoding_models.sweep_npc_value 03 \
-      --n-basis 4 6 8 12 16 20 --fwhm 2 4 6 10
+      --n-basis 4 6 8 12 16 20 --fwhm-ratio 0.75 1 1.5 2 3
 """
 from __future__ import annotations
 
@@ -68,7 +68,21 @@ from abstract_values.encoding_models.model_specs import get_spec
 from abstract_values.encoding_models.fit_pipeline import fit_one_model
 
 DEFAULT_N_BASIS = (4, 6, 8, 12, 16, 20)
-DEFAULT_FWHM = (2.0, 4.0, 6.0, 10.0)          # absolute CHF
+# Basis width, as a multiple of the inter-basis spacing rather than in CHF.
+# Absolute CHF is the wrong axis: what decides whether a basis set can represent
+# an arbitrary tuning curve is its width *relative to the spacing between basis
+# functions*, and 10 CHF is 0.75x the spacing at k=4 but 4.8x at k=20 -- so a
+# fixed CHF grid spends most of its cells on degenerate corners (gaps the basis
+# cannot represent at low k, collinear bumps with unidentified weights at high
+# k). sweep_v1_k_kappa.kappa_for_fwhm_ratio made the orientation side ratio-based
+# for exactly this reason; this is its value-space twin, on the same
+# {0.75 ... 3} grid so the two spaces are finally comparable.
+#
+# It also fixes an omission: fit_aprf_weighted deploys fwhm = 2x spacing, which
+# is 11.4 CHF at k=8 -- outside the old {2, 4, 6, 10} grid. The sweep meant to
+# validate the deployed setting never contained it.
+DEFAULT_FWHM_RATIO = (0.75, 1.0, 1.5, 2.0, 3.0)
+DEFAULT_FWHM = None                            # absolute CHF, overrides ratios
 # Ridge penalty for the closed-form weights. This axis was missing entirely,
 # so every weighted-basis number this script has ever produced came from an
 # unregularised solve. The orientation-space sweep found alpha=10 optimal by a
@@ -101,6 +115,13 @@ def get_value_paradigm(sub, sessions):
             trial=df.groupby(["session", "run"]).cumcount()),
         names=["session", "run", "trial"])
     return df
+
+
+def fwhm_for_ratio(n_basis, ratio, value_min, value_max):
+    """Basis FWHM in CHF for a width of ``ratio`` x the inter-basis spacing."""
+    spacing = ((value_max - value_min) / (n_basis - 1) if n_basis > 1
+               else (value_max - value_min))
+    return float(ratio * spacing)
 
 
 def _folds(paradigm):
@@ -187,15 +208,18 @@ def _cv_weighted(data, paradigm, n_basis, fwhm, cond_mode, alpha,
     return pd.concat(per_fold, axis=1).mean(axis=1)
 
 
-def run_one(subject, n_basis_list, fwhm_list, alpha_list=DEFAULT_ALPHA,
+def run_one(subject, n_basis_list, fwhm_list=DEFAULT_FWHM,
+            fwhm_ratio_list=DEFAULT_FWHM_RATIO, alpha_list=DEFAULT_ALPHA,
             roi='NPCr', roi_hemi=None, r2_thr=0.05, top_n=100,
             n_iter=500, smoothed=False, bids_folder=BIDS_FOLDER):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
     smooth_label = "_smoothed" if smoothed else ""
+    width_desc = (f"fwhm={list(fwhm_list)} CHF" if fwhm_list
+                  else f"fwhm={list(fwhm_ratio_list)} x spacing")
     print(f"sub-{subject}  sessions={sessions}  roi={roi}  "
-          f"n_basis={list(n_basis_list)}  fwhm={list(fwhm_list)}  "
+          f"n_basis={list(n_basis_list)}  {width_desc}  "
           f"alpha={list(alpha_list)}  n_iter={n_iter}")
 
     mask_img = sub.get_roi_mask(roi, hemi=roi_hemi)
@@ -245,19 +269,29 @@ def run_one(subject, n_basis_list, fwhm_list, alpha_list=DEFAULT_ALPHA,
         sel = top = data.columns
     print(f"  {len(sel)} voxels R2>{r2_thr} · top-{top_n} for the figure")
 
-    cv_cols = ["subject", "model", "cond", "n_basis", "fwhm", "alpha",
+    # widths per k: (ratio, fwhm in CHF). An absolute --fwhm leaves ratio blank.
+    if fwhm_list:
+        widths = {k: [("", float(f)) for f in fwhm_list] for k in n_basis_list}
+    else:
+        widths = {k: [(r, fwhm_for_ratio(k, r, value_min, value_max))
+                      for r in fwhm_ratio_list] for k in n_basis_list}
+
+    cv_cols = ["subject", "model", "cond", "n_basis", "fwhm", "fwhm_ratio",
+               "alpha",
                "mean_cvr2_top", "mean_cvr2_sel", "mean_cvr2_all", "n_top",
                "frac_beats_null_sel", "frac_beats_null_all",
                "median_margin_sel"]
 
-    def _summary_row(model, cond, cvr2, n_basis="", fwhm="", alpha=""):
+    def _summary_row(model, cond, cvr2, n_basis="", fwhm="", alpha="",
+                     fwhm_ratio=""):
         # Null-relative metrics, not raw cvR2: most ROI voxels carry no value
         # response, so a mean over all of them mostly reports how badly the
         # worst voxels overfit. "Does this voxel beat its own train-mean
         # baseline" is the project's per-voxel signal test.
         margin = cvr2 - null.reindex(cvr2.index)
         return {"subject": subject, "model": model, "cond": cond,
-                "n_basis": n_basis, "fwhm": fwhm, "alpha": alpha,
+                "n_basis": n_basis, "fwhm": fwhm,
+                "fwhm_ratio": fwhm_ratio, "alpha": alpha,
                 "frac_beats_null_sel": float((margin.loc[sel] > 0).mean())
                     if len(sel) else float("nan"),
                 "frac_beats_null_all": float((margin > 0).mean()),
@@ -275,17 +309,20 @@ def run_one(subject, n_basis_list, fwhm_list, alpha_list=DEFAULT_ALPHA,
         w_vox = csv.writer(f_vox, delimiter="\t")
         w_cv.writeheader()
         w_vox.writerow(["subject", "model", "cond", "n_basis", "fwhm",
-                        "alpha", "voxel", "cvr2"])
+                        "fwhm_ratio", "alpha", "voxel", "cvr2"])
         f_cv.flush(); f_vox.flush()
 
-        def _emit(model, cond, cvr2, n_basis="", fwhm="", alpha=""):
-            row = _summary_row(model, cond, cvr2, n_basis, fwhm, alpha)
+        def _emit(model, cond, cvr2, n_basis="", fwhm="", alpha="",
+                  fwhm_ratio=""):
+            row = _summary_row(model, cond, cvr2, n_basis, fwhm, alpha,
+                               fwhm_ratio)
             w_cv.writerow(row)
             for vox, val in cvr2.items():
-                w_vox.writerow([subject, model, cond, n_basis, fwhm, alpha,
-                                vox, float(val)])
+                w_vox.writerow([subject, model, cond, n_basis, fwhm,
+                                fwhm_ratio, alpha, vox, float(val)])
             f_cv.flush(); f_vox.flush()
-            tag = (f"k={n_basis} fwhm={fwhm} a={alpha}"
+            ratio_tag = f" ({fwhm_ratio:g}x)" if fwhm_ratio != "" else ""
+            tag = (f"k={n_basis} fwhm={fwhm:.1f}{ratio_tag} a={alpha}"
                    if model == "weighted" else "")
             print(f"  {model:<8} {cond:<8} {tag:<22} "
                   f"cvR2(top)={cvr2.loc[top].mean():+.4f}  "
@@ -300,12 +337,12 @@ def run_one(subject, n_basis_list, fwhm_list, alpha_list=DEFAULT_ALPHA,
         # ── weighted basis: (k x fwhm) x {joint, separate} ────────────────────
         for cond in BASIS_COND_MODES:
             for n_basis in n_basis_list:
-                for fwhm in fwhm_list:
+                for ratio, fwhm in widths[n_basis]:
                     for alpha in alpha_list:
                         cvr2 = _cv_weighted(data, paradigm, n_basis, fwhm,
                                             cond, alpha, value_min, value_max)
                         _emit("weighted", cond, cvr2, n_basis=n_basis,
-                              fwhm=fwhm, alpha=alpha)
+                              fwhm=fwhm, fwhm_ratio=ratio, alpha=alpha)
 
     print(f"  wrote {p_cv.name}")
 
@@ -316,7 +353,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("subject", help="Subject label without 'sub-'")
     p.add_argument("--n-basis", type=int, nargs="+", default=list(DEFAULT_N_BASIS))
-    p.add_argument("--fwhm", type=float, nargs="+", default=list(DEFAULT_FWHM))
+    p.add_argument("--fwhm-ratio", type=float, nargs="+",
+                   default=list(DEFAULT_FWHM_RATIO),
+                   help="Basis FWHM as a multiple of the inter-basis spacing "
+                        "(default: 0.75 1 1.5 2 3; 2 is what fit_aprf_weighted "
+                        "deploys).")
+    p.add_argument("--fwhm", type=float, nargs="+", default=None,
+                   help="Absolute basis FWHM in CHF. Overrides --fwhm-ratio; "
+                        "only comparable across k if k is held fixed.")
     p.add_argument("--alpha", type=float, nargs="+", default=list(DEFAULT_ALPHA),
                    help="Ridge penalties to sweep for the weighted basis.")
     p.add_argument("--roi", default="NPCr",
@@ -331,7 +375,8 @@ def main():
     p.add_argument("--smoothed", action="store_true")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     args = p.parse_args()
-    run_one(args.subject, args.n_basis, args.fwhm, alpha_list=args.alpha,
+    run_one(args.subject, args.n_basis, fwhm_list=args.fwhm,
+            fwhm_ratio_list=args.fwhm_ratio, alpha_list=args.alpha,
             roi=args.roi,
             roi_hemi=None if args.roi_hemi.lower() == "none" else args.roi_hemi,
             r2_thr=args.r2_thr,
