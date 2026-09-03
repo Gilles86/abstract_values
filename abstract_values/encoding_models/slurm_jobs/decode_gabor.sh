@@ -33,6 +33,9 @@ export KERAS_BACKEND=tensorflow
 #                 with P_SIGNAL_THR). Output filename: nvoxels-fdrNN.
 #   P_SIGNAL_THR  P(signal|r²) cutoff on whole-brain R² mixture (mutually
 #                 exclusive with FDR_ALPHA). Output filename: nvoxels-psigNN.
+#   RIVAL_VAL     set to "1" to keep only voxels the orientation model beats
+#                 the value (log-Gaussian basis) rival on, fold-wise.
+#                 Requires N_VOXELS=0. Output filename gets a -vsval tag.
 #   LAMBD         ResidualFitter regularisation λ (default: 0.1)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
 #   MODEL         vonmises (default, tuned bump) | linear (no tuning bump,
@@ -59,6 +62,7 @@ SPHERICAL="${SPHERICAL:-0}"
 GEODESIC="${GEODESIC:-0}"
 GEODESIC_HEMI="${GEODESIC_HEMI:-R}"
 N_VOXELS="${N_VOXELS:-100}"
+RIVAL_VAL="${RIVAL_VAL:-0}"
 FDR_ALPHA="${FDR_ALPHA:-}"
 P_SIGNAL_THR="${P_SIGNAL_THR:-}"
 # lambd>0 silently overrides the geodesic Omega in braincoder's
@@ -71,6 +75,11 @@ else
 fi
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 MODEL="${MODEL:-vonmises}"
+
+if [ "$RIVAL_VAL" = "1" ] && [ "$N_VOXELS" != "0" ]; then
+    echo "ERROR: RIVAL_VAL=1 requires N_VOXELS=0."
+    exit 1
+fi
 
 if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     echo "ERROR: FDR_ALPHA and P_SIGNAL_THR are mutually exclusive."
@@ -102,6 +111,7 @@ ARGS=(
 [ -n "$FDR_ALPHA" ] && ARGS+=(--fdr-alpha "$FDR_ALPHA")
 [ -n "$P_SIGNAL_THR" ] && ARGS+=(--p-signal-thr "$P_SIGNAL_THR")
 [ "$MODEL" != "vonmises" ] && ARGS+=(--model "$MODEL")
+[ "$RIVAL_VAL" = "1" ] && ARGS+=(--rival-value)
 
 echo "decode_gabor: sub-${PARTICIPANT_LABEL}  mask=${MASK_DESC}  smoothed=${SMOOTHED}  spherical=${SPHERICAL}  geodesic=${GEODESIC}  λ=${LAMBD}  fdr=${FDR_ALPHA}  psig=${P_SIGNAL_THR}  model=${MODEL}"
 echo "Args: ${ARGS[*]}"

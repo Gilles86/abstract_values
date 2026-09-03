@@ -224,8 +224,12 @@ def usable_folds(meta):
 def _select_by_winner(cv_r2, cv_r2_null, cv_r2_rival):
     """``cv_r2`` beats both the null and a rival model, per voxel."""
     rival = cv_r2_rival.reindex(cv_r2.index)
-    floor = rival if cv_r2_null is None else \
-        pd.concat([rival, cv_r2_null.reindex(cv_r2.index)], axis=1).max(axis=1)
+    # Without a null series the floor is still max(rival, 0): beating a rival
+    # that itself predicts worse than the training mean is not signal, and the
+    # weighted/linear flows do not compute a per-voxel null.
+    baseline = rival.clip(lower=0.0) if cv_r2_null is None else \
+        cv_r2_null.reindex(cv_r2.index)
+    floor = pd.concat([rival, baseline], axis=1).max(axis=1)
     sel = cv_r2[cv_r2 > floor].index
     beats_null = (len(cv_r2[cv_r2 > cv_r2_null.reindex(cv_r2.index)])
                   if cv_r2_null is not None else len(cv_r2[cv_r2 > 0.0]))

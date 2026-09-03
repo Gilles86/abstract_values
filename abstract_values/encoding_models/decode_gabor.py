@@ -401,6 +401,10 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         nvox_tag = f'psig{int(round(p_signal_thr * 100)):02d}'
     else:
         nvox_tag = str(n_voxels)
+    if rival_value:
+        # Distinct tag: a winner-selected run answers a different question from
+        # the null-gated one and must not overwrite it.
+        nvox_tag = f'{nvox_tag}-vsval' 
     out_fn = (out_dir /
               f'sub-{subject}{ses_entity}_mask-{mask_desc}'
               f'_nvoxels-{nvox_tag}_noise-{noise_label}{smooth_label}{lambd_label}_pars.tsv')
