@@ -35,7 +35,7 @@ export KERAS_BACKEND=tensorflow
 #                 exclusive with FDR_ALPHA). Output filename: nvoxels-psigNN.
 #   RIVAL_VAL     set to "1" to keep only voxels the orientation model beats
 #                 the value (log-Gaussian basis) rival on, fold-wise.
-#                 Requires N_VOXELS=0. Output filename gets a -vsval tag.
+#                 N_VOXELS=0 keeps every winner, N_VOXELS=N the top N among them. Output filename gets a -vsval tag.
 #   LAMBD         ResidualFitter regularisation λ (default: 0.1)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
 #   MODEL         vonmises (default, tuned bump) | linear (no tuning bump,
@@ -76,8 +76,8 @@ fi
 FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 MODEL="${MODEL:-vonmises}"
 
-if [ "$RIVAL_VAL" = "1" ] && [ "$N_VOXELS" != "0" ]; then
-    echo "ERROR: RIVAL_VAL=1 requires N_VOXELS=0."
+if [ "$RIVAL_VAL" = "1" ] && { [ -n "$FDR_ALPHA" ] || [ -n "$P_SIGNAL_THR" ]; }; then
+    echo "ERROR: RIVAL_VAL=1 is incompatible with FDR_ALPHA / P_SIGNAL_THR."
     exit 1
 fi
 

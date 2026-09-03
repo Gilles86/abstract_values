@@ -33,7 +33,7 @@ export KERAS_BACKEND=tensorflow
 #   NULL_GATE     set to "1" for nested cvR² > cvR²_null voxel selection
 #                 (requires N_VOXELS=0). Output filename: nvoxels-nullgated.
 #   RIVAL_ORI     set to "1" to keep only voxels this model beats the
-#                 orientation (von Mises basis) rival on, fold-wise. Requires N_VOXELS=0.
+#                 orientation (von Mises basis) rival on, fold-wise. N_VOXELS=0 keeps every winner, N_VOXELS=N the top N among them.
 #                 Output filename gets a -vsori tag.
 #   LAMBD         ResidualFitter regularisation λ (default: 0.1)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep-flair)
@@ -78,8 +78,8 @@ if [ -n "$FDR_ALPHA" ] && [ -n "$P_SIGNAL_THR" ]; then
     exit 1
 fi
 
-if [ "$RIVAL_ORI" = "1" ] && [ "$N_VOXELS" != "0" ]; then
-    echo "ERROR: RIVAL_ORI=1 requires N_VOXELS=0."
+if [ "$RIVAL_ORI" = "1" ] && { [ -n "$FDR_ALPHA" ] || [ -n "$P_SIGNAL_THR" ]; }; then
+    echo "ERROR: RIVAL_ORI=1 is incompatible with FDR_ALPHA / P_SIGNAL_THR."
     exit 1
 fi
 

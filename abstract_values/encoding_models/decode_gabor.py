@@ -201,7 +201,8 @@ def _run_linear_folds(sub, sessions, paradigm, data, stimulus_range,
         model, weights, baseline_df = _fit_slope_baseline(train_paradigm, train_data)
 
         # ── voxel selection ────────────────────────────────────────────────
-        if n_voxels == 0 or fdr_alpha is not None or p_signal_thr is not None:
+        if (n_voxels == 0 or fdr_alpha is not None
+                or p_signal_thr is not None or rival_val is not None):
             inner_runs = sorted(set(zip(
                 train_paradigm.index.get_level_values('session'),
                 train_paradigm.index.get_level_values('run'))))
@@ -230,7 +231,7 @@ def _run_linear_folds(sub, sessions, paradigm, data, stimulus_range,
                 smoothed=smoothed, fdr_alpha=fdr_alpha,
                 p_signal_thr=p_signal_thr,
                 fdr_fallback_n_voxels=fdr_fallback_n_voxels,
-                cv_r2_rival=cv_r2_rival)
+                cv_r2_rival=cv_r2_rival, n_voxels=n_voxels)
             print(msg)
         else:
             pred_train = _predict(model, train_paradigm, weights, baseline_df)
@@ -341,10 +342,12 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
     # _rival_value_cv_r2). Only meaningful with the nested-CV floor.
     rival_val = rival_val_range = None
     if rival_value:
-        if n_voxels != 0:
+        if fdr_alpha is not None or p_signal_thr is not None:
             raise SystemExit(
-                '--rival-value needs --n-voxels 0 (the nested-CV floor); '
-                'top-N by training R2 has no per-voxel cv_r2 to compare.')
+                '--rival-value is incompatible with --fdr-alpha / '
+                "--p-signal-thr: those threshold one model's R2 distribution "
+                'and have no notion of a rival. Use --n-voxels 0 (every '
+                'winner) or --n-voxels N (top N among the winners).')
         from abstract_values.encoding_models.decode_value import (
             get_value_paradigm)
         rival_val = get_value_paradigm(sub, sessions)
@@ -454,7 +457,8 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
         # weights: DataFrame (n_basis × n_voxels)
 
         # ── voxel selection ────────────────────────────────────────────────────
-        if n_voxels == 0 or fdr_alpha is not None or p_signal_thr is not None:
+        if (n_voxels == 0 or fdr_alpha is not None
+                or p_signal_thr is not None or rival_val is not None):
             # Nested CV: leave-one-run-out within training set to get unbiased R²
             inner_runs = list(zip(
                 train_paradigm.index.get_level_values('session'),
@@ -489,7 +493,7 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
                 bids_folder=bids_folder, smoothed=smoothed,
                 fdr_alpha=fdr_alpha, p_signal_thr=p_signal_thr,
                 fdr_fallback_n_voxels=fdr_fallback_n_voxels,
-                cv_r2_rival=cv_r2_rival)
+                cv_r2_rival=cv_r2_rival, n_voxels=n_voxels)
             print(msg)
         else:
             basis_pred = model.basis_predictions(train_paradigm, basis_pars)

@@ -44,7 +44,7 @@ USABLE_STATUSES = (STATUS_OK, STATUS_MIXTURE_DEGENERATE, STATUS_FDR_FALLBACK)
 def select_voxels(cv_r2, *, mixture_model, subject, bids_folder, smoothed,
                   fdr_alpha=None, p_signal_thr=None,
                   fdr_fallback_n_voxels=100, cv_r2_null=None,
-                  cv_r2_rival=None):
+                  cv_r2_rival=None, n_voxels=0):
     """Pick decoding voxels from nested-CV R².
 
     Parameters
@@ -86,7 +86,7 @@ def select_voxels(cv_r2, *, mixture_model, subject, bids_folder, smoothed,
         raise ValueError('fdr_alpha and p_signal_thr are mutually exclusive.')
 
     if fdr_alpha is None and p_signal_thr is None:
-        return _select_by_cv_floor(cv_r2, cv_r2_null, cv_r2_rival)
+        return _select_by_cv_floor(cv_r2, cv_r2_null, cv_r2_rival, n_voxels)
 
     if cv_r2_rival is not None:
         raise ValueError(
@@ -101,10 +101,10 @@ def select_voxels(cv_r2, *, mixture_model, subject, bids_folder, smoothed,
         fdr_fallback_n_voxels=fdr_fallback_n_voxels)
 
 
-def _select_by_cv_floor(cv_r2, cv_r2_null, cv_r2_rival=None):
+def _select_by_cv_floor(cv_r2, cv_r2_null, cv_r2_rival=None, n_voxels=0):
     """``cv_r2 > 0`` (or ``> cv_r2_null``) — the only criterion that can be empty."""
     if cv_r2_rival is not None:
-        return _select_by_winner(cv_r2, cv_r2_null, cv_r2_rival)
+        return _select_by_winner(cv_r2, cv_r2_null, cv_r2_rival, n_voxels)
 
     if cv_r2_null is None:
         sel = cv_r2[cv_r2 > 0.0].index
@@ -221,8 +221,32 @@ def usable_folds(meta):
     return meta[meta['status'].isin(USABLE_STATUSES)]
 
 
-def _select_by_winner(cv_r2, cv_r2_null, cv_r2_rival):
-    """``cv_r2`` beats both the null and a rival model, per voxel."""
+def _select_by_winner(cv_r2, cv_r2_null, cv_r2_rival, n_voxels=0):
+    """``cv_r2`` beats both the null and a rival model, per voxel.
+
+    ``n_voxels > 0`` takes the top N *within the winners*, ranked by cv R².
+    The absolute floor is then dropped: the pilot showed the floor, not the
+    rival, is what starves this selection — in NPCr only 4-9 of 834 voxels
+    clear ``cv_r2 > 0`` on a given fold, so demanding both leaves 2-6 voxels
+    and occasionally none. "Which model does this voxel prefer" is a question
+    a voxel can answer without also being one of the handful with positive
+    cross-validated R², and the top-N ranking still puts the best first.
+    """
+    if n_voxels > 0:
+        rival = cv_r2_rival.reindex(cv_r2.index)
+        pool = cv_r2[cv_r2 > rival]
+        if len(pool) == 0:
+            return (pool.index, STATUS_EMPTY,
+                    f'    0/{len(cv_r2)} voxels prefer this model over the '
+                    f'rival — fold is not decodable')
+        sel = pool.sort_values(ascending=False).index[:n_voxels]
+        short = '' if len(pool) >= n_voxels else \
+            f' — pool smaller than the requested {n_voxels}'
+        return sel, STATUS_OK, (
+            f'    {len(sel)} voxels selected  (top-{n_voxels} by cv R² among '
+            f'the {len(pool)}/{len(cv_r2)} that beat the rival{short}; '
+            f'cv R² ≥ {float(cv_r2.loc[sel].min()):.4f})')
+
     rival = cv_r2_rival.reindex(cv_r2.index)
     # Without a null series the floor is still max(rival, 0): beating a rival
     # that itself predicts worse than the training mean is not signal, and the
