@@ -30,6 +30,7 @@ from typing import Type
 from braincoder.models import (
     AxialVonMisesPRF, LogGaussianPRF, EncodingModel)
 from abstract_values.encoding_models.models import (
+    SessionShiftedAxialVonMisesPRF,
     SessionShiftedLogGaussianPRF,
     FwhmOnlyShiftedLogGaussianPRF,
     FwhmShiftedLogGaussianPRF,
@@ -173,7 +174,11 @@ MODEL_SPECS: dict[str, ModelSpec] = {
     ),
     'vonmises-prf-session-shift': ModelSpec(
         name='vonmises-prf-session-shift',
-        cls=AxialVonMisesPRF,
+        # Was registered against the plain AxialVonMisesPRF, whose parameters
+        # are ['mu', 'kappa', ...] -- so fit_grid asked for ranges the spec
+        # never supplied and the model had never once run. Needs the shifted
+        # class, whose parameters actually match save_params below.
+        cls=SessionShiftedAxialVonMisesPRF,
         needs_session=True,
         save_params=['mu_1', 'mu_2', 'kappa', 'amplitude', 'baseline'],
         out_subdir='vonmises-prf-session-shift',

@@ -10,9 +10,13 @@ jax-traced prediction is what originally broke these models under jax).
 
 import math
 
+import numpy as np
 from keras import ops
-from braincoder.models.prf_1d import GaussianPRF
-from braincoder.utils.math import lognormal_pdf_mode_fwhm, norm
+from braincoder.models.prf_1d import AxialVonMisesPRF, GaussianPRF
+from braincoder.stimuli import (OneDimensionalStimulusWithAmplitude,
+                                _Identity, _Periodic)
+from braincoder.utils.math import (axial_von_mises_pdf,
+                                   lognormal_pdf_mode_fwhm, norm)
 
 
 class SessionShiftedLogGaussianPRF(GaussianPRF):
@@ -417,3 +421,90 @@ class SessionShiftedGaussianValuePRF(GaussianPRF):
         sigma = fwhm * _FWHM_TO_SIGMA
 
         return norm(x, mode, sigma) * amplitude + baseline
+
+
+# ── Orientation-space session shift ─────────────────────────────────────────
+
+class _OrientationSessionStimulus(OneDimensionalStimulusWithAmplitude):
+    """A two-column [orientation, session] paradigm.
+
+    braincoder ships no orientation stimulus with a second channel, so this
+    borrows the "with amplitude" slot the way SessionShiftedLogGaussianPRF
+    borrows it on the value side: column 0 is the orientation (wrapping at pi,
+    not 2pi, because gratings are axial) and column 1 is a plain 0/1 session
+    index, hence identity rather than the softplus an amplitude would want.
+    """
+
+    dimension_labels = ['x (radians, orientation)', 'session']
+
+    def __init__(self, positive_only=True):
+        super().__init__()
+        self.bijectors = [_Periodic(low=0.0, high=np.pi, name='x'),
+                          _Identity(name='session')]
+
+
+class SessionShiftedAxialVonMisesPRF(AxialVonMisesPRF):
+    """AxialVonMisesPRF whose preferred orientation shifts between sessions.
+
+    The orientation-space counterpart of SessionShiftedLogGaussianPRF, and the
+    cell the factorial was missing: without it the only flexible orientation
+    model was the von Mises *basis set* with free per-session weights, so
+    "does tuning change between the cdf and inv_cdf mappings" could not be
+    asked of a single-bell model the way it already could in value space.
+
+    Parameters (per voxel)
+    ----------------------
+    mu_1, mu_2 : preferred orientation in session 1 / session 2 (radians)
+    kappa      : concentration, shared across sessions (softplus -> positive)
+    amplitude  : peak response amplitude
+    baseline   : additive offset
+
+    Paradigm
+    --------
+    DataFrame with columns ``['x', 'session']`` -- orientation in radians and
+    a 0/1 session index, exactly as the value-space shifted model expects.
+    """
+
+    parameter_labels = ['mu_1', 'mu_2', 'kappa', 'amplitude', 'baseline']
+
+    def __init__(self, allow_neg_amplitudes=True, **kwargs):
+        # mu is an angle and must stay unconstrained (the pdf wraps it);
+        # kappa must stay positive.
+        if allow_neg_amplitudes:
+            self.transformations = ['identity', 'identity', 'softplus',
+                                    'identity', 'identity']
+        else:
+            self.transformations = ['identity', 'identity', 'softplus',
+                                    'softplus', 'identity']
+
+        self._basis_predictions_without_amplitude = self._session_predict
+        self._basis_predictions_with_amplitude    = self._session_predict
+
+        AxialVonMisesPRF.__init__(self,
+                                  allow_neg_amplitudes=allow_neg_amplitudes,
+                                  model_stimulus_amplitude=True, **kwargs)
+
+    def _get_stimulus_type(self, model_stimulus_amplitude=False):
+        return _OrientationSessionStimulus
+
+    def _get_stimulus(self, **kwargs):
+        return _OrientationSessionStimulus()
+
+    def _session_predict(self, paradigm, parameters):
+        """Prediction with the preferred orientation switched by session.
+
+        paradigm   : (batch, n_trials, 2)  -- [x, session]
+        parameters : (batch, n_voxels, 5)  -- [mu_1, mu_2, kappa, amp, base]
+        """
+        x       = paradigm[..., None, 0]
+        session = paradigm[..., None, 1]
+
+        mu_1      = parameters[:, None, :, 0]
+        mu_2      = parameters[:, None, :, 1]
+        kappa     = parameters[:, None, :, 2]
+        amplitude = parameters[:, None, :, 3]
+        baseline  = parameters[:, None, :, 4]
+
+        mu = ops.where(session < 0.5, mu_1, mu_2)
+
+        return axial_von_mises_pdf(x, mu, kappa) * amplitude + baseline
