@@ -69,6 +69,14 @@ from abstract_values.encoding_models.fit_pipeline import fit_one_model
 
 DEFAULT_N_BASIS = (4, 6, 8, 12, 16, 20)
 DEFAULT_FWHM = (2.0, 4.0, 6.0, 10.0)          # absolute CHF
+# Ridge penalty for the closed-form weights. This axis was missing entirely,
+# so every weighted-basis number this script has ever produced came from an
+# unregularised solve. The orientation-space sweep found alpha=10 optimal by a
+# wide margin (29/29 subjects), but the value basis is a different problem --
+# bounded 2-42 CHF range, skewed stimulus distribution, log-Gaussian bumps
+# rather than wrapped von Mises -- so it gets its own decade grid rather than
+# inheriting the answer.
+DEFAULT_ALPHA = (0.01, 0.1, 1.0, 10.0, 100.0)
 SINGLE_COND_MODES = ("joint", "shift", "separate")
 BASIS_COND_MODES = ("joint", "separate")      # 'shift' undefined for fixed basis
 
@@ -150,7 +158,7 @@ def _cv_single(data, paradigm, cond_mode, value_min, value_max, n_iter):
     return pd.concat(per_fold, axis=1).mean(axis=1)
 
 
-def _cv_weighted(data, paradigm, n_basis, fwhm, cond_mode,
+def _cv_weighted(data, paradigm, n_basis, fwhm, cond_mode, alpha,
                  value_min, value_max):
     """LOO cvR2 for the weighted log-Gaussian basis (OLS weights)."""
     modes = np.linspace(value_min, value_max, n_basis).astype(np.float32)
@@ -170,7 +178,8 @@ def _cv_weighted(data, paradigm, n_basis, fwhm, cond_mode,
         train_par = paradigm.loc[train_mask, ["x"]].reset_index(drop=True)
         test_data = data.loc[test_mask].reset_index(drop=True)
         test_par = paradigm.loc[test_mask, ["x"]].reset_index(drop=True)
-        w = WeightFitter(model, basis_pars, train_data, train_par).fit()
+        w = WeightFitter(model, basis_pars, train_data,
+                         train_par).fit(alpha=alpha)
         bp = model.basis_predictions(test_par, basis_pars)
         pred = pd.DataFrame(bp @ w.values, index=test_data.index,
                             columns=test_data.columns)
@@ -178,16 +187,18 @@ def _cv_weighted(data, paradigm, n_basis, fwhm, cond_mode,
     return pd.concat(per_fold, axis=1).mean(axis=1)
 
 
-def run_one(subject, n_basis_list, fwhm_list, r2_thr=0.05, top_n=100,
+def run_one(subject, n_basis_list, fwhm_list, alpha_list=DEFAULT_ALPHA,
+            roi='NPCr', roi_hemi=None, r2_thr=0.05, top_n=100,
             n_iter=500, smoothed=False, bids_folder=BIDS_FOLDER):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
     smooth_label = "_smoothed" if smoothed else ""
-    print(f"sub-{subject}  sessions={sessions}  n_basis={list(n_basis_list)} "
-          f"fwhm={list(fwhm_list)}  n_iter={n_iter}")
+    print(f"sub-{subject}  sessions={sessions}  roi={roi}  "
+          f"n_basis={list(n_basis_list)}  fwhm={list(fwhm_list)}  "
+          f"alpha={list(alpha_list)}  n_iter={n_iter}")
 
-    mask_img = sub.get_roi_mask("NPCr", hemi=None)
+    mask_img = sub.get_roi_mask(roi, hemi=roi_hemi)
     betas_img = sub.get_single_trial_estimates(sessions, desc="gabor",
                                                smoothed=smoothed)
     masker = NiftiMasker(mask_img=mask_img, target_affine=betas_img.affine,
@@ -198,7 +209,7 @@ def run_one(subject, n_basis_list, fwhm_list, r2_thr=0.05, top_n=100,
     n_roi = data.shape[1]
     value_min, value_max = float(paradigm["x"].min()), float(paradigm["x"].max())
     assert betas_img.shape[3] == len(paradigm), "beta/paradigm mismatch"
-    print(f"  {n_roi} NPCr voxels · {len(paradigm)} trials · "
+    print(f"  {n_roi} {roi} voxels · {len(paradigm)} trials · "
           f"value {value_min:.0f}-{value_max:.0f} CHF")
 
     # independent voxel R2 from the joint aprf (standard) fit
@@ -218,7 +229,7 @@ def run_one(subject, n_basis_list, fwhm_list, r2_thr=0.05, top_n=100,
     out_dir = (bids_folder / "derivatives" / "experiments" / "npc_value_sweep"
                / f"sub-{subject}" / "func")
     out_dir.mkdir(parents=True, exist_ok=True)
-    base = f"sub-{subject}_task-abstractvalue_mask-NPCr"
+    base = f"sub-{subject}_task-abstractvalue_mask-{roi}"
     p_cv = out_dir / f"{base}_desc-cvr2summary{smooth_label}.tsv"
     p_vox = out_dir / f"{base}_desc-cvr2voxels{smooth_label}.tsv"
     p_null = out_dir / f"{base}_desc-nullcvr2{smooth_label}.tsv"
@@ -234,12 +245,24 @@ def run_one(subject, n_basis_list, fwhm_list, r2_thr=0.05, top_n=100,
         sel = top = data.columns
     print(f"  {len(sel)} voxels R2>{r2_thr} · top-{top_n} for the figure")
 
-    cv_cols = ["subject", "model", "cond", "n_basis", "fwhm",
-               "mean_cvr2_top", "mean_cvr2_sel", "mean_cvr2_all", "n_top"]
+    cv_cols = ["subject", "model", "cond", "n_basis", "fwhm", "alpha",
+               "mean_cvr2_top", "mean_cvr2_sel", "mean_cvr2_all", "n_top",
+               "frac_beats_null_sel", "frac_beats_null_all",
+               "median_margin_sel"]
 
-    def _summary_row(model, cond, cvr2, n_basis="", fwhm=""):
+    def _summary_row(model, cond, cvr2, n_basis="", fwhm="", alpha=""):
+        # Null-relative metrics, not raw cvR2: most ROI voxels carry no value
+        # response, so a mean over all of them mostly reports how badly the
+        # worst voxels overfit. "Does this voxel beat its own train-mean
+        # baseline" is the project's per-voxel signal test.
+        margin = cvr2 - null.reindex(cvr2.index)
         return {"subject": subject, "model": model, "cond": cond,
-                "n_basis": n_basis, "fwhm": fwhm,
+                "n_basis": n_basis, "fwhm": fwhm, "alpha": alpha,
+                "frac_beats_null_sel": float((margin.loc[sel] > 0).mean())
+                    if len(sel) else float("nan"),
+                "frac_beats_null_all": float((margin > 0).mean()),
+                "median_margin_sel": float(margin.loc[sel].median())
+                    if len(sel) else float("nan"),
                 "mean_cvr2_top": float(cvr2.loc[top].mean()),
                 "mean_cvr2_sel": float(cvr2.loc[sel].mean()),
                 "mean_cvr2_all": float(cvr2.mean()),
@@ -252,18 +275,22 @@ def run_one(subject, n_basis_list, fwhm_list, r2_thr=0.05, top_n=100,
         w_vox = csv.writer(f_vox, delimiter="\t")
         w_cv.writeheader()
         w_vox.writerow(["subject", "model", "cond", "n_basis", "fwhm",
-                        "voxel", "cvr2"])
+                        "alpha", "voxel", "cvr2"])
         f_cv.flush(); f_vox.flush()
 
-        def _emit(model, cond, cvr2, n_basis="", fwhm=""):
-            w_cv.writerow(_summary_row(model, cond, cvr2, n_basis, fwhm))
+        def _emit(model, cond, cvr2, n_basis="", fwhm="", alpha=""):
+            row = _summary_row(model, cond, cvr2, n_basis, fwhm, alpha)
+            w_cv.writerow(row)
             for vox, val in cvr2.items():
-                w_vox.writerow([subject, model, cond, n_basis, fwhm,
+                w_vox.writerow([subject, model, cond, n_basis, fwhm, alpha,
                                 vox, float(val)])
             f_cv.flush(); f_vox.flush()
-            tag = f"k={n_basis} fwhm={fwhm}" if model == "weighted" else ""
-            print(f"  {model:<8} {cond:<8} {tag:<14} "
-                  f"cvR2(top)={cvr2.loc[top].mean():+.4f}", flush=True)
+            tag = (f"k={n_basis} fwhm={fwhm} a={alpha}"
+                   if model == "weighted" else "")
+            print(f"  {model:<8} {cond:<8} {tag:<22} "
+                  f"cvR2(top)={cvr2.loc[top].mean():+.4f}  "
+                  f"beats-null={100 * row['frac_beats_null_sel']:.0f}%",
+                  flush=True)
 
         # ── non-linear single pRF: joint / shift / separate ───────────────────
         for cond in SINGLE_COND_MODES:
@@ -274,9 +301,11 @@ def run_one(subject, n_basis_list, fwhm_list, r2_thr=0.05, top_n=100,
         for cond in BASIS_COND_MODES:
             for n_basis in n_basis_list:
                 for fwhm in fwhm_list:
-                    cvr2 = _cv_weighted(data, paradigm, n_basis, fwhm, cond,
-                                        value_min, value_max)
-                    _emit("weighted", cond, cvr2, n_basis=n_basis, fwhm=fwhm)
+                    for alpha in alpha_list:
+                        cvr2 = _cv_weighted(data, paradigm, n_basis, fwhm,
+                                            cond, alpha, value_min, value_max)
+                        _emit("weighted", cond, cvr2, n_basis=n_basis,
+                              fwhm=fwhm, alpha=alpha)
 
     print(f"  wrote {p_cv.name}")
 
@@ -288,13 +317,24 @@ def main():
     p.add_argument("subject", help="Subject label without 'sub-'")
     p.add_argument("--n-basis", type=int, nargs="+", default=list(DEFAULT_N_BASIS))
     p.add_argument("--fwhm", type=float, nargs="+", default=list(DEFAULT_FWHM))
+    p.add_argument("--alpha", type=float, nargs="+", default=list(DEFAULT_ALPHA),
+                   help="Ridge penalties to sweep for the weighted basis.")
+    p.add_argument("--roi", default="NPCr",
+                   help="ROI desc for get_roi_mask (e.g. NPCr, "
+                        "BensonV1ecc075-375).")
+    p.add_argument("--roi-hemi", default="none",
+                   help="'none' omits the hemi entity (NPCr/NPCl and the "
+                        "eccentricity masks already encode hemisphere).")
     p.add_argument("--r2-thr", type=float, default=0.05)
     p.add_argument("--n-iter", type=int, default=500,
                    help="Adam iterations for the single-pRF fits (default 500)")
     p.add_argument("--smoothed", action="store_true")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     args = p.parse_args()
-    run_one(args.subject, args.n_basis, args.fwhm, r2_thr=args.r2_thr,
+    run_one(args.subject, args.n_basis, args.fwhm, alpha_list=args.alpha,
+            roi=args.roi,
+            roi_hemi=None if args.roi_hemi.lower() == "none" else args.roi_hemi,
+            r2_thr=args.r2_thr,
             n_iter=args.n_iter, smoothed=args.smoothed,
             bids_folder=args.bids_folder)
 

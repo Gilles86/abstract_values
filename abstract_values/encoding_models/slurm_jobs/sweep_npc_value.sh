@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=05:00:00
+#SBATCH --time=12:00:00
 #SBATCH --account=zne.uzh
 
 # NPC value model comparison: single non-linear pRF vs weighted basis,
@@ -19,6 +19,9 @@
 #   N_BASIS  basis counts (default "4 6 8 12 16 20")
 #   FWHM     basis fwhm in CHF (default "2 4 6 10")
 #   N_ITER   Adam iters for single-pRF fits (default 500)
+#   ALPHA    ridge penalties for the weighted basis (default "0.01 0.1 1 10 100")
+#   ROI      ROI desc (default NPCr; e.g. BensonV1ecc075-375)
+#   ROI_HEMI hemi entity, or "none" (default) for descs that encode it already
 #   SMOOTHED set to "1" for smoothed betas
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
@@ -28,6 +31,9 @@ fi
 N_BASIS="${N_BASIS:-4 6 8 12 16 20}"
 FWHM="${FWHM:-2 4 6 10}"
 N_ITER="${N_ITER:-500}"
+ALPHA="${ALPHA:-0.01 0.1 1 10 100}"
+ROI="${ROI:-NPCr}"
+ROI_HEMI="${ROI_HEMI:-none}"
 SMOOTHED="${SMOOTHED:-0}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
@@ -40,10 +46,13 @@ ARGS=(
     --n-basis $N_BASIS
     --fwhm $FWHM
     --n-iter "$N_ITER"
+    --alpha $ALPHA
+    --roi "$ROI"
+    --roi-hemi "$ROI_HEMI"
 )
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 
-echo "sweep_npc_value: sub-${PARTICIPANT_LABEL}  n_basis=[${N_BASIS}]  fwhm=[${FWHM}]  n_iter=${N_ITER}"
+echo "sweep_npc_value: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_basis=[${N_BASIS}]  fwhm=[${FWHM}]  alpha=[${ALPHA}]  n_iter=${N_ITER}"
 echo "Args: ${ARGS[*]}"
 
 # exec env-binary directly: streams logs live + forwards SIGTERM (conda run
