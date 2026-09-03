@@ -9,9 +9,13 @@
 # Subjects are considered "complete" once they have this many MRI sessions
 # on disk; pipeline aborts at config-load if any subject has fewer.
 expected_mri_sessions: 2
-subject_expected_overrides:
-  pil01: 1
-  pil02: 1
+subject_expected_overrides: {}
+# NOTE (2026-09-03): pil01/pil02 used to be listed here with 1 session. That
+# was stale -- both have two ses-*/func dirs with 8 abstractvalue runs each,
+# same as everyone else. Because this key only lowers the *completeness*
+# threshold it never blocked anything, but it did mislead: it is why the
+# pilots got left out of a session-shift refit and were silently left on the
+# old unregularised fits while the other 27 subjects moved to alpha=10.
 # Set to false to bypass the completeness check (e.g. for a debug run on
 # an incomplete subject). Default: enforce.
 require_complete: true
