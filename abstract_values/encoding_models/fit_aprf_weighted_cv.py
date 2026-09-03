@@ -99,7 +99,7 @@ def make_basis_parameters(n_basis, value_min, value_max, fwhm=None):
 
 def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, basis='loggauss'):
+         smoothed=False, basis='loggauss', session_shift=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder,
                   fmriprep_deriv=fmriprep_deriv)
@@ -136,7 +136,12 @@ def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
     basis_pars = make_basis_parameters(n_basis, value_min, value_max, fwhm)
     eff_fwhm   = float(basis_pars['fwhm'].iloc[0])
     model, out_subdir = _build_basis_model(basis)
-    print(f'  basis fwhm = {eff_fwhm:.2f} CHF  ({basis})')
+    if session_shift:
+        # aprf-weighted.cv -> aprf-weighted-shift.cv, matching the
+        # vonmises.cv -> vonmises-shift.cv convention.
+        out_subdir = out_subdir.replace('.cv', '-shift.cv')
+    print(f'  basis fwhm = {eff_fwhm:.2f} CHF  ({basis})'
+          f'{"  [per-session weights]" if session_shift else ""}')
 
     # ── output directory ──────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
@@ -168,9 +173,30 @@ def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
         test_paradigm  = paradigm.loc[test_mask].reset_index(drop=True)[['x']]
         test_data      = data.loc[test_mask].reset_index(drop=True)
 
-        # Fit weights (closed-form least squares)
-        weights = WeightFitter(model, basis_pars,
-                               train_data, train_paradigm).fit(alpha=alpha)
+        if session_shift:
+            # Per-session basis weights, exactly as fit_vonmises_cv does for
+            # orientation. Without this the flexibility axis of the factorial
+            # is confounded with architecture: the value side's only flexible
+            # model was a single bell with its mode free per session, while
+            # the orientation side's was a basis set with free weights.
+            train_sessions = (paradigm.loc[train_mask]
+                              .index.get_level_values('session'))
+            weights_by_ses = {}
+            for ses in sorted(set(train_sessions)):
+                ses_mask = (train_sessions == ses)
+                weights_by_ses[ses] = WeightFitter(
+                    model, basis_pars,
+                    train_data.iloc[ses_mask].reset_index(drop=True),
+                    train_paradigm.iloc[ses_mask].reset_index(drop=True),
+                ).fit(alpha=alpha)
+            # Predict the held-out run with its own session's weights; fall
+            # back if that session is somehow absent from the training set.
+            weights = weights_by_ses.get(
+                test_session, next(iter(weights_by_ses.values())))
+        else:
+            # Joint fit: one set of weights for all training trials.
+            weights = WeightFitter(model, basis_pars,
+                                   train_data, train_paradigm).fit(alpha=alpha)
 
         # Predict on held-out run
         basis_pred = model.basis_predictions(test_paradigm, basis_pars)
@@ -203,6 +229,10 @@ if __name__ == '__main__':
                              '(default: 2× inter-basis spacing)')
     parser.add_argument('--alpha', type=float, default=DEFAULT_ALPHA,
                         help='Ridge penalty for the closed-form weight fit.')
+    parser.add_argument('--session-shift', action='store_true',
+                        help='Fit basis weights separately per session, so '
+                             'tuning may differ between the cdf and inv_cdf '
+                             'mappings. Writes to <dir>-shift.cv.')
     parser.add_argument('--mask', default=None)
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
@@ -214,6 +244,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(args.subject, n_basis=args.n_basis, alpha=args.alpha,
+         session_shift=args.session_shift,
          fwhm=args.fwhm, mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
          basis=args.basis)

@@ -39,7 +39,9 @@ ARGS=(
     --n-basis "$N_BASIS"
 )
 
+SESSION_SHIFT="${SESSION_SHIFT:-0}"
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$SESSION_SHIFT" = "1" ] && ARGS+=(--session-shift)
 [ "$BASIS" != "loggauss" ] && ARGS+=(--basis "$BASIS")
 
 echo "fit_aprf_weighted_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  n_basis=${N_BASIS}  smoothed=${SMOOTHED}  basis=${BASIS}"
