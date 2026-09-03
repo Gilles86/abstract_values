@@ -52,7 +52,9 @@ from matplotlib.colors import Normalize
 from abstract_values.utils.data import BIDS_FOLDER
 from abstract_values.visualize.group_surface_maps import (
     discover_subjects, load_fsaverage)
-from abstract_values.visualize.webshow_surface_maps import blended
+from abstract_values.visualize.webshow_surface_maps import (
+    DEFAULT_WEBGL_ROOT, blended, inject_legend, save_colorbar_pdf,
+    serve_directory, write_root_index)
 
 mpl.rcParams.update({
     "font.family": "Helvetica",
@@ -361,6 +363,47 @@ def sns_despine(ax, offset=4):
         ax.spines[spine].set_position(("outward", offset))
 
 
+def build_html_datasets(deriv, subjects, min_frac=0.15, sat_frac=0.45,
+                        smoothing=(False, True)):
+    """Preferred value + its prevalence, as pre-blended webgl datasets.
+
+    Preferred value is only interpretable where a decent number of subjects
+    actually have a value response, so the prevalence map ships alongside it —
+    reading a hue off the map without knowing whether 3 or 20 subjects are
+    behind that vertex is how these maps get over-read.
+    """
+    ds, cbars = {}, []
+    for sm in smoothing:
+        tag = "smoothed" if sm else "unsmoothed"
+        stack, used = per_subject_modes(deriv, subjects, sm)
+        n = len(used)
+        if not n:
+            print(f"  skip {tag}: no surfaces")
+            continue
+        count = np.isfinite(stack).sum(axis=0).astype(np.float32)
+        with np.errstate(all="ignore"):
+            med = np.nanmedian(stack, axis=0)
+        alpha = prevalence_alpha(count, n, min_frac, sat_frac)
+
+        name = f"Preferred value CHF n={n} ({tag})"
+        ds[name] = blended(np.nan_to_num(med, nan=VALUE_MIN), alpha, CX,
+                           VALUE_MIN, VALUE_MAX, CMAP)
+        cbars.append((f"Preferred value, CHF (n={n}, {tag})", CMAP,
+                      VALUE_MIN, VALUE_MAX))
+
+        # Prevalence as a hard gate rather than a ramp: it is a count, so
+        # "how many subjects" is the message, not a display softening.
+        thr = min_frac * n
+        name = f"Subjects beating null of {n} ({tag})"
+        ds[name] = blended(count, (count >= thr).astype(np.float32), CX,
+                           thr, float(n), "hot")
+        cbars.append((f"Subjects with cvR2 > null (of {n}, {tag})", "hot",
+                      thr, float(n)))
+        print(f"  {tag}: n={n}, {int((count >= thr).sum())} vertices with "
+              f">= {thr:.0f} subjects")
+    return ds, cbars
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -371,10 +414,49 @@ def main():
     p.add_argument("--min-frac", type=float, default=0.15)
     p.add_argument("--sat-frac", type=float, default=0.45)
     p.add_argument("--out", default="notes/figures/preferred_value_surface.pdf")
+    p.add_argument("--html", nargs="?", const="", default=None,
+                   help="also build a pycortex webgl bundle (default location: "
+                        "<out-root>/preferred-value)")
+    p.add_argument("--out-root", default=str(DEFAULT_WEBGL_ROOT))
+    p.add_argument("--serve", type=int, nargs="?", const=8000, default=None,
+                   help="serve <out-root> on this port after building")
+    p.add_argument("--no-pdf", action="store_true")
     a = p.parse_args()
     deriv = Path(a.bids_folder) / "derivatives"
     subjects = a.subjects or discover_subjects(deriv)
-    figure(deriv, subjects, a.out, a.smoothed, a.min_frac, a.sat_frac)
+
+    if not a.no_pdf:
+        figure(deriv, subjects, a.out, a.smoothed, a.min_frac, a.sat_frac)
+
+    if a.html is not None:
+        dest = Path(a.html) if a.html else Path(a.out_root) / "preferred-value"
+        ds, cbars = build_html_datasets(deriv, subjects, a.min_frac, a.sat_frac)
+        if not ds:
+            raise SystemExit("No surfaces found for the webgl bundle.")
+        dest.mkdir(parents=True, exist_ok=True)
+        # make_static appends to data/ rather than replacing it, so a rebuild
+        # with fewer or renamed datasets otherwise leaves orphans behind that
+        # the viewer still lists.
+        for stale in (dest / "data").glob("*"):
+            stale.unlink()
+        print(f"\nBuilding webgl bundle ({len(ds)} maps) in {dest} ...")
+        # "flat" must never appear in `types`: pycortex loads the flat surface
+        # itself as UV coordinates, while addSurf("flat") renormalises it into
+        # the fiducial bounding box — and a flat surface's z is constant, so
+        # that divides by zero and OpenCTM rejects the mesh.
+        cortex.webgl.make_static(str(dest), ds, types=("inflated",),
+                                 title=f"Preferred value (n={len(subjects)})",
+                                 recache=False,
+                                 curvature_brightness=0.62,
+                                 curvature_contrast=0.28,
+                                 curvature_smoothness=2.0)
+        save_colorbar_pdf(cbars, dest / "colorbars.pdf")
+        inject_legend(dest / "index.html", list(ds.keys()), cbars)
+        write_root_index(dest.parent)
+        print(f"Wrote bundle -> {dest / 'index.html'}")
+
+    if a.serve is not None:
+        serve_directory(Path(a.out_root), a.serve)
 
 
 if __name__ == "__main__":
