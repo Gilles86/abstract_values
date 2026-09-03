@@ -200,7 +200,19 @@ CVR2_MODEL_DIRS = {
     "aprf-gauss.cv":        "aprf_gauss_cv",
     "aprf-gauss-shift.cv":  "aprf_gauss_session_shift_cv",
     "aprf-linear.cv":       "aprf_linear_cv",
+    # The flexible orientation model. It was fitted by rule
+    # fit_vonmises_shift_cv from the start but never listed here, so its cvR2
+    # was never aggregated and never reached fsaverage -- which is why the
+    # value-vs-orientation comparison had a flexible model on the value side
+    # and none on the orientation side.
+    "vonmises-shift.cv":    "vonmises_shift_cv",
 }
+
+# Not here, deliberately: vonmises-prf.cv (the single-bell orientation model).
+# It is fitted through fit_pipeline.py / model_specs.py rather than by a rule
+# in this file, so there is no sentinel for _surface_sample_input to depend on.
+# Its aggregation + surface sampling are run out of band; give it a fit rule
+# before adding it.
 
 # Wildcard-constraint alternations for `model_dir`, derived from the two dicts
 # above so registering a new variant there is enough — the aggregate_cvr2 /
@@ -284,7 +296,8 @@ def subject_targets(subject):
             # but never surface-sampled, so every group-level surface analysis
             # silently skipped them. Sample them like the rest.
             cvr2_dirs += ["aprf-shift.cv", "aprf-gauss-shift.cv",
-                          "aprf-fwhm-shift.cv", "aprf-fully-shifted.cv"]
+                          "aprf-fwhm-shift.cv", "aprf-fully-shifted.cv",
+                          "vonmises-shift.cv"]
         for md in r2_dirs + cvr2_dirs:
             targets.append(surface_sample_sentinel(subject, md, sfx))
 
