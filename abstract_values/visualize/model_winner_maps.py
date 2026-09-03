@@ -3,16 +3,35 @@
 Compares a set of cross-validated models against each other and against the
 null (``aprf-null.cv``, "predict the training mean"):
 
-    vonMises            gabor orientation tuning — the bottom-up control
-    aPRF                one log-Gaussian in value space, shared across sessions
-    aPRF session-shift  mode free per session
-    aPRF fully shifted  every parameter free per session
+    vonMises bell    one axial von Mises in orientation space
+    vonMises basis   8 von Mises with free weights
+    aPRF bell        one log-Gaussian in value space
+    aPRF basis       k log-Gaussians with free weights
 
-The last one matters because the two sessions use *inverted* orientation→value
-mappings, so a model forced to hold one tuning across both is handicapped in a
-way the orientation model is not. Comparing on cvR² rather than R² is what
-makes this fair: the freer models have more parameters and would win on
-full-fit R² by construction.
+That set is deliberately balanced two ways: two models per *space* (orientation
+vs value) and two per *architecture* (a single tuned bump vs a weighted basis).
+Both balances are load-bearing.
+
+Architecture, because the earlier default (one orientation model against three
+value ones) confounded the question it was asked. A basis set with free weights
+can express any tuning shape the bell can and more, so "vonMises beats aPRF"
+read as a space effect when it was mostly an architecture effect.
+
+Vote-splitting, because a winner-take-all is not invariant to how many models a
+family fields. With 3 value models against 1 orientation model, the value
+family's wins split three ways and none of them is modal even where the family
+collectively wins — vonMises was modal at 84% of vertices while the value family
+won 42% of them. Equal pools remove that artefact; the family-collapsed maps
+below then answer "which space" honestly.
+
+Comparing on cvR² rather than R² is what makes any of this fair: the basis
+models have more parameters and would win on full-fit R² by construction.
+
+Session-shifted variants (``aprf-shift.cv``, ``aprf-fully-shifted.cv``,
+``vonmises-shift.cv``) are deliberately NOT in the default set. Once tuning may
+be refit per session, each space can absorb the mapping flip and the space
+contrast collapses — flexibility is its own result, not a competitor here. Pass
+them with ``--models`` to look at that separately.
 
 A vertex counts as "signal" for a subject when at least one model beats that
 subject's own null. Among signal vertices, the winner is the argmax of cvR².
@@ -66,11 +85,14 @@ mpl.rcParams.update({
 NULL_MODEL = "aprf-null.cv"
 
 # (cv dir, short label, colour) — colours double as the modal-map palette
+# Hue encodes the space (blue = orientation, red = value), lightness the
+# architecture (light = one bell, dark = weighted basis), so the modal map can
+# be read as "which space" at a glance and "which shape" on a second look.
 CANDIDATES = [
-    ("vonmises.cv", "vonMises", "#3B5BA5"),
-    ("aprf.cv", "aPRF", "#E76F51"),
-    ("aprf-shift.cv", "aPRF shift", "#2A9D8F"),
-    ("aprf-fully-shifted.cv", "aPRF free", "#B07AA1"),
+    ("vonmises-prf.cv", "vonMises bell", "#6A8CC7"),
+    ("vonmises.cv", "vonMises basis", "#25457F"),
+    ("aprf.cv", "aPRF bell", "#EE9C7A"),
+    ("aprf-weighted.cv", "aPRF basis", "#B33A22"),
 ]
 
 
@@ -354,8 +376,12 @@ def main():
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     p.add_argument("--subjects", nargs="+", default=None)
     p.add_argument("--models", nargs="+", default=None,
-                   help="cv dirs to compare (default: vonmises.cv aprf.cv "
-                        "aprf-shift.cv aprf-fully-shifted.cv)")
+                   help="cv dirs to compare (default: vonmises-prf.cv "
+                        "vonmises.cv aprf.cv aprf-weighted.cv — balanced two "
+                        "per space and two per architecture). Keep the pools "
+                        "equal per family: a family fielding more models both "
+                        "splits its own vote in the modal map and gets more "
+                        "chances in the argmax.")
     p.add_argument("--summary", default=None, help="write the summary PDF here")
     p.add_argument("--html", nargs="?", const="", default=None,
                    help="build the winner webgl bundle (default "
