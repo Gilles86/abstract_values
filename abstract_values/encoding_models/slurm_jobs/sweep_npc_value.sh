@@ -3,13 +3,19 @@
 #SBATCH --output=/home/gdehol/logs/sweep_npc_value_%j.txt
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --time=12:00:00
+#SBATCH --mem=12G
+#SBATCH --time=01:30:00
 #SBATCH --account=zne.uzh
 
 # NPC value model comparison: single non-linear pRF vs weighted basis,
 # crossed with condition handling (joint/shift/separate). CPU-only; the
 # single-pRF grid+Adam fits are the cost (NPCr is small, so manageable).
+#
+# Resources are measured, not guessed: the full 243-cell grid (6 n_basis x
+# 4 fwhm x 5 alpha x 2 cond, plus 3 single-pRF fits) on sub-29 / NPCr ran in
+# 24m21s at 4.6 GB peak RSS (job 5475839). 1h30 / 12G is ~3.5x and ~2.6x that.
+# Over-requesting costs queue priority for nothing, so re-measure rather than
+# padding if the grid grows again.
 #
 # Usage:
 #   sbatch --array=3-14 sweep_npc_value.sh
