@@ -42,6 +42,8 @@ from braincoder.models import AxialVonMisesPRF
 from braincoder.optimize import ResidualFitter, WeightFitter
 from braincoder.utils import get_rsq
 
+from abstract_values.encoding_models.ridge_alpha import (
+    DEFAULT_RIDGE_ALPHA, enforce_default_alpha)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
@@ -205,6 +207,7 @@ def simulate_decode_session(model, basis_pars, weights_sel, omega, dof,
 
 def main(subject, sessions=None, roi="BensonV1", hemi="LR",
          n_voxels=100, n_basis=8, kappa=2.0,
+         weight_alpha=DEFAULT_RIDGE_ALPHA,
          n_orientations=180, n_simulations=1000,
          n_noise_iterations=1000, batch_stimuli=25,
          fdr_alpha=None, p_signal_thr=None, fdr_fallback_n_voxels=100,
@@ -243,11 +246,16 @@ def main(subject, sessions=None, roi="BensonV1", hemi="LR",
     print(f"  {data.shape[1]} voxels in mask ({mask_desc})")
 
     basis_pars = make_basis_parameters(n_basis=n_basis, kappa=kappa)
-    print(f"  {n_basis} Von Mises basis functions, kappa={kappa}")
+    print(f"  {n_basis} Von Mises basis functions, kappa={kappa}, "
+          f"alpha={weight_alpha}")
 
     # Joint weight fit (V1 expected to be condition-invariant)
     model = AxialVonMisesPRF()
-    weights = WeightFitter(model, basis_pars, data, paradigm).fit()
+    # Was an unregularised .fit(): the EU maps were built from alpha=0
+    # weights while everything they are compared against uses the project
+    # alpha. See ridge_alpha.py.
+    weights = WeightFitter(model, basis_pars, data, paradigm).fit(
+        alpha=weight_alpha)
 
     basis_pred = model.basis_predictions(paradigm, basis_pars)
     pred = pd.DataFrame(basis_pred @ weights.values,
@@ -432,6 +440,9 @@ if __name__ == "__main__":
     parser.add_argument("--n-simulations", type=int, default=1000)
     parser.add_argument("--n-noise-iterations", type=int, default=1000)
     parser.add_argument("--batch-stimuli", type=int, default=25)
+    parser.add_argument("--weight-alpha", type=float,
+                        default=DEFAULT_RIDGE_ALPHA)
+    parser.add_argument("--allow-nondefault-alpha", action="store_true")
     parser.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     parser.add_argument("--fmriprep-deriv", default="fmriprep",
                         choices=["fmriprep", "fmriprep-t2w", "fmriprep-flair"])
@@ -456,8 +467,11 @@ if __name__ == "__main__":
                              "the V1/NPCr mapping figure. Output goes to "
                              "vonmises-session-shift/.")
     args = parser.parse_args()
+    enforce_default_alpha(args.weight_alpha, args.allow_nondefault_alpha,
+                          'vonmises basis EU weights')
 
     main(args.subject, sessions=args.sessions, roi=args.roi, hemi=args.hemi,
+         weight_alpha=args.weight_alpha,
          n_voxels=args.n_voxels, n_basis=args.n_basis, kappa=args.kappa,
          n_orientations=args.n_orientations,
          n_simulations=args.n_simulations,
