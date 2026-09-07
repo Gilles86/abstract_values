@@ -1,14 +1,18 @@
 """Cross-condition value decoding: decode one mapping with the other's tuning.
 
-The two sessions use inverted orientation->value mappings, so this is the sharp
-test of what NPCr's value code is anchored to. Decoding the held-out session
+The two sessions use differently warped orientation->value mappings (both
+monotone, Spearman rho = 1, Pearson 0.93 -- NOT inversions, see the correction
+in notes/model_comparison_plan.md), so this transfer test is weaker than the
+plan assumed: an orientation-tuned voxel also transfers, because its value
+tuning is warped rather than flipped. Decoding the held-out session
 with the *other* session's preferred values (aprf-session-shift; only the mode
 differs between matched and cross, everything else is shared) has three
 possible outcomes:
 
   * cross ~ matched            the per-session mode shift is fit noise
-  * cross inverted             the code is orientation, and value tuning is
-                               inherited, so it flips with the mapping
+  * cross inverted             would mean the code is orientation AND the
+                               mappings were inversions; they are not, so this
+                               outcome was never predicted by the design
   * cross degraded but aligned the code is value, and the mode shift is a real
                                but modest re-anchoring
 

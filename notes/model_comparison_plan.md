@@ -120,3 +120,38 @@ braincoder, so this is mostly wiring. Phases 2–3 are analysis over fits that
 mostly exist. Phase 4 is the expensive one: a k × dispersion grid × 29 subjects,
 though `sweep_v1_k_kappa.py` shows the pattern and restricting to ROIs keeps it
 affordable.
+
+## Correction (2026-09-07): the two mappings are NOT inverted
+
+Checked against the actual stimulus set (`notes/data/value_orientation_lut.tsv`,
+built from the events) and `experiment/README.md`: **both** mappings are
+monotonically increasing in orientation. `cdf` bunches values at the high end,
+`inverse_cdf` at the low end; they cross at 90 deg / 22 CHF.
+
+    Spearman rank correlation between them   1.00
+    Pearson correlation                      0.93  (87% shared variance)
+    Mean |value difference| per orientation  4.1 CHF   (max 6.0 CHF at 22.5 deg)
+
+So the design separates value from orientation by a **warp of the value axis**,
+never by a sign flip, and the rank order of values across orientations is
+identical in the two conditions.
+
+This invalidates the identifying logic stated above and repeated in several
+script docstrings ("a voxel truly tuned to orientation ... its value tuning
+inverts"). It does not:
+
+- an orientation-tuned voxel's value tuning is *warped*, not flipped, so a
+  joint value model fits it nearly as well in both conditions;
+- cross-condition decoding therefore transfers under EITHER hypothesis, and the
+  "does it invert?" test has no power -- nothing in the design predicted
+  inversion;
+- with 87% shared variance between the mappings, joint value and joint
+  orientation models are close to interchangeable, which is the likeliest
+  reason the winner maps came out so flat (value share 35-48% everywhere) and
+  the per-voxel margins so thin (0.008-0.025 cvR2).
+
+What still discriminates is the 13% of variance where the mappings disagree --
+concentrated in the mid-range and at the low end. Any future test of "value or
+orientation" should be built on that residual explicitly (e.g. predicting the
+response difference between conditions at matched orientation), not on a
+transfer test that both hypotheses pass.

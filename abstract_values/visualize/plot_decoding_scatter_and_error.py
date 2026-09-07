@@ -5,10 +5,11 @@ the pooled trial scatter and the error profile across the stimulus axis, split
 by mapping condition.
 
 Splitting the error profile by condition is the point of the right-hand column.
-The two sessions use inverted orientation->value mappings, so a representation
-that is genuinely in value space should show the same error profile in both,
-while one that only looks like value because value tracks orientation within a
-session should show profiles that mirror each other.
+The two sessions warp the orientation->value mapping differently (both
+monotone, Pearson 0.93 -- not inversions). A representation genuinely in value
+space should show the same error profile in both; one that tracks orientation
+should show profiles that differ where the two mappings disagree, which is the
+mid-range and the low end rather than a mirror image.
 
 Reads the per-trial dump from ``decoding_quality_scatter --trials-tsv``.
 
