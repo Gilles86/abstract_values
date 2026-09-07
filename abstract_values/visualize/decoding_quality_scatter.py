@@ -175,8 +175,16 @@ def run(subjects, nvoxels, smoothed, out):
                 true, dec = loaded
                 r = _panel(ax, true, dec, label, circ, ROI_COLOUR[roi])
                 ax.set_title(f"{label.split()[0]} · {roi}", fontsize=9, color="0.2")
+                # Absolute error alongside the fidelity: r says how well the
+                # decode tracks the stimulus, mae says how far off it is in
+                # the stimulus' own units, and the two can disagree.
+                if circ:
+                    err = np.angle(np.exp(1j * 2.0 * (dec - true))) / 2.0
+                    mae = float(np.rad2deg(np.abs(err)).mean())
+                else:
+                    mae = float(np.abs(dec - true).mean())
                 summary.append(dict(subject=s, quantity=q, roi=roi,
-                                    r=r, n=len(true)))
+                                    r=r, mae=mae, n=len(true)))
             fig.suptitle(f"sub-{s}  ·  decoding quality  ·  {smooth_lbl}  ·  "
                          f"nvoxels={nvoxels}", fontsize=11, y=1.06)
             pdf.savefig(fig, bbox_inches="tight")
@@ -211,11 +219,25 @@ def main():
                    help="voxel-selection tag, e.g. 100, 250, 0, or fdr05")
     p.add_argument("--noise", default="full", choices=["full", "spherical", "geodesic"],
                    help="noise model whose decoding pars to read")
+    p.add_argument("--value-dir", default="value",
+                   choices=["value", "value-weighted", "value-linear",
+                            "value-fullfit"],
+                   help="Which value decoder's posteriors to read (default: "
+                        "'value', the single-bell aPRF; 'value-weighted' is "
+                        "the basis model the sweeps settled on).")
     p.add_argument("--smoothed", action="store_true")
+    p.add_argument("--bids-folder", default=str(BIDS_FOLDER),
+                   help="Dataset root; pass the share path to run this "
+                        "cluster-side where the pars files live.")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
-    global NOISE
+    global NOISE, DECODE
     NOISE = args.noise
+    DECODE = Path(args.bids_folder) / "derivatives" / "decoding"
+    if args.value_dir != "value":
+        for i, (q, tc, roi, lab, circ) in enumerate(PANELS):
+            if q == "value":
+                PANELS[i] = (args.value_dir, tc, roi, lab, circ)
     subjects = args.subjects or discover_subjects(args.nvoxels, args.smoothed)
     if not subjects:
         raise SystemExit(f"No decoding pars found for nvoxels={args.nvoxels}")
