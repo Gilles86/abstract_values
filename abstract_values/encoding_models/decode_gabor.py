@@ -53,6 +53,8 @@ from braincoder.models import (AxialVonMisesPRF, LinearModelWithBaseline,
 from braincoder.optimize import WeightFitter, ResidualFitter
 from braincoder.utils import get_rsq
 
+from abstract_values.encoding_models.ridge_alpha import (
+    DEFAULT_RIDGE_ALPHA, enforce_default_alpha)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 from abstract_values.encoding_models.geodesic_noise import (
     geodesic_snap_for_masker, geodesic_D_for_selection,
@@ -116,7 +118,8 @@ def _circular_basis(x_rad):
 
 
 #: The deployed value basis (fit_aprf_weighted's defaults) as the rival model.
-RIVAL_N_BASIS, RIVAL_ALPHA = 8, 10.0
+RIVAL_N_BASIS = 8
+RIVAL_ALPHA = DEFAULT_RIDGE_ALPHA
 
 
 def _rival_value_cv_r2(train_data, train_val, value_min, value_max,
@@ -288,7 +291,7 @@ def _run_linear_folds(sub, sessions, paradigm, data, stimulus_range,
 def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
          p_signal_thr=None, fdr_fallback_n_voxels=100,
          n_basis=8, kappa=2.0,
-         weight_alpha=0.0, lambd=0.0,
+         weight_alpha=DEFAULT_RIDGE_ALPHA, lambd=0.0,
          mask=None, mask_desc=None, spherical_noise=False,
          geodesic_noise=False, geodesic_hemi='R',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
@@ -598,7 +601,12 @@ if __name__ == '__main__':
                         help='Number of Von Mises basis functions (default: 8)')
     parser.add_argument('--kappa', type=float, default=2.0,
                         help='Von Mises concentration (default: 2.0)')
-    parser.add_argument('--weight-alpha', type=float, default=0.0,
+    parser.add_argument('--allow-nondefault-alpha', action='store_true',
+                        help='Permit a ridge penalty other than the project '
+                             'default; the decode is then not comparable with '
+                             'the rest of the analysis.')
+    parser.add_argument('--weight-alpha', type=float,
+                        default=DEFAULT_RIDGE_ALPHA,
                         help='Ridge regression alpha for weight fitting (default: 0)')
     parser.add_argument('--lambd', type=float, default=0.0,
                         help='Lambda regularization for noise model (default: 0)')
@@ -629,6 +637,8 @@ if __name__ == '__main__':
                              "on cos(2x)/sin(2x), closed-form fit. Output "
                              "subdir: derivatives/decoding/{gabor,gabor-linear}/.")
     args = parser.parse_args()
+    enforce_default_alpha(args.weight_alpha, args.allow_nondefault_alpha,
+                          'orientation basis weights')
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
          fdr_alpha=args.fdr_alpha,

@@ -31,6 +31,8 @@ from braincoder.models import AxialVonMisesPRF
 from braincoder.optimize import WeightFitter
 from braincoder.utils import get_rsq
 
+from abstract_values.encoding_models.ridge_alpha import (
+    DEFAULT_RIDGE_ALPHA, enforce_default_alpha)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
@@ -62,7 +64,7 @@ def get_gabor_paradigm_with_runs(sub, sessions):
 # Ridge penalty chosen by the V1 sweep; see visualize/plot_v1_sweep.py.
 # alpha=10 beat alpha=1 in 29/29 subjects and the old unregularised fit in
 # 29/29; alpha=100 collapses, so this is an interior optimum.
-DEFAULT_ALPHA = 10.0
+DEFAULT_ALPHA = DEFAULT_RIDGE_ALPHA
 
 
 def make_basis_parameters(n_basis, kappa):
@@ -198,6 +200,11 @@ if __name__ == '__main__':
     parser.add_argument('subject', help="Subject label without 'sub-'")
     parser.add_argument('--n-basis', type=int, default=8)
     parser.add_argument('--kappa', type=float, default=2.0)
+    parser.add_argument('--allow-nondefault-alpha',
+                        action='store_true',
+                        help='Permit a ridge penalty other than the '
+                             'project default; the fit is then not '
+                             'comparable with the rest of the analysis.')
     parser.add_argument('--alpha', type=float, default=DEFAULT_ALPHA,
                         help='Ridge penalty for the closed-form weight fit '
                              '(V1 sweep optimum; 0 was the old behaviour).')
@@ -210,6 +217,8 @@ if __name__ == '__main__':
                         help="Per-session basis weights (output: "
                              "vonmises-shift.cv)")
     args = parser.parse_args()
+    enforce_default_alpha(args.alpha, args.allow_nondefault_alpha,
+                          'fit_vonmises_cv basis weights')
 
     main(args.subject, n_basis=args.n_basis,
          kappa=args.kappa, alpha=args.alpha, mask=args.mask,

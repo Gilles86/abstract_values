@@ -64,6 +64,8 @@ from braincoder.models import AxialVonMisesPRF
 from abstract_values.encoding_models.decode_gabor import (
     get_gabor_paradigm, make_basis_parameters as make_orientation_basis)
 from abstract_values.encoding_models.models import GaussianValuePRF
+from abstract_values.encoding_models.ridge_alpha import (
+    DEFAULT_RIDGE_ALPHA, enforce_default_alpha)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 from abstract_values.encoding_models.geodesic_noise import (
     geodesic_snap_for_masker, geodesic_D_for_selection,
@@ -153,7 +155,8 @@ def get_value_paradigm(sub, sessions):
 
 #: The deployed orientation basis (fit_vonmises_model's defaults), used as the
 #: rival model when --rival-orientation is on.
-RIVAL_N_BASIS, RIVAL_KAPPA, RIVAL_ALPHA = 8, 2.0, 10.0
+RIVAL_N_BASIS, RIVAL_KAPPA = 8, 2.0
+RIVAL_ALPHA = DEFAULT_RIDGE_ALPHA
 
 
 def _rival_orientation_cv_r2(train_data, train_ori, n_basis=RIVAL_N_BASIS,
@@ -450,7 +453,7 @@ def main(subject, sessions=None, n_voxels=100, fdr_alpha=None,
          null_gate=False,
          n_iterations=1000,
          n_grid_mus=20, n_grid_sds=15, n_stimulus_grid=50,
-         n_basis=8, basis_fwhm=None, weight_alpha=0.0,
+         n_basis=8, basis_fwhm=None, weight_alpha=DEFAULT_RIDGE_ALPHA,
          lambd=0.0, mask=None, mask_desc=None, spherical_noise=False,
          geodesic_noise=False, geodesic_hemi='R',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
@@ -844,11 +847,18 @@ if __name__ == '__main__':
     parser.add_argument('--basis-fwhm', type=float, default=None,
                         help='[weighted only] basis fwhm in CHF '
                              '(default: 2 × inter-basis spacing)')
-    parser.add_argument('--weight-alpha', type=float, default=0.0,
+    parser.add_argument('--allow-nondefault-alpha', action='store_true',
+                        help='Permit a ridge penalty other than the project '
+                             'default; the decode is then not comparable with '
+                             'the rest of the analysis.')
+    parser.add_argument('--weight-alpha', type=float,
+                        default=DEFAULT_RIDGE_ALPHA,
                         help='[weighted only] ridge α for WeightFitter (default: 0)')
     parser.add_argument('--debug', action='store_true',
                         help='100 iterations each (fast test)')
     args = parser.parse_args()
+    enforce_default_alpha(args.weight_alpha, args.allow_nondefault_alpha,
+                          'value basis weights')
 
     main(args.subject, sessions=args.sessions, n_voxels=args.n_voxels,
          fdr_alpha=args.fdr_alpha,

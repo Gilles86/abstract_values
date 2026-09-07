@@ -44,8 +44,10 @@ from abstract_values.encoding_models.models import GaussianValuePRF
 # orientation-space V1 sweep (visualize/plot_v1_sweep.py), which is the
 # only place it was actually cross-validated -- the value-space basis has
 # not been swept, so treat 10 as a sane default rather than a tuned one.
-DEFAULT_ALPHA = 10.0
+DEFAULT_ALPHA = DEFAULT_RIDGE_ALPHA
 
+from abstract_values.encoding_models.ridge_alpha import (
+    DEFAULT_RIDGE_ALPHA, enforce_default_alpha)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
@@ -227,6 +229,11 @@ if __name__ == '__main__':
     parser.add_argument('--fwhm', type=float, default=None,
                         help='FWHM in CHF of each basis pRF '
                              '(default: 2× inter-basis spacing)')
+    parser.add_argument('--allow-nondefault-alpha',
+                        action='store_true',
+                        help='Permit a ridge penalty other than the '
+                             'project default; the fit is then not '
+                             'comparable with the rest of the analysis.')
     parser.add_argument('--alpha', type=float, default=DEFAULT_ALPHA,
                         help='Ridge penalty for the closed-form weight fit.')
     parser.add_argument('--session-shift', action='store_true',
@@ -242,6 +249,8 @@ if __name__ == '__main__':
                         choices=['loggauss', 'gaussian'],
                         help='Basis pRF family (default: loggauss)')
     args = parser.parse_args()
+    enforce_default_alpha(args.alpha, args.allow_nondefault_alpha,
+                          'fit_aprf_weighted_cv basis weights')
 
     main(args.subject, n_basis=args.n_basis, alpha=args.alpha,
          session_shift=args.session_shift,
