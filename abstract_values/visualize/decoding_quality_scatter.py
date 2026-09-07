@@ -111,7 +111,12 @@ def _load(quantity, subject, true_col, roi, nvoxels, smoothed):
     else:                                              # value: posterior mean
         dec = (w * grid).sum(1)
     ok = np.isfinite(true) & np.isfinite(dec)
-    return true[ok], dec[ok]
+    trials = pd.DataFrame({
+        "session": df["session"].to_numpy()[ok],
+        "run": df["run"].to_numpy()[ok],
+        "trial_nr": df["trial_nr"].to_numpy()[ok],
+        "true": true[ok], "decoded": dec[ok]})
+    return true[ok], dec[ok], trials
 
 
 def _circular_fidelity(true_rad, dec_rad):
@@ -157,10 +162,14 @@ def _panel(ax, true, dec, label, circular, colour):
     return r
 
 
-def run(subjects, nvoxels, smoothed, out):
+def run(subjects, nvoxels, smoothed, out, trials_tsv=None):
     out.parent.mkdir(parents=True, exist_ok=True)
     smooth_lbl = "smoothed" if smoothed else "unsmoothed"
     summary = []
+    # Per-trial dump: the group scatter and the error-vs-stimulus curves need
+    # the trials, not the per-subject summary, and shipping this TSV back is a
+    # few MB against a few hundred for the posteriors themselves.
+    trials_out = [] if trials_tsv else None
     with PdfPages(out) as pdf:
         for s in subjects:
             fig, axes = plt.subplots(1, 4, figsize=(13, 3.6),
@@ -172,7 +181,10 @@ def run(subjects, nvoxels, smoothed, out):
                     ax.text(0.5, 0.5, f"no data\n{q}·{roi}", ha="center",
                             va="center", transform=ax.transAxes, color="0.6")
                     continue
-                true, dec = loaded
+                true, dec, trials = loaded
+                if trials_out is not None:
+                    trials_out.append(trials.assign(subject=s, quantity=q,
+                                                    roi=roi))
                 r = _panel(ax, true, dec, label, circ, ROI_COLOUR[roi])
                 ax.set_title(f"{label.split()[0]} · {roi}", fontsize=9, color="0.2")
                 # Absolute error alongside the fidelity: r says how well the
@@ -205,6 +217,10 @@ def run(subjects, nvoxels, smoothed, out):
             t.auto_set_font_size(False); t.set_fontsize(9); t.scale(1, 1.6)
             pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
+    if trials_out:
+        pd.concat(trials_out, ignore_index=True).to_csv(
+            trials_tsv, sep="\t", index=False)
+        print(f"Wrote per-trial dump: {trials_tsv}")
     sdf = pd.DataFrame(summary)
     sdf.to_csv(out.with_suffix(".tsv"), sep="\t", index=False)
     print(f"Wrote {out}\nSidecar: {out.with_suffix('.tsv')}")
@@ -229,6 +245,9 @@ def main():
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER),
                    help="Dataset root; pass the share path to run this "
                         "cluster-side where the pars files live.")
+    p.add_argument("--trials-tsv", default=None,
+                   help="Also write one row per trial (subject, quantity, roi, "
+                        "session, run, trial_nr, true, decoded).")
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
     global NOISE, DECODE
@@ -242,7 +261,8 @@ def main():
     if not subjects:
         raise SystemExit(f"No decoding pars found for nvoxels={args.nvoxels}")
     print(f"Subjects ({len(subjects)}): {subjects}")
-    run(subjects, args.nvoxels, args.smoothed, Path(args.out))
+    run(subjects, args.nvoxels, args.smoothed, Path(args.out),
+        trials_tsv=Path(args.trials_tsv) if args.trials_tsv else None)
 
 
 if __name__ == "__main__":
