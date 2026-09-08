@@ -30,7 +30,9 @@ from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
 def load_modes(subject, roi="NPCr", hemi=None, n_voxels=100, smoothed=False,
-               bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep"):
+               bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
+               model="aprf-session-shift", params=("mode_1", "mode_2"),
+               select_model="aprf"):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
     smooth = "_smoothed" if smoothed else ""
@@ -42,7 +44,7 @@ def load_modes(subject, roi="NPCr", hemi=None, n_voxels=100, smoothed=False,
                          target_affine=betas.affine,
                          target_shape=betas.shape[:3]).fit()
 
-    def _p(desc, model="aprf-session-shift"):
+    def _p(desc, model):
         fn = (bids_folder / "derivatives" / "encoding_models" / model
               / f"sub-{subject}" / "func"
               / f"sub-{subject}_task-abstractvalue_space-T1w"
@@ -51,11 +53,11 @@ def load_modes(subject, roi="NPCr", hemi=None, n_voxels=100, smoothed=False,
 
     df = pd.DataFrame({
         "subject": subject,
-        "mode_1": _p("mode_1"), "mode_2": _p("mode_2"),
-        "fwhm": _p("fwhm"), "amplitude": _p("amplitude"),
-        "r2_shift": _p("r2"),
-        # The decoding runs select on the JOINT aprf R², so use that here too.
-        "r2_joint": _p("r2", model="aprf"),
+        "mode_1": _p(params[0], model), "mode_2": _p(params[1], model),
+        "amplitude": _p("amplitude", model),
+        "r2_shift": _p("r2", model),
+        # Selection uses the JOINT fit's R², as the decoding runs do.
+        "r2_joint": _p("r2", model=select_model),
     })
     df["voxel"] = np.arange(len(df))
     if n_voxels:
@@ -69,6 +71,15 @@ if __name__ == "__main__":
     p.add_argument("--roi", default="NPCr")
     p.add_argument("--hemi", default="None")
     p.add_argument("--n-voxels", type=int, default=100)
+    p.add_argument("--model", default="aprf-session-shift",
+                   help="Session-shift fit to read (aprf-session-shift, or "
+                        "vonmises-prf-session-shift for orientation).")
+    p.add_argument("--params", nargs=2, default=["mode_1", "mode_2"],
+                   help="The two per-session parameter descs (mu_1 mu_2 in "
+                        "orientation space).")
+    p.add_argument("--select-model", default="aprf",
+                   help="Joint fit whose R2 ranks voxels (vonmises-prf for "
+                        "orientation).")
     p.add_argument("--smoothed", action="store_true")
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     p.add_argument("--out", required=True)
@@ -76,6 +87,7 @@ if __name__ == "__main__":
     d = load_modes(a.subject, roi=a.roi,
                    hemi=None if a.hemi == "None" else a.hemi,
                    n_voxels=a.n_voxels, smoothed=a.smoothed,
-                   bids_folder=a.bids_folder)
+                   bids_folder=a.bids_folder, model=a.model,
+                   params=tuple(a.params), select_model=a.select_model)
     d.to_csv(a.out, sep="\t", index=False)
     print(f"sub-{a.subject}: {len(d)} voxels -> {a.out}")
