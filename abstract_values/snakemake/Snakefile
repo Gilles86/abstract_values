@@ -206,6 +206,15 @@ CVR2_MODEL_DIRS = {
     # value-vs-orientation comparison had a flexible model on the value side
     # and none on the orientation side.
     "vonmises-shift.cv":    "vonmises_shift_cv",
+    # subject_complete has required surface sampling for these two since the
+    # comment at the cvr2_dirs list below was written, but they were never
+    # registered here -- so SURFACE_DIRS_RE did not match them, no rule could
+    # produce their .surface_sampled, and the DAG only built because every
+    # existing subject already had the sentinel on disk. sub-30 arrived with
+    # nothing on disk and the workflow refused to build (MissingInputException,
+    # 2026-09-08).
+    "aprf-fwhm-shift.cv":     "aprf_fwhm_shift_cv",
+    "aprf-fully-shifted.cv":  "aprf_fully_shifted_cv",
 }
 
 # Not here, deliberately: vonmises-prf.cv (the single-bell orientation model).
