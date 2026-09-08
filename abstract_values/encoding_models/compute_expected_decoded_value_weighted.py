@@ -121,7 +121,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None", n_voxels=100,
          n_basis=8, basis_fwhm=None, weight_alpha=DEFAULT_RIDGE_ALPHA,
          n_simulations=1000, n_noise_iterations=1000, batch_stimuli=25,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False, spherical_noise=True):
+         smoothed=False, spherical_noise=True, per_session_weights=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
     sessions = sorted(sessions or sub.get_sessions())
@@ -184,10 +184,21 @@ def main(subject, sessions=None, roi="NPCr", hemi="None", n_voxels=100,
                                                    smoothed=smoothed)
         ses_data = pd.DataFrame(masker.transform(ses_betas).astype(np.float32))
 
+        # Per-session tuning turns this from a shape into a test: with the
+        # weights shared, one curve in value space is built in, so the two
+        # conditions cannot disagree on either axis. Voxel selection stays on
+        # the joint fit, so the voxel set is the same in both conditions.
+        ses_weights = weights_sel
+        if per_session_weights:
+            w_ses = WeightFitter(model, basis_pars, ses_data[sel],
+                                 ses_paradigm).fit(alpha=weight_alpha)
+            ses_weights = w_ses
+            print("  refitted weights on this session only")
+
         print(f"  fitting noise model ({n_noise_iterations} iter)…", flush=True)
         omega, dof = ResidualFitter(
             model, ses_data[sel], ses_paradigm, parameters=basis_pars,
-            weights=weights_sel).fit(
+            weights=ses_weights).fit(
                 init_sigma2=1e-2, init_dof=10.0, learning_rate=0.05,
                 max_n_iterations=n_noise_iterations, spherical=spherical_noise)
         print(f"  noise model: dof="
@@ -196,7 +207,7 @@ def main(subject, sessions=None, roi="NPCr", hemi="None", n_voxels=100,
         print(f"  simulating {n_simulations} repeats × {len(stim_grid)} values"
               f" ({n_simulations * len(stim_grid)} trials)…", flush=True)
         true_arr, decoded_arr = simulate_decode_session(
-            model, basis_pars, weights_sel, omega, dof, stim_grid,
+            model, basis_pars, ses_weights, omega, dof, stim_grid,
             n_simulations, batch_stimuli=batch_stimuli)
         agg = aggregate_per_stimulus(true_arr, decoded_arr, stim_grid)
 
@@ -204,10 +215,11 @@ def main(subject, sessions=None, roi="NPCr", hemi="None", n_voxels=100,
                    / "aprf-weighted" / f"sub-{subject}" / f"ses-{ses_i}" / "func")
         out_dir.mkdir(parents=True, exist_ok=True)
         noise_tag = "_noise-spherical" if spherical_noise else ""
+        ses_tag = "_perses" if per_session_weights else ""
         out_fn = (out_dir /
                   f"sub-{subject}_ses-{ses_i}_task-abstractvalue"
                   f"_mask-{mask_desc}_{sel_tag}_nsims-{n_simulations}"
-                  f"{noise_tag}{smooth_label}"
+                  f"{noise_tag}{ses_tag}{smooth_label}"
                   f"_desc-expected_decoded_value_pe.tsv")
         agg.insert(0, "condition", cond)
         agg.insert(0, "session", ses_i)
@@ -237,6 +249,10 @@ if __name__ == "__main__":
     p.add_argument("--batch-stimuli", type=int, default=25)
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     p.add_argument("--fmriprep-deriv", default="fmriprep")
+    p.add_argument("--per-session-weights", action="store_true",
+                   help="Refit the basis weights within each session instead "
+                        "of sharing them, so the two conditions can disagree "
+                        "on either stimulus axis.")
     p.add_argument("--smoothed", action="store_true")
     sph = p.add_mutually_exclusive_group()
     sph.add_argument("--spherical-noise", dest="spherical_noise",
@@ -252,5 +268,6 @@ if __name__ == "__main__":
          n_simulations=args.n_simulations,
          n_noise_iterations=args.n_noise_iterations,
          batch_stimuli=args.batch_stimuli, bids_folder=args.bids_folder,
+         per_session_weights=args.per_session_weights,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
          spherical_noise=args.spherical_noise)
