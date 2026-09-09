@@ -37,11 +37,24 @@ ROI_SPECS = [
 
 FS_REL = "derivatives/fmriprep/sourcedata/freesurfer"
 
+# On fsaverage the project's own NPC surface labels apply directly -- they were
+# drawn in this space, so no fsaverage->fsnative mapping (and no coordinate
+# risk) is involved. V1 comes from the exvivo .label files rather than
+# BA_exvivo.annot, which fsaverage does not ship.
+FSAVERAGE_SPECS = [
+    ("V1",   "label:V1_exvivo.thresh", [],                          "#6A4C93"),
+    ("IPS",  "aparc.a2009s", ["S_intrapariet_and_P_trans"],         "#3B5BA5"),
+    ("LO",   "aparc",        ["lateraloccipital"],                  "#2A9D8F"),
+    ("M1",   "aparc",        ["precentral"],                        "#C4442B"),
+    ("NPCl", "gii:desc-NPC_L_space-fsaverage_hemi-{hemi}.label.gii", [], "#E9C46A"),
+    ("NPCr", "gii:desc-NPC_R_space-fsaverage_hemi-{hemi}.label.gii", [], "#F4A261"),
+]
+
 
 def _fs_subject_dir(bids_folder, subject):
     """fmriprep names the FreeSurfer subject sub-XX_ses-1, not sub-XX."""
     root = Path(bids_folder) / FS_REL
-    for name in (f"sub-{subject}_ses-1", f"sub-{subject}"):
+    for name in (f"sub-{subject}_ses-1", f"sub-{subject}", str(subject)):
         if (root / name / "label").is_dir():
             return root / name
     raise SystemExit(
@@ -50,22 +63,55 @@ def _fs_subject_dir(bids_folder, subject):
 
 
 def annot_masks(subject, bids_folder, specs=ROI_SPECS):
-    """{label: boolean mask over L+R fsnative vertices} for each ROI spec."""
+    """{label: boolean mask over L+R vertices} for each ROI spec.
+
+    The source field says where the mask comes from:
+      "<annot>"        a FreeSurfer .annot, entries are its label names
+      "label:<name>"   FreeSurfer .label files, one per hemisphere
+      "gii:<pattern>"  GIfTI files with {hemi}/{HEMI} placeholders, e.g. the
+                       project's own fsaverage surface_masks
+    """
+    import nibabel as nib
     import nibabel.freesurfer.io as fsio
     fs = _fs_subject_dir(bids_folder, subject)
+    n_hemi = None
     out = {}
-    for label, annot, entries, _ in specs:
+    for label, source, entries, _ in specs:
         parts = []
         for hemi in ("lh", "rh"):
-            lab, _, names = fsio.read_annot(str(fs / "label" / f"{hemi}.{annot}.annot"))
-            names = [n.decode() for n in names]
-            idx = [names.index(e) for e in entries if e in names]
-            if not idx:
-                raise SystemExit(f"{entries} not in {hemi}.{annot}.annot "
-                                 f"(has {len(names)} labels)")
-            parts.append(np.isin(lab, idx))
+            if source.startswith("gii:"):
+                pat = source[4:].format(hemi=hemi, HEMI=hemi[0].upper())
+                f = Path(bids_folder) / "derivatives" / "surface_masks" / pat
+                if f.exists():
+                    parts.append(nib.load(str(f)).darrays[0].data > 0)
+                else:                       # ROI lives in the other hemisphere
+                    parts.append(None)
+            elif source.startswith("label:"):
+                f = fs / "label" / f"{hemi}.{source[6:]}.label"
+                verts = fsio.read_label(str(f))
+                n = _hemi_vertex_count(fs, hemi)
+                m = np.zeros(n, bool); m[verts] = True
+                parts.append(m)
+            else:
+                lab, _, names = fsio.read_annot(
+                    str(fs / "label" / f"{hemi}.{source}.annot"))
+                names = [n.decode() for n in names]
+                idx = [names.index(e) for e in entries if e in names]
+                if not idx:
+                    raise SystemExit(f"{entries} not in {hemi}.{source}.annot")
+                parts.append(np.isin(lab, idx))
+        sizes = [len(p) for p in parts if p is not None]
+        if not sizes:
+            raise SystemExit(f"{label}: no source file found")
+        n_hemi = sizes[0]
+        parts = [p if p is not None else np.zeros(n_hemi, bool) for p in parts]
         out[label] = np.concatenate(parts)
     return out
+
+
+def _hemi_vertex_count(fs, hemi):
+    import nibabel.freesurfer.io as fsio
+    return len(fsio.read_geometry(str(fs / "surf" / f"{hemi}.white"))[0])
 
 
 def _adjacency(cx_subject):
