@@ -25,9 +25,14 @@ import numpy as np
 
 # (label, annot file, entries to union, colour)
 ROI_SPECS = [
+    ("V1",  "BA_exvivo.thresh", ["V1_exvivo"],                 "#6A4C93"),
     ("IPS", "aparc.a2009s",     ["S_intrapariet_and_P_trans"], "#3B5BA5"),
     ("LO",  "aparc",            ["lateraloccipital"],          "#2A9D8F"),
-    ("M1",  "BA_exvivo.thresh", ["BA4a_exvivo", "BA4p_exvivo"], "#C4442B"),
+    # Whole precentral gyrus rather than BA4a+BA4p: the exvivo probabilistic
+    # BA4 is a thin strip buried in the central sulcus, which reads as a line
+    # rather than a landmark. precentral is the gyrus everyone means by "M1"
+    # when orienting on a flatmap.
+    ("M1",  "aparc",            ["precentral"],                "#C4442B"),
 ]
 
 FS_REL = "derivatives/fmriprep/sourcedata/freesurfer"
@@ -157,6 +162,12 @@ def _svg_shape(svgfile):
     return float(root.get("width")), float(root.get("height"))
 
 
+def _hemi_sizes(cx_subject):
+    """Vertex count of each hemisphere's flat surface, in L, R order."""
+    import cortex
+    return [len(pts) for pts, _ in cortex.db.get_surf(cx_subject, "flat")]
+
+
 def _flat_to_svg(cx_subject, svgshape):
     """Flat vertex coordinates in the SVG's pixel space, as pycortex maps them."""
     import cortex
@@ -167,7 +178,8 @@ def _flat_to_svg(cx_subject, svgshape):
     return c * np.asarray(svgshape)
 
 
-def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5):
+def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5,
+                   hemi_sizes=None):
     """Closed SVG paths around ``mask``, contoured in flatmap space.
 
     ``smooth`` is a Gaussian blur (in grid cells) applied to the rasterised
@@ -178,6 +190,22 @@ def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5):
     """
     import matplotlib.pyplot as plt
     from scipy.spatial import cKDTree
+
+    # Contour each hemisphere on its own. Merged, the nearest-vertex
+    # rasterisation bridges the gap between the two flatmaps wherever a region
+    # reaches the medial edge -- V1 came out as a single path snaking across
+    # the midline instead of one per hemisphere.
+    if hemi_sizes is not None:
+        out, start = [], 0
+        for n in hemi_sizes:
+            sl = slice(start, start + n)
+            sub = np.zeros_like(mask)
+            sub[sl] = mask[sl]
+            if sub.any():
+                out += _contour_paths(sub, svg_xy, svgshape, grid, flip_y,
+                                      smooth, hemi_sizes=None)
+            start += n
+        return out
 
     w, h = svgshape
     nx = grid
@@ -222,8 +250,14 @@ def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
     # prompts "overwrite overlays.svg?" on stdin, which hangs a script). Both
     # lose the paths we are adding. Everything needed is in the file itself.
     svgfile = Path(cortex.database.default_filestore) / cx_subject / "overlays.svg"
+    if not svgfile.exists():
+        # A freshly imported subject has no overlay yet. Asking for one creates
+        # it; there is nothing to overwrite, so this does not prompt.
+        print("  no overlays.svg yet — generating the default")
+        cortex.db.get_overlay(cx_subject)
     svgshape = _svg_shape(svgfile)
     svg_xy = _flat_to_svg(cx_subject, svgshape)
+    hemi_sizes = _hemi_sizes(cx_subject)
     masks = annot_masks(subject, bids_folder, specs)
 
     ET.register_namespace("", SVG_NS)
@@ -262,7 +296,7 @@ def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
         group.set(f"{{{INK_NS}}}label", label)
         group.set("id", f"roi_{label}")
         paths = _contour_paths(masks[label], svg_xy, svgshape, grid,
-                               flip_y, smooth)
+                               flip_y, smooth, hemi_sizes=hemi_sizes)
         for i, d in enumerate(paths):
             el = ET.SubElement(group, f"{{{SVG_NS}}}path")
             el.set("d", d)

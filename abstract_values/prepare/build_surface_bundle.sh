@@ -172,6 +172,16 @@ else
     echo "no local flat patch — skipping import_flat"
 fi
 
+# ── 4b. write the ROI overlay ───────────────────────────────────────────────
+# Anatomical landmarks (V1, IPS, LO, M1) as real pycortex ROIs, contoured from
+# the FreeSurfer annotations. Needs the flat surfaces imported in step 4, and
+# must run before the bundle so the overlay is baked into it.
+say "4b/5  writing ROI overlay (V1, IPS, LO, M1)"
+"$PYCORTEX_PY" -c "
+from abstract_values.visualize.roi_overlays import write_roi_overlay
+write_roi_overlay('${SUBJECT}', 'abstractvalue.sub-${SUBJECT}', '${LOCAL_BIDS}')
+" < /dev/null || echo "  (skipped: no flat surfaces yet — re-run after autoflatten)"
+
 # ── 5. build the bundle ─────────────────────────────────────────────────────
 say "5/5  building the webgl bundle"
 $PYCORTEX_PY -m abstract_values.visualize.webshow_surface_maps \
