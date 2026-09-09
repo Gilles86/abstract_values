@@ -24,15 +24,18 @@ from pathlib import Path
 import numpy as np
 
 # (label, annot file, entries to union, colour)
+# Per-subject (fsnative). V3 and hV4 are missing here on purpose: FreeSurfer
+# ships only V1/V2/MT as exvivo probabilistic labels, and the Benson atlas was
+# only ever sampled to fsaverage in this project, so a subject-space V3 would
+# need a mapping that does not exist yet. The fsaverage set below has all four.
 ROI_SPECS = [
-    ("V1",  "BA_exvivo.thresh", ["V1_exvivo"],                 "#6A4C93"),
-    ("IPS", "aparc.a2009s",     ["S_intrapariet_and_P_trans"], "#3B5BA5"),
-    ("LO",  "aparc",            ["lateraloccipital"],          "#2A9D8F"),
+    ("V1",  "BA_exvivo.thresh", ["V1_exvivo"], "#6A4C93"),
+    ("V2",  "BA_exvivo.thresh", ["V2_exvivo"], "#8C6BB1"),
     # Whole precentral gyrus rather than BA4a+BA4p: the exvivo probabilistic
     # BA4 is a thin strip buried in the central sulcus, which reads as a line
     # rather than a landmark. precentral is the gyrus everyone means by "M1"
     # when orienting on a flatmap.
-    ("M1",  "aparc",            ["precentral"],                "#C4442B"),
+    ("M1",  "aparc",            ["precentral"], "#C4442B"),
 ]
 
 FS_REL = "derivatives/fmriprep/sourcedata/freesurfer"
@@ -42,10 +45,13 @@ FS_REL = "derivatives/fmriprep/sourcedata/freesurfer"
 # risk) is involved. V1 comes from the exvivo .label files rather than
 # BA_exvivo.annot, which fsaverage does not ship.
 FSAVERAGE_SPECS = [
-    ("V1",   "label:V1_exvivo.thresh", [],                          "#6A4C93"),
-    ("IPS",  "aparc.a2009s", ["S_intrapariet_and_P_trans"],         "#3B5BA5"),
-    ("LO",   "aparc",        ["lateraloccipital"],                  "#2A9D8F"),
-    ("M1",   "aparc",        ["precentral"],                        "#C4442B"),
+    # Retinotopic areas from the cohort-modal Benson-14 atlas: 1 V1, 2 V2,
+    # 3 V3, 4 hV4.
+    ("V1",   "benson:1", [], "#6A4C93"),
+    ("V2",   "benson:2", [], "#8C6BB1"),
+    ("V3",   "benson:3", [], "#3B5BA5"),
+    ("hV4",  "benson:4", [], "#2A9D8F"),
+    ("M1",   "aparc", ["precentral"], "#C4442B"),
     ("NPCl", "gii:desc-NPC_L_space-fsaverage_hemi-{hemi}.label.gii", [], "#E9C46A"),
     ("NPCr", "gii:desc-NPC_R_space-fsaverage_hemi-{hemi}.label.gii", [], "#F4A261"),
 ]
@@ -79,7 +85,10 @@ def annot_masks(subject, bids_folder, specs=ROI_SPECS):
     for label, source, entries, _ in specs:
         parts = []
         for hemi in ("lh", "rh"):
-            if source.startswith("gii:"):
+            if source.startswith("benson:"):
+                parts.append(_benson_mask(bids_folder, int(source[7:]),
+                                          hemi[0].upper()))
+            elif source.startswith("gii:"):
                 pat = source[4:].format(hemi=hemi, HEMI=hemi[0].upper())
                 f = Path(bids_folder) / "derivatives" / "surface_masks" / pat
                 if f.exists():
@@ -107,6 +116,28 @@ def annot_masks(subject, bids_folder, specs=ROI_SPECS):
         parts = [p if p is not None else np.zeros(n_hemi, bool) for p in parts]
         out[label] = np.concatenate(parts)
     return out
+
+
+def _benson_mask(bids_folder, area, HEMI):
+    """Modal Benson-14 visual area label across subjects, in fsaverage space.
+
+    The atlas is inferred per subject and sampled to fsaverage, so there are 29
+    versions of the same anatomical prediction. The modal label per vertex is
+    the cohort's consensus and is much cleaner than any single subject's.
+    """
+    import glob
+    import nibabel as nib
+    pat = (f"{bids_folder}/derivatives/neuropythy_atlas/sub-*/"
+           f"sub-*_desc-benson14Varea_space-fsaverage_hemi-{HEMI}.func.gii")
+    files = sorted(glob.glob(pat))
+    if not files:
+        raise SystemExit(f"no Benson atlas files matching {pat}")
+    votes = None
+    for f in files:
+        d = np.rint(nib.load(f).darrays[0].data).astype(int)
+        v = (d == area).astype(np.int16)
+        votes = v if votes is None else votes + v
+    return votes > (len(files) / 2)
 
 
 def _hemi_vertex_count(fs, hemi):
@@ -286,7 +317,8 @@ def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5,
 
 
 def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
-                      grid=900, flip_y=True, smooth=2.5, dry_run=False):
+                      grid=900, flip_y=True, smooth=2.5, prune=False,
+                      dry_run=False):
     """Write IPS/LO/M1 as real pycortex ROIs into the subject's overlays.svg."""
     import xml.etree.ElementTree as ET
     import cortex
@@ -333,6 +365,18 @@ def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
     for child in list(rois):
         if child.tag == f"{{{SVG_NS}}}path":
             rois.remove(child)
+
+    # prune: drop ROIs this spec set no longer defines. Off by default because
+    # the fsaverage subject is shared between projects -- pruning there would
+    # delete another project's ROIs. Safe for abstractvalue.sub-* overlays,
+    # which only this pipeline writes.
+    if prune:
+        wanted = {sp[0] for sp in specs}
+        for child in list(shapes):
+            lab = child.get(f"{{{INK_NS}}}label")
+            if lab is not None and lab not in wanted:
+                shapes.remove(child)
+                print(f"  pruned {lab}")
 
     for label, _, _, colour in specs:
         for child in list(shapes):

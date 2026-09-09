@@ -179,7 +179,7 @@ fi
 say "4b/5  writing ROI overlay (V1, IPS, LO, M1)"
 "$PYCORTEX_PY" -c "
 from abstract_values.visualize.roi_overlays import write_roi_overlay
-write_roi_overlay('${SUBJECT}', 'abstractvalue.sub-${SUBJECT}', '${LOCAL_BIDS}')
+write_roi_overlay('${SUBJECT}', 'abstractvalue.sub-${SUBJECT}', '${LOCAL_BIDS}', prune=True)
 " < /dev/null || echo "  (skipped: no flat surfaces yet — re-run after autoflatten)"
 
 # ── 5. build the bundle ─────────────────────────────────────────────────────
