@@ -132,3 +132,136 @@ def roi_outline_dataset(subject, cx_subject, bids_folder, width=2,
     from abstract_values.visualize.webshow_surface_maps import blended
     vtx = blended(values, alpha, cx_subject, 0.5, len(specs) + 0.5, cmap)
     return vtx, cmap_name, [s[0] for s in specs]
+
+
+# ── native pycortex overlays (vector paths in overlays.svg) ─────────────────
+#
+# The outline dataset above is a data layer: it can only be looked at one map
+# at a time, like any other. A real pycortex ROI lives as a path in the
+# subject's overlays.svg, which is what `with_rois=True` draws on top of
+# whatever is displayed, in the mixer and in every flatmap. Those paths are
+# normally traced by hand in Inkscape; these are traced by contouring the
+# annotation mask in flatmap space, which is the same thing without the mouse.
+#
+# Needs flat surfaces: overlays.svg lives in flatmap coordinates, so a subject
+# whose autoflatten has not finished cannot get one.
+
+SVG_NS = "http://www.w3.org/2000/svg"
+INK_NS = "http://www.inkscape.org/namespaces/inkscape"
+
+
+def _svg_shape(svgfile):
+    """(width, height) straight from the SVG header, as pycortex reads it."""
+    import xml.etree.ElementTree as ET
+    root = ET.parse(svgfile).getroot()
+    return float(root.get("width")), float(root.get("height"))
+
+
+def _flat_to_svg(cx_subject, svgshape):
+    """Flat vertex coordinates in the SVG's pixel space, as pycortex maps them."""
+    import cortex
+    pts, _ = cortex.db.get_surf(cx_subject, "flat", merge=True, nudge=True)
+    c = pts[:, :2].astype(float).copy()
+    c -= c.min(0)
+    c /= c.max(0)
+    return c * np.asarray(svgshape)
+
+
+def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True):
+    """Closed SVG paths around ``mask``, contoured in flatmap space."""
+    import matplotlib.pyplot as plt
+    from scipy.spatial import cKDTree
+
+    w, h = svgshape
+    nx = grid
+    ny = max(8, int(round(grid * h / w)))
+    xs = np.linspace(0, w, nx)
+    ys = np.linspace(0, h, ny)
+    gx, gy = np.meshgrid(xs, ys)
+
+    # Nearest surface vertex for every grid cell; a cell is inside when its
+    # nearest vertex is. Nearest-neighbour rather than interpolation so the
+    # boundary stays where the parcel boundary is.
+    tree = cKDTree(svg_xy)
+    _, idx = tree.query(np.column_stack([gx.ravel(), gy.ravel()]))
+    z = mask[idx].reshape(gy.shape).astype(float)
+
+    fig = plt.figure()
+    cs = plt.contour(gx, gy, z, levels=[0.5])
+    plt.close(fig)
+
+    paths = []
+    for seg in cs.allsegs[0]:
+        if len(seg) < 8:                      # specks, not parcels
+            continue
+        if flip_y:
+            seg = np.column_stack([seg[:, 0], h - seg[:, 1]])
+        d = "M " + " L ".join(f"{x:.2f},{y:.2f}" for x, y in seg) + " Z"
+        paths.append(d)
+    return paths
+
+
+def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
+                      grid=900, flip_y=True, dry_run=False):
+    """Write IPS/LO/M1 as real pycortex ROIs into the subject's overlays.svg."""
+    import xml.etree.ElementTree as ET
+    import cortex
+
+    # Deliberately NOT cortex.db.get_overlay(): loading an overlay can rewrite
+    # overlays.svg from pycortex's own in-memory tree (and with default args it
+    # prompts "overwrite overlays.svg?" on stdin, which hangs a script). Both
+    # lose the paths we are adding. Everything needed is in the file itself.
+    svgfile = Path(cortex.database.default_filestore) / cx_subject / "overlays.svg"
+    svgshape = _svg_shape(svgfile)
+    svg_xy = _flat_to_svg(cx_subject, svgshape)
+    masks = annot_masks(subject, bids_folder, specs)
+
+    ET.register_namespace("", SVG_NS)
+    ET.register_namespace("inkscape", INK_NS)
+    tree = ET.parse(svgfile)
+    root = tree.getroot()
+
+    def _sub_layer(parent, name):
+        for g in parent.findall(f"{{{SVG_NS}}}g"):
+            if g.get(f"{{{INK_NS}}}label") == name:
+                return g
+        return None
+
+    # pycortex reads rois > shapes > one <g inkscape:label=NAME> per ROI, whose
+    # <path> children are the outline. A labelled <path> dropped straight into
+    # the rois layer is valid XML, loads without error, and yields zero ROIs.
+    rois = _sub_layer(root, "rois")
+    if rois is None:
+        raise SystemExit("no 'rois' layer in overlays.svg")
+    shapes = _sub_layer(rois, "shapes")
+    if shapes is None:
+        shapes = ET.SubElement(rois, f"{{{SVG_NS}}}g")
+        shapes.set(f"{{{INK_NS}}}label", "shapes")
+        shapes.set(f"{{{INK_NS}}}groupmode", "layer")
+
+    # Clear anything an earlier run left directly in the rois layer.
+    for child in list(rois):
+        if child.tag == f"{{{SVG_NS}}}path":
+            rois.remove(child)
+
+    for label, _, _, colour in specs:
+        for child in list(shapes):
+            if child.get(f"{{{INK_NS}}}label") == label:
+                shapes.remove(child)
+        group = ET.SubElement(shapes, f"{{{SVG_NS}}}g")
+        group.set(f"{{{INK_NS}}}label", label)
+        group.set("id", f"roi_{label}")
+        paths = _contour_paths(masks[label], svg_xy, svgshape, grid, flip_y)
+        for i, d in enumerate(paths):
+            el = ET.SubElement(group, f"{{{SVG_NS}}}path")
+            el.set("d", d)
+            el.set("id", f"roi_{label}_{i}")
+            el.set("style", f"fill:none;stroke:{colour};stroke-width:2")
+        print(f"  {label}: {len(paths)} path(s)")
+
+    if dry_run:
+        print("  (dry run — overlays.svg not written)")
+        return svgfile
+    tree.write(svgfile, encoding="utf-8", xml_declaration=True)
+    print(f"  wrote {svgfile}")
+    return svgfile

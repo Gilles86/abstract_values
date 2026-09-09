@@ -591,9 +591,14 @@ def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
     # Default curvature is near-binary dark/light grey, which fights the data
     # for attention. Flatten it into a soft background: lower contrast, a
     # little smoothing so the gyral/sulcal pattern still orients you.
+    # overlays_visible: draw the ROI outlines from the subject's overlays.svg
+    # on top of every map. The webgl viewer renders them client-side from the
+    # SVG, so unlike quickflat's with_rois it needs no Inkscape.
     cortex.webgl.make_static(str(out_dir), ds, types=types,
                              title=f"sub-{subject} aPRF surface maps",
                              recache=False,
+                             overlays_visible=("rois",),
+                             labels_visible=("rois",),
                              curvature_brightness=0.62,
                              curvature_contrast=0.28,
                              curvature_smoothness=2.0)
