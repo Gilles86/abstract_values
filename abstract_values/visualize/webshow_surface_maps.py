@@ -184,7 +184,7 @@ def blended(values, alpha, cx_subject, vmin, vmax, cmap):
 def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
                    cx_subject=None, r2_thr=0.05, r2_sigma=0.01,
                    cv_sigma=0.01, alpha_source="cvr2-null",
-                   colorbars="baked"):
+                   colorbars="baked", rois=True):
     """Returns (datasets dict, colorbar specs list)."""
     deriv = Path(bids_folder) / "derivatives"
     cx_subject = cx_subject or f"abstractvalue.sub-{subject}"
@@ -304,6 +304,20 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
             gate = (np.nan_to_num(cv, nan=-np.inf) > 0).astype(np.float32)
         add("linear_vs_aprf", delta, gate * signal_alpha(np.abs(delta)),
             -lim, lim, "PuOr_r", "Ramp vs bump cvR2 linear minus aPRF")
+
+    if rois:
+        # Anatomical landmarks so a blob has somewhere to be. Outlines, not
+        # filled patches, so they do not hide the map underneath.
+        try:
+            from abstract_values.visualize.roi_overlays import (
+                roi_outline_dataset, ROI_SPECS)
+            vtx, cmap_name, labels = roi_outline_dataset(
+                subject, cx_subject, bids_folder)
+            ds[dataset_name("ROI outlines IPS LO M1", smoothed)] = vtx
+            cbars.append((f"ROI outlines: {' / '.join(labels)}",
+                          cmap_name, 0.5, len(ROI_SPECS) + 0.5))
+        except SystemExit as e:
+            print(f"  skip ROI outlines: {e}")
 
     return ds, cbars
 
@@ -722,6 +736,9 @@ def main():
                    help="Launch the in-process cortex.webgl viewer instead of "
                         "writing a bundle. Dies when this process exits; the "
                         "bundle does not.")
+    p.add_argument("--no-rois", dest="rois", action="store_false",
+                   default=True,
+                   help="Omit the anatomical IPS/LO/M1 outline layer.")
     p.add_argument("--serve-all", type=int, nargs="?", const=8000, default=None,
                    help="Serve every subject bundle under --out-root on this "
                         "port (default 8000), behind a generated index. "
@@ -750,7 +767,8 @@ def main():
                               cx_subject=args.cx_subject,
                               r2_thr=args.r2_thr, r2_sigma=args.r2_sigma,
                               alpha_source=args.alpha_source,
-                              colorbars=colorbars)
+                              colorbars=colorbars,
+                              rois=args.rois and sm == variants[0])
         ds.update(d)
         cbars.extend(c)
 
