@@ -265,3 +265,33 @@ def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
     tree.write(svgfile, encoding="utf-8", xml_declaration=True)
     print(f"  wrote {svgfile}")
     return svgfile
+
+
+def burn_outlines_into(ds, subject, cx_subject, bids_folder, width=2,
+                       specs=ROI_SPECS):
+    """Paint ROI outlines into every dataset's RGB, in place.
+
+    The belt-and-braces option. overlays.svg ROIs are the *right* way to do
+    this -- toggleable, labelled, drawn over whatever is displayed -- but their
+    rendering depends on the viewer honouring overlays_visible and on the
+    stroke colour (pycortex forces white, which disappears over a bright map).
+    Burning the outline into the RGB cannot fail to show, at the cost of not
+    being switchable and of hiding the few vertices it covers.
+    """
+    import numpy as np
+    masks = annot_masks(subject, bids_folder, specs)
+    neighbours, n_vert = _adjacency(cx_subject)
+    edges = []
+    for label, _, _, colour in specs:
+        edge = outline(masks[label], neighbours, width=width)
+        rgb = tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
+        edges.append((edge, rgb))
+        print(f"  burning {label}: {int(edge.sum())} vertices")
+
+    for name, vtx in ds.items():
+        for edge, (r, g, b) in edges:
+            # VertexRGB.red/green/blue are Vertex objects, not arrays.
+            vtx.red.data[edge] = r
+            vtx.green.data[edge] = g
+            vtx.blue.data[edge] = b
+    return ds

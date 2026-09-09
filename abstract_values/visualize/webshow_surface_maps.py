@@ -184,7 +184,7 @@ def blended(values, alpha, cx_subject, vmin, vmax, cmap):
 def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
                    cx_subject=None, r2_thr=0.05, r2_sigma=0.01,
                    cv_sigma=0.01, alpha_source="cvr2-null",
-                   colorbars="baked", rois=True):
+                   colorbars="baked", rois=True, burn_rois=False):
     """Returns (datasets dict, colorbar specs list)."""
     deriv = Path(bids_folder) / "derivatives"
     cx_subject = cx_subject or f"abstractvalue.sub-{subject}"
@@ -304,6 +304,10 @@ def build_datasets(subject, bids_folder=BIDS_FOLDER, smoothed=False,
             gate = (np.nan_to_num(cv, nan=-np.inf) > 0).astype(np.float32)
         add("linear_vs_aprf", delta, gate * signal_alpha(np.abs(delta)),
             -lim, lim, "PuOr_r", "Ramp vs bump cvR2 linear minus aPRF")
+
+    if burn_rois:
+        from abstract_values.visualize.roi_overlays import burn_outlines_into
+        burn_outlines_into(ds, subject, cx_subject, bids_folder)
 
     if rois:
         # Anatomical landmarks so a blob has somewhere to be. Outlines, not
@@ -586,6 +590,22 @@ def write_static_html(ds, cbars, out_dir, subject, cx_subject=None):
     # they accumulate (a browser bundle reached 235 MB across three builds).
     for stale in (out_dir / "data").glob("*"):
         stale.unlink()
+    # The overlay SVG the viewer loads is built alongside the .ctm and cached
+    # in the pycortex store; make_static only COPIES it. So ROIs added to the
+    # subject's overlays.svg after the first build never reach the viewer, and
+    # deleting the copy in the bundle does not help -- the stale cached one is
+    # copied again. The cache has to be invalidated, which forces the .ctm to
+    # be regenerated with it (~1 min).
+    cache = (Path(cortex.database.default_filestore) / cx_subject / "cache")
+    overlays = Path(cortex.database.default_filestore) / cx_subject / "overlays.svg"
+    cached_svg = sorted(cache.glob("*.svg"))
+    if overlays.exists() and cached_svg and \
+            overlays.stat().st_mtime > cached_svg[0].stat().st_mtime:
+        print("  overlays.svg is newer than the cached surface — recaching")
+        for stale in cache.glob(f"{cx_subject}_[[]*"):
+            stale.unlink()
+        for stale in out_dir.glob("*.svg"):
+            stale.unlink()
 
     print(f"Building static webgl bundle in {out_dir} ...")
     # Default curvature is near-binary dark/light grey, which fights the data
@@ -741,6 +761,9 @@ def main():
                    help="Launch the in-process cortex.webgl viewer instead of "
                         "writing a bundle. Dies when this process exits; the "
                         "bundle does not.")
+    p.add_argument("--burn-rois", action="store_true",
+                   help="Paint the ROI outlines into every map's RGB, for when "
+                        "the viewer will not draw the overlays.svg ones.")
     p.add_argument("--no-rois", dest="rois", action="store_false",
                    default=True,
                    help="Omit the anatomical IPS/LO/M1 outline layer.")
@@ -773,7 +796,8 @@ def main():
                               r2_thr=args.r2_thr, r2_sigma=args.r2_sigma,
                               alpha_source=args.alpha_source,
                               colorbars=colorbars,
-                              rois=args.rois and sm == variants[0])
+                              rois=args.rois and sm == variants[0],
+                              burn_rois=args.burn_rois)
         ds.update(d)
         cbars.extend(c)
 
