@@ -167,8 +167,15 @@ def _flat_to_svg(cx_subject, svgshape):
     return c * np.asarray(svgshape)
 
 
-def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True):
-    """Closed SVG paths around ``mask``, contoured in flatmap space."""
+def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5):
+    """Closed SVG paths around ``mask``, contoured in flatmap space.
+
+    ``smooth`` is a Gaussian blur (in grid cells) applied to the rasterised
+    mask before contouring. Without it the outline follows the staircase of
+    the nearest-neighbour rasterisation and looks visibly pixelated; a couple
+    of cells of blur rounds it off without moving the boundary anywhere it
+    matters, since the 0.5 level of a blurred binary mask stays put.
+    """
     import matplotlib.pyplot as plt
     from scipy.spatial import cKDTree
 
@@ -185,6 +192,9 @@ def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True):
     tree = cKDTree(svg_xy)
     _, idx = tree.query(np.column_stack([gx.ravel(), gy.ravel()]))
     z = mask[idx].reshape(gy.shape).astype(float)
+    if smooth:
+        from scipy.ndimage import gaussian_filter
+        z = gaussian_filter(z, smooth)
 
     fig = plt.figure()
     cs = plt.contour(gx, gy, z, levels=[0.5])
@@ -202,7 +212,7 @@ def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True):
 
 
 def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
-                      grid=900, flip_y=True, dry_run=False):
+                      grid=900, flip_y=True, smooth=2.5, dry_run=False):
     """Write IPS/LO/M1 as real pycortex ROIs into the subject's overlays.svg."""
     import xml.etree.ElementTree as ET
     import cortex
@@ -251,7 +261,8 @@ def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
         group = ET.SubElement(shapes, f"{{{SVG_NS}}}g")
         group.set(f"{{{INK_NS}}}label", label)
         group.set("id", f"roi_{label}")
-        paths = _contour_paths(masks[label], svg_xy, svgshape, grid, flip_y)
+        paths = _contour_paths(masks[label], svg_xy, svgshape, grid,
+                               flip_y, smooth)
         for i, d in enumerate(paths):
             el = ET.SubElement(group, f"{{{SVG_NS}}}path")
             el.set("d", d)
