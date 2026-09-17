@@ -11,7 +11,16 @@ Two readouts of the CF over orientation:
   peak      argmax (5-deg resolution)
   centroid  axial circular mean of the positive part of the CF
 
-Output: derivatives/connective_fields/peaks/sub-<S>/sub-<S>_desc-peaks.tsv.gz
+Both readouts also after removing the session's NPCr-mean CF ("_specific"), so a
+profile shared by the whole ROI cannot set every voxel's peak.
+
+Also a coupling map per session: mean voxel-specific CF per (preferred-value
+bin, V1 orientation). Averaging CFs before taking any peak keeps the noise
+linear, which a per-voxel argmax does not.
+
+Output: derivatives/connective_fields/peaks/sub-<S>/
+  sub-<S>_desc-peaks.tsv.gz   one row per tuned NPCr voxel
+  sub-<S>_desc-maps.tsv       value bin x V1 orientation x session mapping
 """
 import argparse
 from pathlib import Path
@@ -32,6 +41,9 @@ def axial_centroid(cf, grid):
     return np.rad2deg(np.angle(z)) / 2 % 180, np.abs(z) / np.maximum(w.sum(0), 1e-12)
 
 
+VALUE_BINS = np.arange(2, 44, 2.)
+
+
 def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
@@ -44,6 +56,7 @@ def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
 
     mode, fwhm, fit_r = grid_fit(demean_runs(y_npc, par), par['value'].to_numpy(), 'value')
     w = fit_vonmises_weights(y_v1, par, n_basis, kappa)
+    maps = []
     out = pd.DataFrame({'voxel': np.arange(len(mode)), 'mode': mode, 'fwhm': fwhm,
                         'fit_r': fit_r})
     for s in sessions:
@@ -55,11 +68,23 @@ def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
         out[f'peak_{cond}'] = IEM_GRID[np.argmax(cf, 0)]
         out[f'centroid_{cond}'], out[f'concentration_{cond}'] = axial_centroid(cf, IEM_GRID)
         out[f'cf_max_{cond}'] = cf.max(0)
+        spec = cf - cf.mean(1, keepdims=True)
+        out[f'peak_specific_{cond}'] = IEM_GRID[np.argmax(spec, 0)]
+        out[f'centroid_specific_{cond}'], _ = axial_centroid(spec, IEM_GRID)
+        vbin = np.clip(np.digitize(mode, VALUE_BINS[1:-1]), 0, len(VALUE_BINS) - 2)
+        for b in np.unique(vbin):
+            m = vbin == b
+            for k, th in enumerate(IEM_GRID):
+                maps.append({'condition': cond, 'value_bin': VALUE_BINS[b] + 1.,
+                             'orientation': th, 'cf': spec[k, m].mean(),
+                             'cf_raw': cf[k, m].mean(), 'n': int(m.sum())})
 
     dst = bids_folder / 'derivatives' / 'connective_fields' / 'peaks' / f'sub-{subject}'
     dst.mkdir(parents=True, exist_ok=True)
     out.assign(subject=subject).to_csv(dst / f'sub-{subject}_desc-peaks.tsv.gz', sep='\t',
                                        index=False)
+    pd.DataFrame(maps).assign(subject=subject).to_csv(dst / f'sub-{subject}_desc-maps.tsv',
+                                                      sep='\t', index=False)
     print(f'{len(out)} voxels; saved to {dst}')
 
 
