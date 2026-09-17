@@ -169,6 +169,30 @@ The effect replicates at similar size. It does not reveal more specificity: the 
 broad, so a sharp coupling peak gets smeared over ~50°. Answering the specificity
 question with this approach needs a narrower basis (more functions, higher κ).
 
+## Narrower V1 channels: specificity (2026-09-17)
+
+`notes/figures/cf_coupling_specificity.pdf` (`plot_specificity.py`). Mapping score
+(observed − shuffled, lag 0, n = 30) and aligned profiles for V1 channels of increasing
+resolution:
+
+| V1 channels | Width | Observed − shuffled | t₂₉ | p |
+|---|---|---|---|---|
+| Bins, 8 | 22.5° | +0.0116 ± 0.0029 | 4.03 | .0004 |
+| Bins, 16 | 11.25° | +0.0081 ± 0.0025 | 3.20 | .003 |
+| Encoding model, 8 basis, κ = 2 | ~49° | +0.0094 ± 0.0025 | 3.76 | .0008 |
+| Encoding model, 16 basis, κ = 8 | ~24° | +0.0132 ± 0.0028 | 4.68 | 6·10⁻⁵ |
+| Encoding model, 24 basis, κ = 16 | ~17° | **+0.0161 ± 0.0030** | **5.43** | **8·10⁻⁶** |
+
+With the encoding-model projection the effect grows steadily as the basis narrows. This
+is what orientation-specific coupling predicts: a broad basis mixes the populations at
+the two sessions' θ* (15–24° apart) and dilutes the contrast. At κ = 16 the profile
+aligned to this session's θ* has a single narrow peak at 0°. Aligned to the other
+session's θ*, the same data show two humps about ±20° to either side — the peak sits
+wherever this session's θ* falls relative to the other one, whose direction varies from
+voxel to voxel. Sixteen argmax bins do not improve on 8: with ~1700 V1 voxels, 11° bins
+hold few, noisily labelled voxels. The encoding model gets resolution without that cost,
+because every voxel contributes through all its weights.
+
 ## Next steps
 
 - **Settle the neighbour leak directly** instead of by nuisance regression: re-estimate
