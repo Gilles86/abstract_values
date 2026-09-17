@@ -35,8 +35,8 @@ in a specific, predictable way.
 - **b–c** An NPCr voxel that prefers 16 CHF should therefore draw on different V1
   populations in the two sessions: its value tuning read through each mapping predicts a
   coupling profile over V1 orientation that peaks at θ* for that session.
-- **d** How far θ* moves depends on the preferred value, and the sign flips four times
-  (zero at 2, 22 and 42 CHF). No session-level nuisance has that shape.
+- **d** How far θ* moves depends on the preferred value, and its sign changes three
+  times (zero at 2, 12, 22, 32 and 42 CHF). No session-level nuisance has that shape.
 - **e** Data (argmax-binned V1 voxels, voxels whose θ* moves ≥ 15°, n = 30): NPCr trial
   fluctuations couple most strongly to the V1 channel at **this session's** θ*. The same
   data aligned to the other session's θ* give a lower, flatter profile. The peak is
