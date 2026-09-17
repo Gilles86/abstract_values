@@ -79,7 +79,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
                              'orientation': th, 'cf': spec[k, m].mean(),
                              'cf_raw': cf[k, m].mean(), 'n': int(m.sum())})
 
-    dst = bids_folder / 'derivatives' / 'connective_fields' / 'peaks' / f'sub-{subject}'
+    dst = (bids_folder / 'derivatives' / 'connective_fields'
+           / ('peaks' if lags == 0 else f'peaks_lags-{lags}') / f'sub-{subject}')
     dst.mkdir(parents=True, exist_ok=True)
     out.assign(subject=subject).to_csv(dst / f'sub-{subject}_desc-peaks.tsv.gz', sep='\t',
                                        index=False)
