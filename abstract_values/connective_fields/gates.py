@@ -149,10 +149,23 @@ def demean_runs(y, par):
     return out
 
 
-def residualise(y, par):
-    """Remove an additive orientation + run model fitted on these trials only."""
+def residualise(y, par, lags=0):
+    """Remove an additive orientation + run model fitted on these trials only.
+
+    ``lags`` > 0 also removes the orientation of the trials 1..lags before and
+    after, within the run. Single-trial betas of neighbouring trials overlap in
+    the HRF, so a beta carries some of its neighbours' stimulus responses. The
+    neighbour's orientation is unrelated to this trial's, so the orientation
+    means do not remove it -- and because value is a function of orientation
+    within a session, that leak is shared by V1 and NPC in exactly the
+    mapping-specific way the coupling test looks for.
+    """
     x = pd.get_dummies(par['orientation'].astype(str) + '_o').join(
         pd.get_dummies(par['session'].astype(str) + '_' + par['run'].astype(str) + '_r'))
+    run = par['session'].astype(str) + '_' + par['run'].astype(str)
+    for lag in [k for l in range(1, lags + 1) for k in (-l, l)]:
+        nb = par['orientation'].groupby(run).shift(lag)
+        x = x.join(pd.get_dummies(nb.astype(str).where(nb.notna()) + f'_lag{lag}'))
     x = x.to_numpy(float)
     beta, *_ = np.linalg.lstsq(x, y, rcond=None)
     return y - x @ beta

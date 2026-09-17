@@ -95,7 +95,7 @@ def orientation_prediction(mu, kappa, channel_oris):
     return p - p.mean(0, keepdims=True)
 
 
-def run_direction(direction, par, target, source, n_channels, n_shuffle, rng):
+def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, lags=0):
     """target/source: dicts with residual-ready data (trials x voxels) and kind."""
     ori, maps = load_mappings()
     sessions = sorted(par['session'].unique())
@@ -114,7 +114,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng):
         cond = p_ses['condition'].iloc[0]
         wrong = 'cdf' if cond == 'inverse_cdf' else 'inverse_cdf'
 
-        res_src = residualise(source['y'][ses], p_ses)
+        res_src = residualise(source['y'][ses], p_ses, lags)
         if source['kind'] == 'orientation':
             d, _ = bin_channels(res_src, centre_ori(src_lab, n_channels),
                                 orientation_edges(n_channels))
@@ -125,7 +125,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng):
             centres = np.array([np.median(src_lab[idx == k]) for k in range(n_channels)])
             chan = lambda c: np.interp(centres, maps[c], ori)        # orientation per channel
 
-        cf = connective_field(residualise(target['y'][ses], p_ses), d)
+        cf = connective_field(residualise(target['y'][ses], p_ses, lags), d)
         per_session.append(dict(cf=cf, right=chan(cond), wrong=chan(wrong)))
 
     def predict(channel_stim, lo, wi):
@@ -164,7 +164,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng):
 
 
 def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
-         smoothed=False):
+         smoothed=False, lags=0):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -185,12 +185,13 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
     rng = np.random.default_rng(seed)
     scores, by = zip(
         # Gates: all V1 voxels make stable channels; tuned-only leaves 1-voxel bins.
-        run_direction('npc_from_v1', par, npc_tuned, v1_all, n_channels, n_shuffle, rng),
-        run_direction('v1_from_npc', par, v1_tuned, npc_tuned, n_channels, n_shuffle, rng))
+        run_direction('npc_from_v1', par, npc_tuned, v1_all, n_channels, n_shuffle, rng, lags),
+        run_direction('v1_from_npc', par, v1_tuned, npc_tuned, n_channels, n_shuffle, rng, lags))
     scores = pd.concat(scores, ignore_index=True).assign(subject=subject)
     by = pd.concat(by, ignore_index=True).assign(subject=subject)
 
-    out = bids_folder / 'derivatives' / 'connective_fields' / 'coupling' / f'sub-{subject}'
+    out = (bids_folder / 'derivatives' / 'connective_fields'
+           / ('coupling' if lags == 0 else f'coupling_lags-{lags}') / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     scores.to_csv(out / f'sub-{subject}_desc-scores.tsv', sep='\t', index=False)
     by.to_csv(out / f'sub-{subject}_desc-bytuning.tsv', sep='\t', index=False)
@@ -207,6 +208,8 @@ if __name__ == '__main__':
     p.add_argument('--n-channels', type=int, default=8)
     p.add_argument('--n-shuffle', type=int, default=200)
     p.add_argument('--smoothed', action='store_true')
+    p.add_argument('--lags', type=int, default=0,
+                   help='Also remove the orientations of the N preceding/following trials')
     a = p.parse_args()
     main(a.subject, bids_folder=a.bids_folder, n_channels=a.n_channels,
-         n_shuffle=a.n_shuffle, smoothed=a.smoothed)
+         n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags)
