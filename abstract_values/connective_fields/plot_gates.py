@@ -67,6 +67,16 @@ def summary_points(ax, df, x, y, order, color, offset=0., label=None):
                 label, color=color, fontsize=7, va='center')
 
 
+def variant_key(ax, x, y, variants, dy=.09, seg=.1):
+    """Solid = tuned V1 voxels, dashed = all V1 voxels, drawn as glyphs."""
+    for i, v in enumerate(variants):
+        yy = y - i * dy
+        ax.plot([x, x + seg], [yy, yy], transform=ax.transAxes, color='.3', lw=1.2,
+                ls='-' if v == 'selected' else '--', clip_on=False)
+        ax.text(x + seg + .03, yy, 'Tuned V1 voxels' if v == 'selected' else 'All V1 voxels',
+                transform=ax.transAxes, color='.3', fontsize=6.5, va='center')
+
+
 def letter(ax, s):
     ax.text(-.2, 1.06, s, transform=ax.transAxes, fontsize=8, fontweight='bold',
             va='bottom', ha='right')
@@ -118,6 +128,8 @@ def main(bids_folder, out):
                 'Tuned V1 voxels' if v == 'selected' else 'All V1 voxels',
                 color=VARIANT_COL[v], transform=ax.transAxes, va='top')
     ax.axhline(0, color='.7', lw=.6, ls='--', zorder=0)
+    ax.set_ylim(top=1.2)
+    ax.set_yticks([-.5, 0, .5, 1])
     ax.set_xticks(range(3), ['ROI\nmean', 'Per\nvoxel', 'Voxel-\nspecific'])
     ax.set_ylabel('CF reliability (r)')
     letter(ax, 'b')
@@ -135,6 +147,7 @@ def main(bids_folder, out):
     ax.set_xlabel('Injected coupling (r)')
     ax.set_ylabel('Power (p < .05)')
     ax.set_ylim(-.02, 1.02)
+    variant_key(ax, .4, .8, variants)
     ax.text(.97, .45, 'Condition-specific', color=SPEC_COL, transform=ax.transAxes, ha='right')
     ax.text(.97, .14, 'Condition-invariant', color=INV_COL, transform=ax.transAxes, ha='right')
     letter(ax, 'c')
@@ -153,6 +166,7 @@ def main(bids_folder, out):
     ax.text(.03, .98, 'Observed', color=VARIANT_COL['selected'], transform=ax.transAxes,
             va='top')
     ax.text(.03, .89, 'Shuffled + injected', color='.3', transform=ax.transAxes, va='top')
+    variant_key(ax, .03, .38, variants)
     letter(ax, 'd')
 
     for ax in axes:
