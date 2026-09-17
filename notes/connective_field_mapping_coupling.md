@@ -221,6 +221,48 @@ any orientation-specific connectivity. Control to run: estimate each region's ga
 trial (projection of the residual pattern onto that orientation's mean pattern), remove
 it, and recompute the score and maps.
 
+## Hypothesis-vs-data figure, gain controls, voxel classes (2026-09-17)
+
+`notes/figures/cf_coupling_maps.pdf` (`plot_coupling_maps.py`), replacing
+`cf_coupling_peaks.pdf` as the main figure. Row 1 is the prediction only (each voxel's
+value tuning read through each mapping, NPCr-wide profile removed as for the data); row 2
+the observed maps (smoothed for display); row 3 the tests. Encoding-model V1 channels,
+24 basis functions, κ = 16.
+
+**Ridge readout (g).** The observed difference map sampled along θ*_CDF is above zero and
+along θ*_inverse-CDF below zero, and the two converge where the curves cross (12, 22,
+32 CHF). CDF-ridge minus inverse-ridge: +0.0104 ± 0.0032, t₂₉ = 3.28, p = .003.
+
+**Gain controls (h).** Mapping score, observed − shuffled:
+
+| Condition | κ = 16 encoding model | 8 argmax bins |
+|---|---|---|
+| All trials | +0.0161, p = 8·10⁻⁶ | +0.0116, p = .0004 |
+| Per-trial gain regressed out of both regions | +0.0100, p = .019 | +0.0060, p = .14 |
+| Low-drive half of trials (per voxel) | **+0.0150, p = .0001** | +0.0070, p = .20 |
+| High-drive half of trials | +0.0095, p = .011 | +0.0106, p = .011 |
+
+Shared gain acts through the evoked response, so it predicts the effect in high-drive
+trials and not in low-drive ones. With the κ = 16 channels the effect is at least as
+large on low-drive trials, which argues against gain as the explanation. With argmax bins
+the low-drive half is not significant, so that readout does not discriminate. Regressing
+out gain costs ~40 % of the score and makes the map-level agreement non-significant
+(r = 0.021, p = .14, vs 0.062, p = .0002). Gain regression is conservative: it also removes
+any genuine coupling aligned with the trial's mean response pattern.
+
+**Voxel classes (i).** NPCr tuned voxels split by whether the joint value aPRF (`aprf.cv`)
+or its orientation-space twin (`vonmises-prf.cv`) wins on cvR² (n = 29; sub-30 has no
+`vonmises-prf.cv`):
+
+| Voxels | κ = 16 | 8 bins |
+|---|---|---|
+| Value-winning | +0.0163, p = 4·10⁻⁶ | +0.0134, p = .0002 |
+| Orientation-winning | +0.0112, p = .004 | +0.0054, p = .06 |
+| Value − orientation | +0.0051, p = .035 | — |
+
+Stronger in value-winning voxels, as predicted. The orientation-winning voxels still
+show it, which fits a graded split: most winners are decided by small cvR² margins.
+
 ## Next steps
 
 - **Settle the neighbour leak directly** instead of by nuisance regression: re-estimate

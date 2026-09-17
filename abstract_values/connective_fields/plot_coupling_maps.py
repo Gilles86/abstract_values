@@ -114,12 +114,17 @@ def ridge_readout(diff, vbins, maps, ori, halfwidth=5):
     return pd.DataFrame(rows)
 
 
-def control_scores():
+GAIN_CONTROLS = (('All trials', 'coupling_iem-k24-kappa16'),
+                 ('Gain\nremoved', 'coupling_iem-k24-kappa16_gain'),
+                 ('Low-drive\ntrials', 'coupling_iem-k24-kappa16_drive-low'),
+                 ('High-drive\ntrials', 'coupling_iem-k24-kappa16_drive-high'))
+VOXEL_CLASSES = (('Value-\ntuned', 'coupling_iem-k24-kappa16_npc-value'),
+                 ('Orientation-\ntuned', 'coupling_iem-k24-kappa16_npc-orientation'))
+
+
+def control_scores(variants):
     rows = []
-    for label, variant in (('All trials', 'coupling_iem-k24-kappa16'),
-                           ('Gain removed', 'coupling_iem-k24-kappa16_gain'),
-                           ('Low-drive\ntrials', 'coupling_iem-k24-kappa16_drive-low'),
-                           ('High-drive\ntrials', 'coupling_iem-k24-kappa16_drive-high')):
+    for label, variant in variants:
         if not (ROOT / variant).exists():
             continue
         s = read(ROOT / variant, 'scores')
@@ -163,7 +168,7 @@ def main(out, variant='peaks'):
                      fontsize=8, fontweight='bold', color='.1')
     pa = rows[0].subplots(1, 3)
     da = rows[1].subplots(1, 3)
-    ga, ha = rows[2].subplots(1, 2, gridspec_kw={'width_ratios': [1.5, 1]})
+    ga, ha, ia = rows[2].subplots(1, 3, gridspec_kw={'width_ratios': [1.35, 1, .6]})
 
     # row 1: prediction
     pm = {c: np.nanmean(pred[c], 0) for c in CONDS}
@@ -233,27 +238,40 @@ def main(out, variant='peaks'):
           f't = {td.statistic:.2f}, p = {td.pvalue:.2g}')
     letter(ga, 'g')
 
-    # h: gain controls
-    cs = control_scores()
-    order = list(dict.fromkeys(cs.condition))
+    # h: gain controls, i: NPCr voxel classes
     rng = np.random.default_rng(5)
-    print('control                 mean     sem      t       p')
-    for i, cnd in enumerate(order):
-        v = cs[cs.condition == cnd].score
-        tt = stats.ttest_1samp(v, 0)
-        print(f'{cnd.replace(chr(10), " "):22s} {v.mean():+.4f} {v.sem():.4f} {tt.statistic:6.2f} {tt.pvalue:.2g}')
-        col = CUR_COL if i == 0 else '.45'
-        ha.scatter(i + rng.uniform(-.1, .1, len(v)), v, s=5, color=col, alpha=.4, lw=0)
-        ha.errorbar(i, v.mean(), v.sem(), color='.15', lw=.9, zorder=3)
-        ha.plot(i, v.mean(), 'D', ms=4.5, mfc=col, mec='.15', mew=1, zorder=4)
-        ha.text(i, .075, f'p = {tt.pvalue:.1g}'.replace('0.', '.'), ha='center', fontsize=5.5,
-                color='.3')
-    ha.axhline(0, color='.7', lw=.6, ls='--', zorder=0)
-    ha.set_xticks(range(len(order)), order, fontsize=6.5)
-    ha.set_ylabel('Mapping score (Δr)')
-    ha.set_ylim(-.04, .08)
-    letter(ha, 'h')
-    for ax in (ga, ha):
+    print('condition               mean     sem      t       p')
+    for ax, variants, lab in ((ha, GAIN_CONTROLS, 'h'), (ia, VOXEL_CLASSES, 'i')):
+        cs = control_scores(variants)
+        order = list(dict.fromkeys(cs.condition))
+        for i, cnd in enumerate(order):
+            v = cs[cs.condition == cnd].score
+            tt = stats.ttest_1samp(v, 0)
+            print(f'{cnd.replace(chr(10), " "):22s} {v.mean():+.4f} {v.sem():.4f} '
+                  f'{tt.statistic:6.2f} {tt.pvalue:.2g}  (n = {len(v)})')
+            col = CUR_COL if cnd in ('All trials', 'Value-\ntuned') else '.45'
+            ax.scatter(i + rng.uniform(-.1, .1, len(v)), v, s=5, color=col, alpha=.4, lw=0)
+            ax.errorbar(i, v.mean(), v.sem(), color='.15', lw=.9, zorder=3)
+            ax.plot(i, v.mean(), 'D', ms=4.5, mfc=col, mec='.15', mew=1, zorder=4)
+            ax.text(i, .085, f'p = {tt.pvalue:.1g}'.replace('0.', '.'), ha='center',
+                    fontsize=5.5, color='.3')
+        if lab == 'i' and len(order) == 2:
+            w = cs.pivot_table(index='subject', columns='condition', values='score').dropna()
+            tp = stats.ttest_rel(w[order[0]], w[order[1]])
+            print(f'value - orientation voxels: {(w[order[0]] - w[order[1]]).mean():+.4f}, '
+                  f't = {tp.statistic:.2f}, p = {tp.pvalue:.2g} (n = {len(w)})')
+            ax.plot([0, 1], [.1, .1], color='.3', lw=.7)
+            ax.text(.5, .102, f'p = {tp.pvalue:.1g}'.replace('0.', '.'), ha='center',
+                    va='bottom', fontsize=5.5, color='.3')
+        ax.axhline(0, color='.7', lw=.6, ls='--', zorder=0)
+        ax.set_xticks(range(len(order)), order, fontsize=6.5)
+        ax.set_xlim(-.5, len(order) - .5)
+        ax.set_ylim(-.04, .11)
+        ax.set_ylabel('Mapping score (Δr)' if lab == 'h' else '')
+        letter(ax, lab)
+    ia.set_title('NPCr voxels', fontsize=7)
+
+    for ax in (ga, ha, ia):
         sns.despine(ax=ax, offset=3, trim=True)
 
     fig.savefig(out, dpi=300)
