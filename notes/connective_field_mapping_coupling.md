@@ -193,6 +193,34 @@ voxel to voxel. Sixteen argmax bins do not improve on 8: with ~1700 V1 voxels, 1
 hold few, noisily labelled voxels. The encoding model gets resolution without that cost,
 because every voxel contributes through all its weights.
 
+## Coupling maps: preferred value × V1 orientation (2026-09-17)
+
+`notes/figures/cf_coupling_peaks.pdf` (`peaks.py`, `plot_peaks.py`; encoding-model V1
+channels, 24 basis functions, κ = 16). The session's NPCr-wide coupling profile is
+removed before averaging.
+
+- **a–b** In each session separately, mean coupling per 2-CHF preferred-value bin and V1
+  orientation shows a diagonal ridge along θ*: NPCr voxels couple most to the V1
+  orientations worth roughly their preferred value. This includes the part that is the
+  same in both sessions.
+- **c–e** The CDF − inverse-CDF difference map correlates with the difference map the
+  mappings predict: r = 0.060 ± 0.012, t₂₉ = 4.82, p = 4·10⁻⁵ (with ±1 neighbouring trials
+  removed: r = 0.052, p = .0001; the ridge in a–b is unchanged).
+- **f** Per voxel, the shift of the most-connected orientation (circular centroid of the
+  CF) does not track the predicted shift (slope −0.00, p = .96). A single voxel's CF from
+  184 trials is too noisy for a peak readout; the effect only shows once CFs are
+  averaged over voxels or compared as whole profiles.
+
+**Unaddressed alternative: shared multiplicative gain.** If a trial-by-trial gain
+fluctuation (arousal, attention) scales the stimulus-evoked responses in both regions,
+subtracting the mean response to each orientation leaves g_t · response(θ_t) in the
+residuals. The residual covariance of an NPCr voxel with a V1 channel is then largest
+where the voxel's value tuning and the channel's orientation tuning overlap under the
+current mapping. That produces the diagonal ridge and its mapping-dependent shift without
+any orientation-specific connectivity. Control to run: estimate each region's gain per
+trial (projection of the residual pattern onto that orientation's mean pattern), remove
+it, and recompute the score and maps.
+
 ## Next steps
 
 - **Settle the neighbour leak directly** instead of by nuisance regression: re-estimate
