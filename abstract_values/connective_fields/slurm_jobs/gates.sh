@@ -16,6 +16,7 @@
 # Optional overrides (--export ALL,KEY=value):
 #   V1_VOXELS   selected (default) | all  -- V1 voxels feeding the channels
 #   N_PERM      injection permutations (default 50)
+#   AMPLITUDES  space-separated injected couplings (default "0 0.05 0.1 0.2")
 #   REPO        checkout to run from (default ~/git/abstract_values); put first on
 #               PYTHONPATH so a clean clone wins over the env's editable install
 
@@ -24,6 +25,7 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
 fi
 V1_VOXELS="${V1_VOXELS:-selected}"
 N_PERM="${N_PERM:-50}"
+AMPLITUDES="${AMPLITUDES:-0 0.05 0.1 0.2}"
 
 . $HOME/init_conda.sh
 export PYTHONUNBUFFERED=1
@@ -33,4 +35,4 @@ cd "$REPO"
 conda run --no-capture-output -n abstract_values python -u -W ignore \
     -m abstract_values.connective_fields.gates "$PARTICIPANT_LABEL" \
     --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue \
-    --v1-voxels "$V1_VOXELS" --n-perm "$N_PERM"
+    --v1-voxels "$V1_VOXELS" --n-perm "$N_PERM" --amplitudes $AMPLITUDES

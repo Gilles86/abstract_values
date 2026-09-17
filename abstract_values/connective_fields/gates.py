@@ -409,10 +409,12 @@ if __name__ == '__main__':
     p.add_argument('--source-roi', default='BensonV1ecc075-375')
     p.add_argument('--n-channels', type=int, default=8)
     p.add_argument('--n-perm', type=int, default=50)
+    p.add_argument('--amplitudes', type=float, nargs='+', default=[0., .05, .1, .2],
+                   help='Injected coupling strengths (correlation scale)')
     p.add_argument('--smoothed', action='store_true')
     p.add_argument('--v1-voxels', choices=['selected', 'all'], default='selected',
                    help='V1 voxels that feed the orientation channels')
     args = p.parse_args()
     main(args.subject, bids_folder=args.bids_folder, target_roi=args.target_roi,
-         source_roi=args.source_roi, n_channels=args.n_channels, n_perm=args.n_perm,
+         source_roi=args.source_roi, n_channels=args.n_channels, n_perm=args.n_perm, amplitudes=args.amplitudes,
          smoothed=args.smoothed, v1_voxels=args.v1_voxels)
