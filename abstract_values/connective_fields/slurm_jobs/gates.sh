@@ -16,6 +16,8 @@
 # Optional overrides (--export ALL,KEY=value):
 #   V1_VOXELS   selected (default) | all  -- V1 voxels feeding the channels
 #   N_PERM      injection permutations (default 50)
+#   REPO        checkout to run from (default ~/git/abstract_values); put first on
+#               PYTHONPATH so a clean clone wins over the env's editable install
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%02d" $SLURM_ARRAY_TASK_ID)
@@ -25,7 +27,9 @@ N_PERM="${N_PERM:-50}"
 
 . $HOME/init_conda.sh
 export PYTHONUNBUFFERED=1
-cd $HOME/git/abstract_values
+REPO="${REPO:-$HOME/git/abstract_values}"
+export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
+cd "$REPO"
 conda run --no-capture-output -n abstract_values python -u -W ignore \
     -m abstract_values.connective_fields.gates "$PARTICIPANT_LABEL" \
     --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue \
