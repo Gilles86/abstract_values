@@ -1,7 +1,7 @@
 # Does NPC–V1 coupling follow the orientation→value mapping?
 
 **Status (2026-09-17):** the step-0 gates pass; the primary test found a positive effect
-(n = 30). It survives removing the neighbouring trials' stimuli but weakens under heavier
+(n = 30), replicated with an encoding-model projection of V1. It survives removing the neighbouring trials' stimuli but weakens under heavier
 nuisance removal, and the reverse direction shows no effect. Suggestive, not established.
 
 Code: `abstract_values/connective_fields/` (`gates.py`, `test_coupling.py`, `plot_gates.py`,
@@ -24,6 +24,29 @@ sign of that shift flips several times along the value axis. If an NPC voxel pre
 value *v* couples preferentially to V1 populations coding the orientation that is worth
 *v* in the **current** condition, its CF over orientation should differ between sessions
 in a specific, predictable way.
+
+## Theory in one figure
+
+`notes/figures/cf_coupling_explainer.pdf` (`plot_coupling_explainer.py`).
+
+- **a** Both mappings rise with orientation, but differently: 16 CHF is worth a 75° gabor
+  under CDF and a 52° gabor under inverse CDF. Call the orientation worth a voxel's
+  preferred value θ*.
+- **b–c** An NPCr voxel that prefers 16 CHF should therefore draw on different V1
+  populations in the two sessions: its value tuning read through each mapping predicts a
+  coupling profile over V1 orientation that peaks at θ* for that session.
+- **d** How far θ* moves depends on the preferred value, and the sign flips four times
+  (zero at 2, 22 and 42 CHF). No session-level nuisance has that shape.
+- **e** Data (argmax-binned V1 voxels, voxels whose θ* moves ≥ 15°, n = 30): NPCr trial
+  fluctuations couple most strongly to the V1 channel at **this session's** θ*. The same
+  data aligned to the other session's θ* give a lower, flatter profile. The peak is
+  confined to one 22.5° channel.
+- **f** V1 channels from the inverted vonmises encoding model (all 8 weights of every
+  voxel, 5° grid, pooled to 15° for display): the profile is broad and the two alignments
+  barely differ by eye. The κ = 2 basis spans ~60°, so this projection blurs orientation
+  rather than sharpening it.
+- **g** Mapping score (observed − label-shuffled) per subject: binned p = .0004
+  (neighbours removed: p = .0006); encoding-model projection p = .0008 (p = .003).
 
 ## Design
 
@@ -128,6 +151,23 @@ removal of the adjacent trials' stimuli. Three things keep this from being a fin
 2. The shape test (does the score sit where the predictions differ) is only significant
    in the analysis without neighbour removal.
 3. The reverse direction does not replicate it.
+
+## Encoding-model projection (added 2026-09-17)
+
+`--projection iem` replaces argmax bins with an inversion of the vonmises encoding model
+(8 basis functions, κ = 2, ridge α = 10, fitted on both sessions):
+c_t = (WWᵀ + λI)⁻¹ W r_t, population response = basis(θ) · c_t on a 5° grid, then centred
+over orientation. Every voxel contributes through all its weights, in proportion to how
+well the model describes it.
+
+| Nuisance | Observed − shuffled | Shape r |
+|---|---|---|
+| Orientation + run | +0.0094 ± 0.0025, t₂₉ = 3.76, p = .0008 | 0.05, p = .49 |
+| + trials ±1 | +0.0083 ± 0.0025, t₂₉ = 3.28, p = .003 | 0.02, p = .76 |
+
+The effect replicates at similar size. It does not reveal more specificity: the basis is
+broad, so a sharp coupling peak gets smeared over ~60°. Answering the specificity
+question with this approach needs a narrower basis (more functions, higher κ).
 
 ## Next steps
 
