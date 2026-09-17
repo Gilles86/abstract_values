@@ -164,7 +164,10 @@ def main(out, variant='peaks'):
     rows[0].suptitle('Prediction  —  each voxel\'s value tuning read through the session\'s '
                      'mapping (no coupling data)', x=.01, ha='left', fontsize=8,
                      fontweight='bold', color='.25')
-    rows[1].suptitle('Data  —  trial-to-trial NPCr–V1 coupling (n = 30)', x=.01, ha='left',
+    who = {'peaks_npc-value': 'value-tuned NPCr voxels',
+           'peaks_npc-orientation': 'orientation-tuned NPCr voxels'}.get(variant, 'NPCr')
+    rows[1].suptitle(f'Data  —  trial-to-trial coupling, {who} × V1 (n = {len(subs)})',
+                     x=.01, ha='left',
                      fontsize=8, fontweight='bold', color='.1')
     pa = rows[0].subplots(1, 3)
     da = rows[1].subplots(1, 3)
@@ -279,4 +282,7 @@ def main(out, variant='peaks'):
 
 
 if __name__ == '__main__':
-    main(REPO / 'notes' / 'figures' / 'cf_coupling_maps.pdf')
+    import sys
+    variant = sys.argv[1] if len(sys.argv) > 1 else 'peaks'
+    name = 'cf_coupling_maps' + variant[len('peaks'):]
+    main(REPO / 'notes' / 'figures' / f'{name}.pdf', variant)

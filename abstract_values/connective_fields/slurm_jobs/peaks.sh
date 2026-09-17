@@ -13,7 +13,8 @@
 #   sbatch --array=3-30 peaks.sh
 #   sbatch --export=ALL,PARTICIPANT_LABEL=pil01 peaks.sh
 #
-# Optional overrides: N_BASIS, KAPPA, LAGS, GAIN (1 = remove per-trial gain), REPO (default ~/git/abstract_values)
+# Optional overrides: N_BASIS, KAPPA, LAGS, GAIN (1 = remove per-trial gain),
+#   NPC_CLASS (all | value | orientation), REPO (default ~/git/abstract_values)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%02d" $SLURM_ARRAY_TASK_ID)
@@ -27,4 +28,4 @@ cd "$REPO"
 conda run --no-capture-output -n abstract_values python -u -W ignore \
     -m abstract_values.connective_fields.peaks "$PARTICIPANT_LABEL" \
     --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue \
-    --n-basis "${N_BASIS:-24}" --kappa "${KAPPA:-16}" --lags "${LAGS:-0}" $([ "${GAIN:-0}" = "1" ] && echo --gain)
+    --n-basis "${N_BASIS:-24}" --kappa "${KAPPA:-16}" --lags "${LAGS:-0}" $([ "${GAIN:-0}" = "1" ] && echo --gain) --npc-class "${NPC_CLASS:-all}"
