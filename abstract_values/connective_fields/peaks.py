@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Per-voxel "most-connected V1 orientation" for NPCr voxels, per session.
+
+For every tuned NPCr voxel: its preferred value (joint log-Gaussian fit) and,
+per session, the V1 orientation its residual fluctuations couple to most
+strongly. V1 channels come from the inverted vonmises encoding model (default
+24 basis functions, kappa 16: the narrowest setting in plot_specificity.py) on
+a 5-deg grid; coupling is the channel-centred CF from test_coupling.py.
+
+Two readouts of the CF over orientation:
+  peak      argmax (5-deg resolution)
+  centroid  axial circular mean of the positive part of the CF
+
+Output: derivatives/connective_fields/peaks/sub-<S>/sub-<S>_desc-peaks.tsv.gz
+"""
+import argparse
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from abstract_values.connective_fields.gates import (
+    connective_field, demean_runs, get_paradigm, grid_fit, load_roi, residualise)
+from abstract_values.connective_fields.test_coupling import (
+    IEM_GRID, fit_vonmises_weights, iem_channels)
+from abstract_values.utils.data import Subject, BIDS_FOLDER
+
+
+def axial_centroid(cf, grid):
+    w = np.clip(cf, 0, None)
+    z = (w * np.exp(2j * np.deg2rad(grid))[:, None]).sum(0)
+    return np.rad2deg(np.angle(z)) / 2 % 180, np.abs(z) / np.maximum(w.sum(0), 1e-12)
+
+
+def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
+    bids_folder = Path(bids_folder)
+    sub = Subject(subject, bids_folder=bids_folder)
+    sessions = sorted(sub.get_sessions())
+    par = get_paradigm(sub, sessions)
+    betas = sub.get_single_trial_estimates(sessions, desc='gabor')
+    y_npc, sel_npc = load_roi(sub, betas, 'NPCr', 'aprf.cv', bids_folder, False)
+    y_v1, _ = load_roi(sub, betas, 'BensonV1ecc075-375', 'vonmises.cv', bids_folder, False)
+    y_npc = y_npc[:, sel_npc]
+
+    mode, fwhm, fit_r = grid_fit(demean_runs(y_npc, par), par['value'].to_numpy(), 'value')
+    w = fit_vonmises_weights(y_v1, par, n_basis, kappa)
+    out = pd.DataFrame({'voxel': np.arange(len(mode)), 'mode': mode, 'fwhm': fwhm,
+                        'fit_r': fit_r})
+    for s in sessions:
+        ses = (par['session'] == s).to_numpy()
+        p_ses = par[ses].reset_index(drop=True)
+        cond = p_ses['condition'].iloc[0]
+        d = iem_channels(residualise(y_v1[ses], p_ses, lags), w, kappa=kappa)
+        cf = connective_field(residualise(y_npc[ses], p_ses, lags), d)
+        out[f'peak_{cond}'] = IEM_GRID[np.argmax(cf, 0)]
+        out[f'centroid_{cond}'], out[f'concentration_{cond}'] = axial_centroid(cf, IEM_GRID)
+        out[f'cf_max_{cond}'] = cf.max(0)
+
+    dst = bids_folder / 'derivatives' / 'connective_fields' / 'peaks' / f'sub-{subject}'
+    dst.mkdir(parents=True, exist_ok=True)
+    out.assign(subject=subject).to_csv(dst / f'sub-{subject}_desc-peaks.tsv.gz', sep='\t',
+                                       index=False)
+    print(f'{len(out)} voxels; saved to {dst}')
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('subject')
+    p.add_argument('--bids-folder', default=str(BIDS_FOLDER))
+    p.add_argument('--n-basis', type=int, default=24)
+    p.add_argument('--kappa', type=float, default=16.)
+    p.add_argument('--lags', type=int, default=0)
+    a = p.parse_args()
+    main(a.subject, a.bids_folder, a.n_basis, a.kappa, a.lags)
