@@ -149,7 +149,7 @@ def demean_runs(y, par):
     return out
 
 
-def residualise(y, par, lags=0):
+def residualise(y, par, lags=0, sham_outer=False):
     """Remove an additive orientation + run model fitted on these trials only.
 
     ``lags`` > 0 also removes the orientation of the trials 1..lags before and
@@ -159,12 +159,21 @@ def residualise(y, par, lags=0):
     means do not remove it -- and because value is a function of orientation
     within a session, that leak is shared by V1 and NPC in exactly the
     mapping-specific way the coupling test looks for.
+
+    ``sham_outer`` replaces the outermost lag's orientations with a fixed
+    within-run permutation: same number of nuisance columns, no leak removed.
+    It separates "lag N removed a leak" from "lag N just used up degrees of
+    freedom".
     """
     x = pd.get_dummies(par['orientation'].astype(str) + '_o').join(
         pd.get_dummies(par['session'].astype(str) + '_' + par['run'].astype(str) + '_r'))
     run = par['session'].astype(str) + '_' + par['run'].astype(str)
     for lag in [k for l in range(1, lags + 1) for k in (-l, l)]:
-        nb = par['orientation'].groupby(run).shift(lag)
+        ori = par['orientation']
+        if sham_outer and abs(lag) == lags:
+            rng = np.random.default_rng(abs(lag))
+            ori = ori.groupby(run).transform(lambda o: rng.permutation(o.to_numpy()))
+        nb = ori.groupby(run).shift(lag)
         x = x.join(pd.get_dummies(nb.astype(str).where(nb.notna()) + f'_lag{lag}'))
     x = x.to_numpy(float)
     beta, *_ = np.linalg.lstsq(x, y, rcond=None)

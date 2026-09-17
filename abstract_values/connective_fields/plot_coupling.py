@@ -23,33 +23,35 @@ DIRECTIONS = {'npc_from_v1': 'NPC ← V1', 'v1_from_npc': 'V1 ← NPC'}
 
 
 def group_stats(scores):
-    """Per direction: t-tests across subjects and a group-level label permutation test."""
+    """Per direction: t-tests across subjects (random effects).
+
+    No label-permutation p-value: shuffling labels across voxels breaks the
+    spatial autocorrelation that neighbouring voxels share in both tuning and
+    CF, so its null is far too narrow (it gave p = .005 where the across-subject
+    t-test gave p = .13).
+    """
     rows = []
     for d, g in scores.groupby('direction'):
         obs = g[g.kind == 'observed'].set_index('subject')['score']
         sh = g[g.kind == 'label-shuffle']
         null_mean = sh.groupby('subject')['score'].mean().reindex(obs.index)
         diff = obs - null_mean
-        # Group null: the cohort mean of one shuffle per subject, paired by perm index.
-        group_null = sh.pivot(index='perm', columns='subject', values='score').mean(1)
-        p_perm = (np.sum(group_null.to_numpy() - null_mean.mean() >= diff.mean()) + 1) / (len(group_null) + 1)
         for name, v in (('observed', obs), ('label-shuffle', null_mean), ('observed - shuffle', diff)):
             t = stats.ttest_1samp(v, 0)
             rows.append({'direction': d, 'quantity': name, 'n': len(v), 'mean': v.mean(),
                          'sem': v.sem(), 't': t.statistic, 'p': t.pvalue})
-        rows[-1]['p_group_permutation'] = p_perm
     return pd.DataFrame(rows)
 
 
-def main(bids_folder, out):
-    root = Path(bids_folder) / 'derivatives' / 'connective_fields' / 'coupling'
+def main(bids_folder, variant, out):
+    root = Path(bids_folder) / 'derivatives' / 'connective_fields' / variant
     scores = read(root, 'scores')
     by = read(root, 'bytuning')
 
     st = group_stats(scores)
     pd.set_option('display.width', 160)
     print(st.to_string(index=False, float_format=lambda x: f'{x:.4g}'))
-    st.to_csv(REPO / 'notes' / 'data' / 'cf_coupling_group_stats.tsv', sep='\t', index=False)
+    st.to_csv(REPO / 'notes' / 'data' / f'cf_{variant}_group_stats.tsv', sep='\t', index=False)
 
     fig, axes = plt.subplots(1, 3, figsize=(7.25, 2.2), constrained_layout=True,
                              gridspec_kw={'width_ratios': [1.1, 1.2, 1.2]})
@@ -97,6 +99,9 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--bids-folder', default=str(BIDS_FOLDER))
-    p.add_argument('--out', default=str(REPO / 'notes' / 'figures' / 'cf_coupling.pdf'))
+    p.add_argument('--variant', default='coupling',
+                   help='coupling | coupling_lags-1 | coupling_lags-2')
+    p.add_argument('--out', default=None)
     a = p.parse_args()
-    main(a.bids_folder, Path(a.out))
+    main(a.bids_folder, a.variant,
+         Path(a.out or REPO / 'notes' / 'figures' / f'cf_{a.variant}.pdf'))

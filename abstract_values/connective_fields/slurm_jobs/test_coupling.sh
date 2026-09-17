@@ -17,6 +17,7 @@
 # Optional overrides (--export ALL,KEY=value):
 #   N_SHUFFLE   label permutations (default 200)
 #   LAGS        also remove neighbouring trials' orientations, +-LAGS (default 0)
+#   SHAM_OUTER  1 = outermost lag uses permuted orientations (df-matched control)
 #   REPO        checkout to run from (default ~/git/abstract_values)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
@@ -24,6 +25,8 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
 fi
 N_SHUFFLE="${N_SHUFFLE:-200}"
 LAGS="${LAGS:-0}"
+EXTRA=()
+[ "${SHAM_OUTER:-0}" = "1" ] && EXTRA+=(--sham-outer)
 REPO="${REPO:-$HOME/git/abstract_values}"
 
 . $HOME/init_conda.sh
@@ -32,4 +35,4 @@ export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 cd "$REPO"
 conda run --no-capture-output -n abstract_values python -u -W ignore \
     -m abstract_values.connective_fields.test_coupling "$PARTICIPANT_LABEL" \
-    --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue --n-shuffle "$N_SHUFFLE" --lags "$LAGS"
+    --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue --n-shuffle "$N_SHUFFLE" --lags "$LAGS" "${EXTRA[@]}"
