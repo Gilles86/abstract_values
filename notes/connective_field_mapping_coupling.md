@@ -43,7 +43,7 @@ in a specific, predictable way.
   confined to one 22.5° channel.
 - **f** V1 channels from the inverted vonmises encoding model (all 8 weights of every
   voxel, 5° grid, pooled to 15° for display): the profile is broad and the two alignments
-  barely differ by eye. The κ = 2 basis spans ~60°, so this projection blurs orientation
+  barely differ by eye. Each κ = 2 basis function is ~50° wide at half maximum, so this projection blurs orientation
   rather than sharpening it.
 - **g** Mapping score (observed − label-shuffled) per subject: binned p = .0004
   (neighbours removed: p = .0006); encoding-model projection p = .0008 (p = .003).
@@ -166,7 +166,7 @@ well the model describes it.
 | + trials ±1 | +0.0083 ± 0.0025, t₂₉ = 3.28, p = .003 | 0.02, p = .76 |
 
 The effect replicates at similar size. It does not reveal more specificity: the basis is
-broad, so a sharp coupling peak gets smeared over ~60°. Answering the specificity
+broad, so a sharp coupling peak gets smeared over ~50°. Answering the specificity
 question with this approach needs a narrower basis (more functions, higher κ).
 
 ## Next steps
