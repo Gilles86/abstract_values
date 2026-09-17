@@ -260,7 +260,17 @@ or its orientation-space twin (`vonmises-prf.cv`) wins on cvR² (n = 29; sub-30 
 | Orientation-winning | +0.0112, p = .004 | +0.0054, p = .06 |
 | Value − orientation | +0.0051, p = .035 | — |
 
-Stronger in value-winning voxels, as predicted. The orientation-winning voxels still
+Stronger in value-winning voxels, as predicted.
+
+**Selection caveat.** The voxels here were selected because `aprf.cv` beats the null, which
+favours value winners (~73 % of them win for value). With a model-neutral selection (the
+better of the two twins beats the null), value wins in only 44 % of NPCr voxels and 45 % of
+V1 voxels (n = 29). Both regions lean slightly toward orientation, with no difference
+between them (p = .43). This comparison therefore cannot tell NPCr from V1 at all: it does
+not even classify V1 as orientation-coding. The two mappings differ by only ~4 CHF (~17°),
+which is small next to the tuning widths and the session-to-session beta noise.
+`condition_generalisation.tsv` (orientation favoured in both ROIs, no difference) and
+`winner_by_visual_area.tsv` (orientation ~55 % in V1 and in IPS alike) agree. The orientation-winning voxels still
 show it, which fits a graded split: most winners are decided by small cvR² margins.
 
 ## Next steps
