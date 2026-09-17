@@ -19,7 +19,7 @@ from abstract_values.utils.data import BIDS_FOLDER
 
 REPO = Path(__file__).resolve().parents[2]
 OBS_COL, NULL_COL = '#C44E52', '#9C9C9C'
-DIRECTIONS = {'npc_from_v1': 'NPC ← V1', 'v1_from_npc': 'V1 ← NPC'}
+DIRECTIONS = {'npc_from_v1': 'Target NPC\nsource V1', 'v1_from_npc': 'Target V1\nsource NPC'}
 
 
 def group_stats(scores):
@@ -43,18 +43,34 @@ def group_stats(scores):
     return pd.DataFrame(rows)
 
 
+def shape_stats(by):
+    """Per subject, r across tuning bins between observed score and how much the
+    two mappings' predictions differ (1 - r between them). The score can only be
+    carried by voxels whose predictions differ, so r should be positive."""
+    rows = []
+    for d, g in by.groupby('direction'):
+        r = g.groupby('subject').apply(
+            lambda x: np.corrcoef(x.score, x.dissimilarity)[0, 1] if len(x) > 2 else np.nan,
+            include_groups=False).dropna()
+        t = stats.ttest_1samp(r, 0)
+        rows.append({'direction': d, 'quantity': 'r(score, dissimilarity) across bins',
+                     'n': len(r), 'mean': r.mean(), 'sem': r.sem(), 't': t.statistic,
+                     'p': t.pvalue})
+    return pd.DataFrame(rows)
+
+
 def main(bids_folder, variant, out):
     root = Path(bids_folder) / 'derivatives' / 'connective_fields' / variant
     scores = read(root, 'scores')
     by = read(root, 'bytuning')
 
-    st = group_stats(scores)
+    st = pd.concat([group_stats(scores), shape_stats(by)], ignore_index=True)
     pd.set_option('display.width', 160)
     print(st.to_string(index=False, float_format=lambda x: f'{x:.4g}'))
     st.to_csv(REPO / 'notes' / 'data' / f'cf_{variant}_group_stats.tsv', sep='\t', index=False)
 
-    fig, axes = plt.subplots(1, 3, figsize=(7.25, 2.2), constrained_layout=True,
-                             gridspec_kw={'width_ratios': [1.1, 1.2, 1.2]})
+    fig, axes = plt.subplots(1, 4, figsize=(7.25, 2.1), constrained_layout=True,
+                             gridspec_kw={'width_ratios': [1.1, 1.2, 1, 1.2]})
 
     ax = axes[0]
     rng = np.random.default_rng(1)
@@ -72,13 +88,33 @@ def main(bids_folder, variant, out):
     ax.axhline(0, color='.7', lw=.6, ls='--', zorder=0)
     ax.set_xticks(range(2), list(DIRECTIONS.values()))
     ax.set_ylabel('Mapping score (Δr)')
+    lo, hi = ax.get_ylim()
+    ax.set_ylim(lo, hi + .35 * (hi - lo))
     ax.text(.03, .98, 'Observed', color=OBS_COL, transform=ax.transAxes, va='top')
     ax.text(.03, .89, 'Labels shuffled', color=NULL_COL, transform=ax.transAxes, va='top')
     letter(ax, 'a')
 
+    # c: across value bins, the score follows how different the two predictions are
+    ax = axes[2]
+    m = (by[by.direction == 'npc_from_v1'].groupby('tuning')[['score', 'dissimilarity']]
+         .mean().reset_index())
+    ax.scatter(m.dissimilarity, m.score, color=OBS_COL, s=12, zorder=3, lw=0)
+    for _, r in m.iterrows():
+        ax.text(r.dissimilarity + .02, r.score, f'{r.tuning:g}', fontsize=5.5, color='.35',
+                va='center')
+    b1, b0 = np.polyfit(m.dissimilarity, m.score, 1)
+    xx = np.array([0, m.dissimilarity.max()])
+    ax.plot(xx, b0 + b1 * xx, color='.4', lw=1, zorder=2)
+    ax.axhline(0, color='.7', lw=.6, ls='--', zorder=0)
+    ax.set_xlabel('Prediction difference\n(1 − r, cdf vs inverse cdf)')
+    ax.set_ylabel('Mapping score (Δr)')
+    ax.text(.03, .98, 'Value bins (CHF)', transform=ax.transAxes, va='top', fontsize=7,
+            color='.3')
+    letter(ax, 'c')
+
     for ax, d, xlabel, ticks, lab in (
             (axes[1], 'npc_from_v1', 'NPC preferred value (CHF)', [2, 12, 22, 32, 42], 'b'),
-            (axes[2], 'v1_from_npc', 'V1 preferred orientation (deg)', [0, 45, 90, 135, 180], 'c')):
+            (axes[3], 'v1_from_npc', 'V1 preferred orientation (°)', [0, 45, 90, 135, 180], 'd')):
         g = by[by.direction == d]
         sns.lineplot(data=g, x='tuning', y='score', errorbar=('se', 1), color=OBS_COL,
                      marker='o', ms=3, ax=ax, err_kws={'lw': 0})
@@ -86,7 +122,10 @@ def main(bids_folder, variant, out):
         ax.set_xticks(ticks)
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Mapping score (Δr)')
-        ax.set_title(DIRECTIONS[d], fontsize=8)
+        lo, hi = ax.get_ylim()
+        ax.set_ylim(lo, hi + .25 * (hi - lo))
+        ax.text(.03, .98, DIRECTIONS[d].replace('\n', ', '), transform=ax.transAxes,
+                va='top', fontsize=7, color='.3')
         letter(ax, lab)
 
     for ax in axes:
