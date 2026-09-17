@@ -17,6 +17,7 @@
 # Optional overrides (--export ALL,KEY=value):
 #   N_SHUFFLE   label permutations (default 200)
 #   LAGS        also remove neighbouring trials' orientations, +-LAGS (default 0)
+#   PROJECTION  bins (default) | iem
 #   SHAM_OUTER  1 = outermost lag uses permuted orientations (df-matched control)
 #   REPO        checkout to run from (default ~/git/abstract_values)
 
@@ -25,7 +26,7 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
 fi
 N_SHUFFLE="${N_SHUFFLE:-200}"
 LAGS="${LAGS:-0}"
-EXTRA=()
+EXTRA=(--projection "${PROJECTION:-bins}")
 [ "${SHAM_OUTER:-0}" = "1" ] && EXTRA+=(--sham-outer)
 REPO="${REPO:-$HOME/git/abstract_values}"
 

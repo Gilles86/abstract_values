@@ -85,6 +85,42 @@ def centre_ori(labels, n):
     return (labels + 90. / n) % 180
 
 
+N_BASIS, KAPPA, RIDGE_ALPHA = 8, 2., 10.     # the project's vonmises encoding model
+IEM_GRID = np.arange(0, 180, 5.)
+
+
+def vonmises_basis(theta_deg):
+    """8 axial von Mises basis functions (braincoder AxialVonMisesPRF), stimuli x basis."""
+    mus = np.arange(N_BASIS) * 180. / N_BASIS
+    d = np.deg2rad(2 * (np.asarray(theta_deg)[:, None] - mus[None, :]))
+    return np.exp(KAPPA * np.cos(d)) / (np.pi * np.i0(KAPPA))
+
+
+def fit_vonmises_weights(y, par):
+    """Ridge weights (basis x voxels) of the vonmises encoding model, both sessions."""
+    b = vonmises_basis(par['orientation'].to_numpy())
+    yd = demean_runs(y, par)
+    return np.linalg.solve(b.T @ b + RIDGE_ALPHA * np.eye(N_BASIS), b.T @ yd)
+
+
+def iem_channels(res, weights, lam=1e-2):
+    """Invert the encoding model: every V1 voxel contributes through all its weights.
+
+    Residual pattern r_t (voxels) ~ W' c_t, so c_t = (W W' + lam I)^-1 W r_t
+    estimates the 8 basis-channel responses on each trial; the population
+    response over orientation is then basis(IEM_GRID) @ c_t. Voxels count in
+    proportion to how well the model describes them, and a voxel tuned to two
+    orientations feeds both, instead of being assigned to one argmax bin.
+    Returned like ``bin_channels``: deviations from the mean over orientations
+    (removing the shared V1 fluctuation), z-scored per orientation.
+    """
+    w = weights.T                                                   # voxels x basis
+    g = w.T @ w
+    c = np.linalg.solve(g + lam * np.trace(g) / N_BASIS * np.eye(N_BASIS), w.T @ res.T).T
+    pop = c @ vonmises_basis(IEM_GRID).T                           # trials x grid
+    return zscore(pop - pop.mean(1, keepdims=True))
+
+
 def value_prediction(mode, fwhm, channel_values):
     p = lognormal_mode_fwhm(channel_values[:, None], mode[None, :], fwhm[None, :])
     return p - p.mean(0, keepdims=True)
@@ -107,6 +143,8 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
 
     src_lab, _, _ = grid_fit(demean_runs(source['y'], par),
                              par[source['stim']].to_numpy(), source['kind'])
+    if source.get('projection') == 'iem':
+        src_w = fit_vonmises_weights(source['y'], par)
 
     per_session = []
     for s in sessions:
@@ -116,7 +154,11 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
         wrong = 'cdf' if cond == 'inverse_cdf' else 'inverse_cdf'
 
         res_src = residualise(source['y'][ses], p_ses, lags, sham_outer)
-        if source['kind'] == 'orientation':
+        if source['kind'] == 'orientation' and source.get('projection') == 'iem':
+            d = iem_channels(res_src, src_w)
+            centres = IEM_GRID
+            chan = lambda c: np.interp(centres, ori, maps[c])        # value per channel
+        elif source['kind'] == 'orientation':
             d, _ = bin_channels(res_src, centre_ori(src_lab, n_channels),
                                 orientation_edges(n_channels))
             centres = np.arange(n_channels) * 180. / n_channels
@@ -165,7 +207,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
 
 
 def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
-         smoothed=False, lags=0, sham_outer=False):
+         smoothed=False, lags=0, sham_outer=False, projection='bins'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -181,7 +223,7 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
                             smoothed)
     npc_tuned = dict(y=y_npc[:, sel_npc], kind='value', stim='value')
     v1_tuned = dict(y=y_v1[:, sel_v1], kind='orientation', stim='orientation')
-    v1_all = dict(y=y_v1, kind='orientation', stim='orientation')
+    v1_all = dict(y=y_v1, kind='orientation', stim='orientation', projection=projection)
 
     rng = np.random.default_rng(seed)
     scores, by = zip(
@@ -192,7 +234,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
     by = pd.concat(by, ignore_index=True).assign(subject=subject)
 
     out = (bids_folder / 'derivatives' / 'connective_fields'
-           / ('coupling' if lags == 0 else f'coupling_lags-{lags}' + ('-sham' if sham_outer else '')) / f'sub-{subject}')
+           / (('coupling' if lags == 0 else f'coupling_lags-{lags}' + ('-sham' if sham_outer else ''))
+              + ('_iem' if projection == 'iem' else '')) / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     scores.to_csv(out / f'sub-{subject}_desc-scores.tsv', sep='\t', index=False)
     by.to_csv(out / f'sub-{subject}_desc-bytuning.tsv', sep='\t', index=False)
@@ -211,8 +254,11 @@ if __name__ == '__main__':
     p.add_argument('--smoothed', action='store_true')
     p.add_argument('--lags', type=int, default=0,
                    help='Also remove the orientations of the N preceding/following trials')
+    p.add_argument('--projection', choices=['bins', 'iem'], default='bins',
+                   help='V1 channels: argmax-orientation bins, or inverted vonmises encoding model')
     p.add_argument('--sham-outer', action='store_true',
                    help='Outermost lag uses permuted orientations (df-matched control)')
     a = p.parse_args()
     main(a.subject, bids_folder=a.bids_folder, n_channels=a.n_channels,
-         n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags, sham_outer=a.sham_outer)
+         n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags, sham_outer=a.sham_outer,
+         projection=a.projection)
