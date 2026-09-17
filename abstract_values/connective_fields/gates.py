@@ -182,8 +182,12 @@ def residualise(y, par, lags=0, sham_outer=False):
 
 # ── data ─────────────────────────────────────────────────────────────────────
 
-def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed):
-    """ROI betas (trials x voxels) and a 'model beats null cvR2' selection."""
+def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed, compare=None):
+    """ROI betas (trials x voxels) and a 'model beats null cvR2' selection.
+
+    With ``compare``, also returns cvR2(model_cv) - cvR2(compare) per voxel
+    (e.g. value aPRF vs its orientation-space twin, vonmises-prf.cv).
+    """
     mask = sub.get_roi_mask(roi, hemi=None)
     masker = NiftiMasker(mask_img=mask).fit()
     y = masker.transform(betas).astype(np.float64)
@@ -201,7 +205,12 @@ def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed):
     m, n = cvr2(model_cv), cvr2('aprf-null.cv')
     sel = ok.copy() if m is None or n is None else ok & np.isfinite(m - n) & (m - n > 0)
     print(f'  {roi}: {ok.sum()} usable voxels, {sel.sum()} beat the null ({model_cv})')
-    return y[:, ok], sel[ok]
+    if compare is None:
+        return y[:, ok], sel[ok]
+    c = cvr2(compare)
+    if c is None or m is None:
+        raise SystemExit(f'sub-{sub.subject_id}: need cvR2 of {model_cv} and {compare}')
+    return y[:, ok], sel[ok], (m - c)[ok]
 
 
 # ── gates 1-2 ────────────────────────────────────────────────────────────────

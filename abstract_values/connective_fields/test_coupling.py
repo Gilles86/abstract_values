@@ -241,7 +241,8 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
 
 def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
          smoothed=False, lags=0, sham_outer=False, projection='bins', n_basis=N_BASIS,
-         kappa=KAPPA, gain=False, drive='all', directions=('npc_from_v1', 'v1_from_npc')):
+         kappa=KAPPA, gain=False, drive='all', directions=('npc_from_v1', 'v1_from_npc'),
+         npc_class='all'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -252,7 +253,17 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
     if betas.shape[3] != len(par):
         raise SystemExit(f'{betas.shape[3]} betas vs {len(par)} trials')
 
-    y_npc, sel_npc = load_roi(sub, betas, 'NPCr', 'aprf.cv', bids_folder, smoothed)
+    if npc_class == 'all':
+        y_npc, sel_npc = load_roi(sub, betas, 'NPCr', 'aprf.cv', bids_folder, smoothed)
+    else:
+        # Value aPRF vs its orientation-space twin (one bump each, same parameter
+        # count), both fitted jointly over the two sessions: within a session
+        # they are equivalent, so the winner says whether a voxel's tuning stays
+        # put in value or in orientation when the mapping changes.
+        y_npc, sel_npc, delta = load_roi(sub, betas, 'NPCr', 'aprf.cv', bids_folder, smoothed,
+                                         compare='vonmises-prf.cv')
+        sel_npc = sel_npc & ((delta > 0) if npc_class == 'value' else (delta < 0))
+        print(f'  NPCr {npc_class}-winning tuned voxels: {sel_npc.sum()}')
     y_v1, sel_v1 = load_roi(sub, betas, 'BensonV1ecc075-375', 'vonmises.cv', bids_folder,
                             smoothed)
     npc_tuned = dict(y=y_npc[:, sel_npc], kind='value', stim='value')
@@ -272,7 +283,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
     out = (bids_folder / 'derivatives' / 'connective_fields'
            / (('coupling' if lags == 0 else f'coupling_lags-{lags}' + ('-sham' if sham_outer else ''))
               + variant_suffix(projection, n_channels, n_basis, kappa)
-              + ('_gain' if gain else '') + ('' if drive == 'all' else f'_drive-{drive}'))
+              + ('_gain' if gain else '') + ('' if drive == 'all' else f'_drive-{drive}')
+              + ('' if npc_class == 'all' else f'_npc-{npc_class}'))
            / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     scores.to_csv(out / f'sub-{subject}_desc-scores.tsv', sep='\t', index=False)
@@ -302,8 +314,10 @@ if __name__ == '__main__':
     p.add_argument('--drive', choices=['all', 'low', 'high'], default='all',
                    help='Target trials by predicted drive of each voxel (npc_from_v1 only)')
     p.add_argument('--directions', nargs='+', default=['npc_from_v1', 'v1_from_npc'])
+    p.add_argument('--npc-class', choices=['all', 'value', 'orientation'], default='all',
+                   help='Only NPCr voxels where aprf.cv beats / loses to vonmises-prf.cv')
     a = p.parse_args()
     main(a.subject, bids_folder=a.bids_folder, n_channels=a.n_channels,
          n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags, sham_outer=a.sham_outer,
          projection=a.projection, n_basis=a.n_basis, kappa=a.kappa, gain=a.gain,
-         drive=a.drive, directions=a.directions)
+         drive=a.drive, directions=a.directions, npc_class=a.npc_class)
