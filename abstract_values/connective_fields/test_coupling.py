@@ -54,6 +54,7 @@ import pandas as pd
 
 from abstract_values.connective_fields.gates import (
     colcorr, connective_field, demean_runs, get_paradigm, grid_fit, load_mappings,
+    masked_connective_field, remove_gain,
     load_roi, lognormal_mode_fwhm, residualise, zscore)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
@@ -144,7 +145,13 @@ def orientation_prediction(mu, kappa, channel_oris):
 
 
 def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, lags=0,
-                  sham_outer=False):
+                  sham_outer=False, gain=False, drive='all'):
+    """``gain``: remove each region's per-trial gain (gates.remove_gain) from the
+    residuals. ``drive``: 'low' / 'high' computes each target voxel's CF from
+    only the half of trials its own tuning predicts to drive it least / most
+    (value targets only). Shared gain acts through the evoked response, so it
+    predicts the effect in the high half only; coupling that does not depend on
+    the stimulus predicts it in both."""
     """target/source: dicts with residual-ready data (trials x voxels) and kind."""
     ori, maps = load_mappings()
     sessions = sorted(par['session'].unique())
@@ -166,6 +173,8 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
         wrong = 'cdf' if cond == 'inverse_cdf' else 'inverse_cdf'
 
         res_src = residualise(source['y'][ses], p_ses, lags, sham_outer)
+        if gain:
+            res_src = remove_gain(res_src, source['y'][ses], p_ses)[0]
         if source['kind'] == 'orientation' and source.get('projection') == 'iem':
             d = iem_channels(res_src, src_w, kappa=source['kappa'])
             centres = IEM_GRID
@@ -180,7 +189,19 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
             centres = np.array([np.median(src_lab[idx == k]) for k in range(n_channels)])
             chan = lambda c: np.interp(centres, maps[c], ori)        # orientation per channel
 
-        cf = connective_field(residualise(target['y'][ses], p_ses, lags, sham_outer), d)
+        res_tgt = residualise(target['y'][ses], p_ses, lags, sham_outer)
+        if gain:
+            res_tgt = remove_gain(res_tgt, target['y'][ses], p_ses)[0]
+        if drive == 'all':
+            cf = connective_field(res_tgt, d)
+        else:
+            if target['kind'] != 'value':
+                raise ValueError('drive split is implemented for value targets only')
+            pred = lognormal_mode_fwhm(p_ses['value'].to_numpy()[:, None], loc[None, :],
+                                       wid[None, :])
+            rank = pred.argsort(0, kind='stable').argsort(0)
+            low = rank < len(pred) // 2
+            cf = masked_connective_field(res_tgt, d, low if drive == 'low' else ~low)
         per_session.append(dict(cf=cf, right=chan(cond), wrong=chan(wrong)))
 
     def predict(channel_stim, lo, wi):
@@ -220,7 +241,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
 
 def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
          smoothed=False, lags=0, sham_outer=False, projection='bins', n_basis=N_BASIS,
-         kappa=KAPPA):
+         kappa=KAPPA, gain=False, drive='all', directions=('npc_from_v1', 'v1_from_npc')):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -240,16 +261,19 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
                   n_basis=n_basis, kappa=kappa)
 
     rng = np.random.default_rng(seed)
-    scores, by = zip(
-        # Gates: all V1 voxels make stable channels; tuned-only leaves 1-voxel bins.
-        run_direction('npc_from_v1', par, npc_tuned, v1_all, n_channels, n_shuffle, rng, lags, sham_outer),
-        run_direction('v1_from_npc', par, v1_tuned, npc_tuned, n_channels, n_shuffle, rng, lags, sham_outer))
+    # Gates: all V1 voxels make stable channels; tuned-only leaves 1-voxel bins.
+    setups = {'npc_from_v1': (npc_tuned, v1_all), 'v1_from_npc': (v1_tuned, npc_tuned)}
+    scores, by = zip(*[
+        run_direction(dn, par, *setups[dn], n_channels, n_shuffle, rng, lags, sham_outer,
+                      gain, drive) for dn in directions])
     scores = pd.concat(scores, ignore_index=True).assign(subject=subject)
     by = pd.concat(by, ignore_index=True).assign(subject=subject)
 
     out = (bids_folder / 'derivatives' / 'connective_fields'
            / (('coupling' if lags == 0 else f'coupling_lags-{lags}' + ('-sham' if sham_outer else ''))
-              + variant_suffix(projection, n_channels, n_basis, kappa)) / f'sub-{subject}')
+              + variant_suffix(projection, n_channels, n_basis, kappa)
+              + ('_gain' if gain else '') + ('' if drive == 'all' else f'_drive-{drive}'))
+           / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     scores.to_csv(out / f'sub-{subject}_desc-scores.tsv', sep='\t', index=False)
     by.to_csv(out / f'sub-{subject}_desc-bytuning.tsv', sep='\t', index=False)
@@ -274,7 +298,12 @@ if __name__ == '__main__':
     p.add_argument('--kappa', type=float, default=KAPPA, help='IEM basis concentration')
     p.add_argument('--sham-outer', action='store_true',
                    help='Outermost lag uses permuted orientations (df-matched control)')
+    p.add_argument('--gain', action='store_true', help='Remove per-trial gain in both regions')
+    p.add_argument('--drive', choices=['all', 'low', 'high'], default='all',
+                   help='Target trials by predicted drive of each voxel (npc_from_v1 only)')
+    p.add_argument('--directions', nargs='+', default=['npc_from_v1', 'v1_from_npc'])
     a = p.parse_args()
     main(a.subject, bids_folder=a.bids_folder, n_channels=a.n_channels,
          n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags, sham_outer=a.sham_outer,
-         projection=a.projection, n_basis=a.n_basis, kappa=a.kappa)
+         projection=a.projection, n_basis=a.n_basis, kappa=a.kappa, gain=a.gain,
+         drive=a.drive, directions=a.directions)

@@ -262,6 +262,41 @@ def channel_series(res_v1, v1_pref, n_channels):
     return zscore(ch - ch.mean(1, keepdims=True)), centres, counts
 
 
+def remove_gain(res, y, par):
+    """Remove each trial's multiplicative gain on the stimulus response pattern.
+
+    If a shared factor (arousal, attention) scales every voxel's evoked response
+    on trial t, subtracting the mean response to each orientation leaves
+    g_t * a(theta_t) in the residuals, where a is the region's mean response
+    pattern to that orientation. Voxels and channels then co-fluctuate in
+    proportion to how strongly the trial's stimulus drives both, which mimics
+    tuning-specific coupling. Per trial, g_t is the regression slope of the
+    residual pattern on a(theta_t) across voxels (both centred over voxels);
+    g_t * a(theta_t) is removed. ``par``: the trials of one session.
+    """
+    yd = demean_runs(y, par)
+    a = pd.DataFrame(yd).groupby(par['orientation'].to_numpy()).transform('mean').to_numpy()
+    a = a - a.mean(1, keepdims=True)
+    r = res - res.mean(1, keepdims=True)
+    g = (a * r).sum(1) / (a ** 2).sum(1)
+    return res - g[:, None] * a, g
+
+
+def masked_connective_field(res_npc, d, mask):
+    """``connective_field`` with a per-voxel trial subset (mask: trials x voxels)."""
+    m = mask.astype(float)
+    n = m.sum(0)
+    y = res_npc * m
+    ym = y.sum(0) / n
+    vy = (y * res_npc).sum(0) / n - ym ** 2
+    dm = (m.T @ d) / n[:, None]
+    vd = (m.T @ d ** 2) / n[:, None] - dm ** 2
+    cov = (y.T @ d) / n[:, None] - ym[:, None] * dm
+    with np.errstate(invalid='ignore', divide='ignore'):
+        cf = (cov / np.sqrt(vy[:, None] * vd)).T
+    return cf - cf.mean(0, keepdims=True)
+
+
 def connective_field(res_npc, d):
     """channels x voxels correlation, centred over channels (the CF shape)."""
     cf = zscore(d).T @ zscore(res_npc) / len(d)

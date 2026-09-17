@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 from abstract_values.connective_fields.gates import (
-    connective_field, demean_runs, get_paradigm, grid_fit, load_roi, residualise)
+    connective_field, demean_runs, get_paradigm, grid_fit, load_roi, remove_gain, residualise)
 from abstract_values.connective_fields.test_coupling import (
     IEM_GRID, fit_vonmises_weights, iem_channels)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
@@ -44,7 +44,7 @@ def axial_centroid(cf, grid):
 VALUE_BINS = np.arange(2, 44, 2.)
 
 
-def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
+def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0, gain=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -63,8 +63,13 @@ def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
         ses = (par['session'] == s).to_numpy()
         p_ses = par[ses].reset_index(drop=True)
         cond = p_ses['condition'].iloc[0]
-        d = iem_channels(residualise(y_v1[ses], p_ses, lags), w, kappa=kappa)
-        cf = connective_field(residualise(y_npc[ses], p_ses, lags), d)
+        res_v1 = residualise(y_v1[ses], p_ses, lags)
+        res_npc = residualise(y_npc[ses], p_ses, lags)
+        if gain:
+            res_v1 = remove_gain(res_v1, y_v1[ses], p_ses)[0]
+            res_npc = remove_gain(res_npc, y_npc[ses], p_ses)[0]
+        d = iem_channels(res_v1, w, kappa=kappa)
+        cf = connective_field(res_npc, d)
         out[f'peak_{cond}'] = IEM_GRID[np.argmax(cf, 0)]
         out[f'centroid_{cond}'], out[f'concentration_{cond}'] = axial_centroid(cf, IEM_GRID)
         out[f'cf_max_{cond}'] = cf.max(0)
@@ -80,7 +85,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0):
                              'cf_raw': cf[k, m].mean(), 'n': int(m.sum())})
 
     dst = (bids_folder / 'derivatives' / 'connective_fields'
-           / ('peaks' if lags == 0 else f'peaks_lags-{lags}') / f'sub-{subject}')
+           / (('peaks' if lags == 0 else f'peaks_lags-{lags}') + ('_gain' if gain else ''))
+           / f'sub-{subject}')
     dst.mkdir(parents=True, exist_ok=True)
     out.assign(subject=subject).to_csv(dst / f'sub-{subject}_desc-peaks.tsv.gz', sep='\t',
                                        index=False)
@@ -97,5 +103,6 @@ if __name__ == '__main__':
     p.add_argument('--n-basis', type=int, default=24)
     p.add_argument('--kappa', type=float, default=16.)
     p.add_argument('--lags', type=int, default=0)
+    p.add_argument('--gain', action='store_true', help='Remove per-trial gain in both regions')
     a = p.parse_args()
-    main(a.subject, a.bids_folder, a.n_basis, a.kappa, a.lags)
+    main(a.subject, a.bids_folder, a.n_basis, a.kappa, a.lags, a.gain)
