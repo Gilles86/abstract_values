@@ -263,6 +263,10 @@ def subject_targets(subject):
     targets = [
         # MRIQC participant-level QC (one job per subject, smooth-invariant)
         f"{DERIV}/mriqc/sub-{subject}/.mriqc_done",
+        # Benson/Wang atlas on the subject's surface and the annulus-restricted
+        # V1 mask built from it. Both used to be run by hand, which is how
+        # sub-30 ended up without either.
+        f"{DERIV}/masks/sub-{subject}/anat/sub-{subject}_space-T1w_desc-BensonV1ecc075-375_mask.nii.gz",
     ]
     for s in SMOOTHED_VARIANTS:
         sfx = "_smoothed" if int(s) else ""
@@ -479,6 +483,30 @@ rule create_npc_masks:
     shell:
         "PARTICIPANT_LABEL={wildcards.subject} FMRIPREP_DERIV={FMRIPREP_DERIV} "
         "bash {REPO}/abstract_values/prepare/slurm_jobs/create_npc_masks.sh"
+
+
+rule infer_neuropythy_atlas:
+    input: rules.fmriprep.output,
+    output:
+        # Sentinel: the script writes Benson-14 angle/eccen/sigma/varea and
+        # Wang-15 labels, fsnative + fsaverage, both hemispheres.
+        f"{DERIV}/neuropythy_atlas/sub-{{subject}}/sub-{{subject}}_desc-benson14Varea_space-fsaverage_hemi-R.func.gii",
+    log: "logs/infer_neuropythy_atlas_{subject}.log"
+    resources: cpus_per_task=2, mem_mb=16_000, runtime=60,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} "
+        "bash {REPO}/abstract_values/surface/slurm_jobs/infer_neuropythy_atlas.sh"
+
+
+rule make_benson_eccen_mask:
+    input: rules.infer_neuropythy_atlas.output,
+    output:
+        f"{DERIV}/masks/sub-{{subject}}/anat/sub-{{subject}}_space-T1w_desc-BensonV1ecc075-375_mask.nii.gz",
+    log: "logs/make_benson_eccen_mask_{subject}.log"
+    resources: cpus_per_task=2, mem_mb=16_000, runtime=30,
+    shell:
+        "PARTICIPANT_LABEL={wildcards.subject} "
+        "bash {REPO}/abstract_values/surface/slurm_jobs/make_benson_eccen_mask.sh"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
