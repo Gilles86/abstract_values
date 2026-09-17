@@ -58,10 +58,21 @@ from abstract_values.connective_fields.gates import (
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
-def bin_channels(res, labels, edges):
-    """Average residuals within label bins; deviations from the channel mean, z-scored."""
-    idx = np.clip(np.digitize(labels, edges[1:-1]), 0, len(edges) - 2)
-    ch = np.stack([res[:, idx == k].mean(1) for k in range(len(edges) - 1)], 1)
+def bin_channels(res, labels, edges=None, n=None):
+    """Average residuals within label bins; deviations from the channel mean, z-scored.
+
+    With ``edges`` bins are fixed intervals; without, ``n`` equal-count bins by
+    rank. Rank rather than quantile edges, because grid-fitted value modes pile
+    up on identical values (often the 2 or 42 CHF grid edge), which leaves
+    quantile bins empty.
+    """
+    if edges is not None:
+        idx = np.clip(np.digitize(labels, edges[1:-1]), 0, len(edges) - 2)
+    else:
+        idx = np.empty(len(labels), int)
+        idx[np.argsort(labels, kind='stable')] = np.arange(len(labels)) * n // len(labels)
+    k = idx.max() + 1 if edges is None else len(edges) - 1
+    ch = np.stack([res[:, idx == j].mean(1) for j in range(k)], 1)
     return zscore(ch - ch.mean(1, keepdims=True)), idx
 
 
@@ -110,8 +121,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng):
             centres = np.arange(n_channels) * 180. / n_channels
             chan = lambda c: np.interp(centres, ori, maps[c])        # value per channel
         else:
-            edges = np.quantile(src_lab, np.linspace(0, 1, n_channels + 1))
-            d, idx = bin_channels(res_src, src_lab, edges)
+            d, idx = bin_channels(res_src, src_lab, n=n_channels)
             centres = np.array([np.median(src_lab[idx == k]) for k in range(n_channels)])
             chan = lambda c: np.interp(centres, maps[c], ori)        # orientation per channel
 
