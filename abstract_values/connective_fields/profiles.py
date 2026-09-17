@@ -35,8 +35,8 @@ from abstract_values.connective_fields.gates import (
     connective_field, demean_runs, get_paradigm, grid_fit, load_mappings, load_roi,
     residualise, zscore)
 from abstract_values.connective_fields.test_coupling import (
-    IEM_GRID, bin_channels, centre_ori, fit_vonmises_weights, iem_channels,
-    orientation_edges, value_prediction)
+    IEM_GRID, KAPPA, N_BASIS, bin_channels, centre_ori, fit_vonmises_weights, iem_channels,
+    orientation_edges, value_prediction, variant_suffix)
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 N_CHANNELS = 8
@@ -48,7 +48,8 @@ def wrap(d):
     return (d + 90) % 180 - 90
 
 
-def main(subject, bids_folder=BIDS_FOLDER, projection='bins'):
+def main(subject, bids_folder=BIDS_FOLDER, projection='bins', n_channels=N_CHANNELS,
+         n_basis=N_BASIS, kappa=KAPPA):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -63,9 +64,9 @@ def main(subject, bids_folder=BIDS_FOLDER, projection='bins'):
     v1_lab, _, _ = grid_fit(demean_runs(y_v1, par), par['orientation'].to_numpy(), 'orientation')
     if projection == 'iem':
         centres, step = IEM_GRID, IEM_GRID[1] - IEM_GRID[0]
-        v1_w = fit_vonmises_weights(y_v1, par)
+        v1_w = fit_vonmises_weights(y_v1, par, n_basis, kappa)
     else:
-        centres, step = np.arange(N_CHANNELS) * 180. / N_CHANNELS, 180. / N_CHANNELS
+        centres, step = np.arange(n_channels) * 180. / n_channels, 180. / n_channels
 
     theta = {c: np.interp(mode, maps[c], ori) for c in maps}          # voxels
     shifted = np.abs(wrap(theta['cdf'] - theta['inverse_cdf'])) >= MIN_SHIFT
@@ -81,9 +82,9 @@ def main(subject, bids_folder=BIDS_FOLDER, projection='bins'):
             p_ses = par[ses].reset_index(drop=True)
             cond = p_ses['condition'].iloc[0]
             res_v1 = residualise(y_v1[ses], p_ses, lags)
-            d = (iem_channels(res_v1, v1_w) if projection == 'iem' else
-                 bin_channels(res_v1, centre_ori(v1_lab, N_CHANNELS),
-                              orientation_edges(N_CHANNELS))[0])
+            d = (iem_channels(res_v1, v1_w, kappa=kappa) if projection == 'iem' else
+                 bin_channels(res_v1, centre_ori(v1_lab, n_channels),
+                              orientation_edges(n_channels))[0])
             cf[cond] = connective_field(residualise(y_npc[ses], p_ses, lags), d)
 
         for cond, c in cf.items():
@@ -109,7 +110,8 @@ def main(subject, bids_folder=BIDS_FOLDER, projection='bins'):
                              'predicted': diff_pred[k, m].mean(), 'n': int(m.sum())})
 
     out = (bids_folder / 'derivatives' / 'connective_fields'
-           / ('profiles_iem' if projection == 'iem' else 'profiles') / f'sub-{subject}')
+           / ('profiles' + variant_suffix(projection, n_channels, n_basis, kappa))
+           / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(aligned).assign(subject=subject, n_shifted=int(shifted.sum())).to_csv(
         out / f'sub-{subject}_desc-aligned.tsv', sep='\t', index=False)
@@ -124,5 +126,9 @@ if __name__ == '__main__':
     p.add_argument('subject')
     p.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     p.add_argument('--projection', choices=['bins', 'iem'], default='bins')
+    p.add_argument('--n-channels', type=int, default=N_CHANNELS)
+    p.add_argument('--n-basis', type=int, default=N_BASIS)
+    p.add_argument('--kappa', type=float, default=KAPPA)
     a = p.parse_args()
-    main(a.subject, bids_folder=a.bids_folder, projection=a.projection)
+    main(a.subject, bids_folder=a.bids_folder, projection=a.projection,
+         n_channels=a.n_channels, n_basis=a.n_basis, kappa=a.kappa)

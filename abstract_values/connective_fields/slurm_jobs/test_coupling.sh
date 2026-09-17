@@ -18,6 +18,8 @@
 #   N_SHUFFLE   label permutations (default 200)
 #   LAGS        also remove neighbouring trials' orientations, +-LAGS (default 0)
 #   PROJECTION  bins (default) | iem
+#   N_CHANNELS  bins: V1 orientation channels (default 8)
+#   N_BASIS, KAPPA  iem: basis functions (default 8) and concentration (default 2)
 #   SHAM_OUTER  1 = outermost lag uses permuted orientations (df-matched control)
 #   REPO        checkout to run from (default ~/git/abstract_values)
 
@@ -26,7 +28,8 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
 fi
 N_SHUFFLE="${N_SHUFFLE:-200}"
 LAGS="${LAGS:-0}"
-EXTRA=(--projection "${PROJECTION:-bins}")
+EXTRA=(--projection "${PROJECTION:-bins}" --n-channels "${N_CHANNELS:-8}"
+       --n-basis "${N_BASIS:-8}" --kappa "${KAPPA:-2}")
 [ "${SHAM_OUTER:-0}" = "1" ] && EXTRA+=(--sham-outer)
 REPO="${REPO:-$HOME/git/abstract_values}"
 

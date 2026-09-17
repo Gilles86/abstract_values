@@ -13,7 +13,7 @@
 #   sbatch --array=3-30 profiles.sh
 #   sbatch --export=ALL,PARTICIPANT_LABEL=pil01,PROJECTION=iem profiles.sh
 #
-# Optional overrides: PROJECTION (bins | iem), REPO (default ~/git/abstract_values)
+# Optional overrides: PROJECTION (bins | iem), N_CHANNELS, N_BASIS, KAPPA, REPO (default ~/git/abstract_values)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%02d" $SLURM_ARRAY_TASK_ID)
@@ -26,4 +26,5 @@ export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 cd "$REPO"
 conda run --no-capture-output -n abstract_values python -u -W ignore \
     -m abstract_values.connective_fields.profiles "$PARTICIPANT_LABEL" \
-    --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue --projection "${PROJECTION:-bins}"
+    --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue --projection "${PROJECTION:-bins}" \
+    --n-channels "${N_CHANNELS:-8}" --n-basis "${N_BASIS:-8}" --kappa "${KAPPA:-2}"

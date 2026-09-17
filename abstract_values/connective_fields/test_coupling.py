@@ -89,21 +89,32 @@ N_BASIS, KAPPA, RIDGE_ALPHA = 8, 2., 10.     # the project's vonmises encoding m
 IEM_GRID = np.arange(0, 180, 5.)
 
 
-def vonmises_basis(theta_deg):
-    """8 axial von Mises basis functions (braincoder AxialVonMisesPRF), stimuli x basis."""
-    mus = np.arange(N_BASIS) * 180. / N_BASIS
+def vonmises_basis(theta_deg, n_basis=N_BASIS, kappa=KAPPA):
+    """Axial von Mises basis functions (braincoder AxialVonMisesPRF), stimuli x basis.
+
+    Width at half maximum is 2 * arccos(1 - ln2 / kappa) / 2 in orientation:
+    ~49 deg for kappa 2, ~24 deg for kappa 8, ~17 deg for kappa 16.
+    """
+    mus = np.arange(n_basis) * 180. / n_basis
     d = np.deg2rad(2 * (np.asarray(theta_deg)[:, None] - mus[None, :]))
-    return np.exp(KAPPA * np.cos(d)) / (np.pi * np.i0(KAPPA))
+    return np.exp(kappa * np.cos(d)) / (np.pi * np.i0(kappa))
 
 
-def fit_vonmises_weights(y, par):
+def fit_vonmises_weights(y, par, n_basis=N_BASIS, kappa=KAPPA):
     """Ridge weights (basis x voxels) of the vonmises encoding model, both sessions."""
-    b = vonmises_basis(par['orientation'].to_numpy())
+    b = vonmises_basis(par['orientation'].to_numpy(), n_basis, kappa)
     yd = demean_runs(y, par)
-    return np.linalg.solve(b.T @ b + RIDGE_ALPHA * np.eye(N_BASIS), b.T @ yd)
+    return np.linalg.solve(b.T @ b + RIDGE_ALPHA * np.eye(n_basis), b.T @ yd)
 
 
-def iem_channels(res, weights, lam=1e-2):
+def variant_suffix(projection='bins', n_channels=8, n_basis=N_BASIS, kappa=KAPPA):
+    """Output-directory suffix; the original settings keep their original names."""
+    if projection == 'iem':
+        return '_iem' if (n_basis, kappa) == (N_BASIS, KAPPA) else f'_iem-k{n_basis}-kappa{kappa:g}'
+    return '' if n_channels == 8 else f'_bins-{n_channels}'
+
+
+def iem_channels(res, weights, lam=1e-2, kappa=KAPPA):
     """Invert the encoding model: every V1 voxel contributes through all its weights.
 
     Residual pattern r_t (voxels) ~ W' c_t, so c_t = (W W' + lam I)^-1 W r_t
@@ -115,9 +126,10 @@ def iem_channels(res, weights, lam=1e-2):
     (removing the shared V1 fluctuation), z-scored per orientation.
     """
     w = weights.T                                                   # voxels x basis
+    n_basis = w.shape[1]
     g = w.T @ w
-    c = np.linalg.solve(g + lam * np.trace(g) / N_BASIS * np.eye(N_BASIS), w.T @ res.T).T
-    pop = c @ vonmises_basis(IEM_GRID).T                           # trials x grid
+    c = np.linalg.solve(g + lam * np.trace(g) / n_basis * np.eye(n_basis), w.T @ res.T).T
+    pop = c @ vonmises_basis(IEM_GRID, n_basis, kappa).T           # trials x grid
     return zscore(pop - pop.mean(1, keepdims=True))
 
 
@@ -144,7 +156,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
     src_lab, _, _ = grid_fit(demean_runs(source['y'], par),
                              par[source['stim']].to_numpy(), source['kind'])
     if source.get('projection') == 'iem':
-        src_w = fit_vonmises_weights(source['y'], par)
+        src_w = fit_vonmises_weights(source['y'], par, source['n_basis'], source['kappa'])
 
     per_session = []
     for s in sessions:
@@ -155,7 +167,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
 
         res_src = residualise(source['y'][ses], p_ses, lags, sham_outer)
         if source['kind'] == 'orientation' and source.get('projection') == 'iem':
-            d = iem_channels(res_src, src_w)
+            d = iem_channels(res_src, src_w, kappa=source['kappa'])
             centres = IEM_GRID
             chan = lambda c: np.interp(centres, ori, maps[c])        # value per channel
         elif source['kind'] == 'orientation':
@@ -207,7 +219,8 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
 
 
 def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
-         smoothed=False, lags=0, sham_outer=False, projection='bins'):
+         smoothed=False, lags=0, sham_outer=False, projection='bins', n_basis=N_BASIS,
+         kappa=KAPPA):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -223,7 +236,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
                             smoothed)
     npc_tuned = dict(y=y_npc[:, sel_npc], kind='value', stim='value')
     v1_tuned = dict(y=y_v1[:, sel_v1], kind='orientation', stim='orientation')
-    v1_all = dict(y=y_v1, kind='orientation', stim='orientation', projection=projection)
+    v1_all = dict(y=y_v1, kind='orientation', stim='orientation', projection=projection,
+                  n_basis=n_basis, kappa=kappa)
 
     rng = np.random.default_rng(seed)
     scores, by = zip(
@@ -235,7 +249,7 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
 
     out = (bids_folder / 'derivatives' / 'connective_fields'
            / (('coupling' if lags == 0 else f'coupling_lags-{lags}' + ('-sham' if sham_outer else ''))
-              + ('_iem' if projection == 'iem' else '')) / f'sub-{subject}')
+              + variant_suffix(projection, n_channels, n_basis, kappa)) / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     scores.to_csv(out / f'sub-{subject}_desc-scores.tsv', sep='\t', index=False)
     by.to_csv(out / f'sub-{subject}_desc-bytuning.tsv', sep='\t', index=False)
@@ -256,9 +270,11 @@ if __name__ == '__main__':
                    help='Also remove the orientations of the N preceding/following trials')
     p.add_argument('--projection', choices=['bins', 'iem'], default='bins',
                    help='V1 channels: argmax-orientation bins, or inverted vonmises encoding model')
+    p.add_argument('--n-basis', type=int, default=N_BASIS, help='IEM basis functions')
+    p.add_argument('--kappa', type=float, default=KAPPA, help='IEM basis concentration')
     p.add_argument('--sham-outer', action='store_true',
                    help='Outermost lag uses permuted orientations (df-matched control)')
     a = p.parse_args()
     main(a.subject, bids_folder=a.bids_folder, n_channels=a.n_channels,
          n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags, sham_outer=a.sham_outer,
-         projection=a.projection)
+         projection=a.projection, n_basis=a.n_basis, kappa=a.kappa)
