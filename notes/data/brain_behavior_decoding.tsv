@@ -1,0 +1,33 @@
+decoder	parameter	neural	measure	matched	rho	lo	hi	n
+Single bump, 50 voxels	κ_r (perceptual precision)	V1 orientation	r	True	0.09303136808284372	-0.2843154443382704	0.5426699501534993	26
+Single bump, 50 voxels	κ_r (perceptual precision)	V1 orientation	−MAE	True	0.14713451713873893	-0.24747293781281143	0.553514832881918	26
+Single bump, 50 voxels	κ_r (perceptual precision)	NPCr value	r	False	0.09069049507193837	-0.3403697158539328	0.5173914368013656	26
+Single bump, 50 voxels	κ_r (perceptual precision)	NPCr value	−MAE	False	0.20281504414631352	-0.2586929414568199	0.6111545543938303	26
+Single bump, 50 voxels	1/σ_rep (value precision)	V1 orientation	r	False	0.08357656494448946	-0.2624301834529107	0.44453133952102664	26
+Single bump, 50 voxels	1/σ_rep (value precision)	V1 orientation	−MAE	False	0.09747314396847234	-0.2658888265656417	0.45809488806647886	26
+Single bump, 50 voxels	1/σ_rep (value precision)	NPCr value	r	True	0.3461538597609477	-0.07504236043193553	0.720356074249493	26
+Single bump, 50 voxels	1/σ_rep (value precision)	NPCr value	−MAE	True	0.12429037117736677	-0.2319358521014785	0.49887142365384063	26
+Single bump, 250 voxels	κ_r (perceptual precision)	V1 orientation	r	True	0.22227950254463336	-0.16118231651377773	0.605634045151847	26
+Single bump, 250 voxels	κ_r (perceptual precision)	V1 orientation	−MAE	True	0.2295788726562962	-0.16034519704984937	0.6029545535681988	26
+Single bump, 250 voxels	κ_r (perceptual precision)	NPCr value	r	False	0.03553651120592418	-0.4492805916629314	0.4547613154684794	26
+Single bump, 250 voxels	κ_r (perceptual precision)	NPCr value	−MAE	False	0.10855377440428987	-0.34522274037754214	0.5711912619507623	26
+Single bump, 250 voxels	1/σ_rep (value precision)	V1 orientation	r	False	0.15728088750225833	-0.1879353229426007	0.4960716404190616	26
+Single bump, 250 voxels	1/σ_rep (value precision)	V1 orientation	−MAE	False	0.1580024684776999	-0.198983223999278	0.5055589635373214	26
+Single bump, 250 voxels	1/σ_rep (value precision)	NPCr value	r	True	0.36874571624400276	-0.022878269713969786	0.6727570872985822	26
+Single bump, 250 voxels	1/σ_rep (value precision)	NPCr value	−MAE	True	0.25824188005764326	-0.1358024786982252	0.6357633488762625	26
+Single bump, CV-selected	κ_r (perceptual precision)	V1 orientation	r	True	0.16019234539356253	-0.23271069805831723	0.5491673469156074	26
+Single bump, CV-selected	κ_r (perceptual precision)	V1 orientation	−MAE	True	0.17914331891956436	-0.21644027470865884	0.5619496616361916	26
+Single bump, CV-selected	κ_r (perceptual precision)	NPCr value	r	False	-0.0797795620591599	-0.5221770965578816	0.42103781168383186	26
+Single bump, CV-selected	κ_r (perceptual precision)	NPCr value	−MAE	False	-0.05545134276529819	-0.5279452360500365	0.42858401438320654	26
+Single bump, CV-selected	1/σ_rep (value precision)	V1 orientation	r	False	0.18682448850429653	-0.20401808749815717	0.5372116570828189	26
+Single bump, CV-selected	1/σ_rep (value precision)	V1 orientation	−MAE	False	0.18632781560782	-0.20353274409017932	0.5447620178260052	26
+Single bump, CV-selected	1/σ_rep (value precision)	NPCr value	r	True	0.3468665461579406	-0.03303071917321702	0.6621853205578991	26
+Single bump, CV-selected	1/σ_rep (value precision)	NPCr value	−MAE	True	0.21297405424763916	-0.1785984197870148	0.5635202097981281	26
+Basis set, 100 voxels	κ_r (perceptual precision)	V1 orientation	r	True	0.09303136808284372	-0.2843154443382704	0.5426699501534993	26
+Basis set, 100 voxels	κ_r (perceptual precision)	V1 orientation	−MAE	True	0.14713451713873893	-0.24747293781281143	0.553514832881918	26
+Basis set, 100 voxels	κ_r (perceptual precision)	NPCr value	r	False	-0.03803167766536246	-0.5014274362818592	0.40914559789093224	26
+Basis set, 100 voxels	κ_r (perceptual precision)	NPCr value	−MAE	False	0.040577735837454436	-0.45355090664052927	0.4764197587977607	26
+Basis set, 100 voxels	1/σ_rep (value precision)	V1 orientation	r	False	0.08357656494448946	-0.2624301834529107	0.44453133952102664	26
+Basis set, 100 voxels	1/σ_rep (value precision)	V1 orientation	−MAE	False	0.09747314396847234	-0.2658888265656417	0.45809488806647886	26
+Basis set, 100 voxels	1/σ_rep (value precision)	NPCr value	r	True	0.2726063432278122	-0.09076936494074643	0.5916840973723609	26
+Basis set, 100 voxels	1/σ_rep (value precision)	NPCr value	−MAE	True	0.1668952702929794	-0.24994631843600928	0.5368079611393755	26
