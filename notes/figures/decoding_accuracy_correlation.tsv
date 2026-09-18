@@ -1,0 +1,542 @@
+subject	mask	nvoxels	noise	smoothed	lambda	decoder	n_trials	pearson_r	spearman_rho	label	unit
+03	NPCr	0	full	False	0.1	value	368	0.24585762147716603	0.2247871277494716	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	0	full	False	0	value	368	0.24389289594865438	0.2294557590190938	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	0	full	True	0.1	value	368	0.15744707020374335	0.1650932085499208	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	0	full	True	0	value	368	0.09503472850581247	0.1289997263071473	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	100	full	False	0.1	value	368	0.2735410811358539	0.2771528857920613	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	100	full	False	0	value	368	0.2919700234245656	0.2942085665913002	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	100	full	True	0.1	value	368	0.27476135620078546	0.29687676885870656	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	100	full	True	0	value	368	0.13166317838427205	0.12854779894585672	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	250	full	False	0.1	value	368	0.0858266955271157	0.09588857920977745	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	250	full	False	0	value	368	0.2026890188306825	0.20120499915061438	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	250	full	True	0.1	value	368	0.19980506447702864	0.194541720465488	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	250	full	True	0	value	368	0.1632629099915775	0.1516991993346993	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	500	full	False	0.1	value	368	0.06710768762457055	0.0697172633619058	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	500	full	False	0	value	368	0.22177849457795729	0.2314773871725855	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	500	full	True	0.1	value	368	0.19520767201510214	0.19815135776910092	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	500	full	True	0	value	368	0.17506280548099	0.17362683053625183	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	50	full	False	0.1	value	368	0.2534099963019052	0.24796936326744273	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	50	full	False	0	value	368	0.26707301353629653	0.278792929222587	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	50	full	True	0.1	value	368	0.2698574681147017	0.2828487123007789	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	50	full	True	0	value	368	0.16319319092302215	0.15790091468068243	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	fdr05	full	False	0.1	value	368	0.2132921897741854	0.21076870716939664	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	psig95	full	False	0.1	value	368	0.2132921897741854	0.21076870716939664	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	0	full	False	0.1	value	368	0.4174830040003898	0.4072058244785063	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	0	full	False	0	value	368	0.386599821834514	0.3773391111241328	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	0	full	True	0.1	value	368	0.4002213684032664	0.3971882619028629	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	0	full	True	0	value	368	0.2803856514059879	0.28497729980843534	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	100	full	False	0.1	value	368	0.4957109793627586	0.4907719152102799	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	100	full	False	0	value	368	0.4613387788532259	0.453269653005445	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	100	full	True	0.1	value	368	0.5792943038598521	0.5755155224356507	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	100	full	True	0	value	368	0.18607900489938786	0.21167448908754832	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	250	full	False	0.1	value	368	0.3750318934760183	0.38194414493992734	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	250	full	False	0	value	368	0.3689394117973715	0.36866384026336746	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	250	full	True	0.1	value	368	0.3496310256247445	0.353477539167548	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	250	full	True	0	value	368	0.16818341064992098	0.16653378723889603	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	500	full	False	0.1	value	368	0.31947613226796145	0.330087166527959	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	500	full	False	0	value	368	0.28289000012158866	0.2730325416622565	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	500	full	True	0.1	value	368	0.38780911024521325	0.38938022904883846	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	500	full	True	0	value	368	0.16885302556203502	0.19072394604025722	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	50	full	False	0.1	value	368	0.5086002141117361	0.5046255605690741	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	50	full	False	0	value	368	0.3843609488063367	0.39710539249332993	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	50	full	True	0.1	value	368	0.5297852952813924	0.5273539415301841	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	50	full	True	0	value	368	0.21140377913233904	0.1861285482023154	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	fdr05	full	False	0.1	value	368	0.48941139357465796	0.4788695553666529	NPCr value (aprf-session-shift, standard)	CHF
+04	NPCr	psig95	full	False	0.1	value	368	0.4799878265348257	0.4678247975519141	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	0	full	False	0.1	value	368	0.06784178367383227	0.1360465169108102	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	0	full	False	0	value	368	0.03647935323235958	0.10537809019909407	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	0	full	True	0.1	value	368	0.06827681375354795	0.08679221611685004	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	0	full	True	0	value	368	0.05657977066662422	0.08306791067679023	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	100	full	False	0.1	value	368	0.09383537955096137	0.0976124556476214	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	100	full	False	0	value	368	0.11286351477382396	0.10912166759485921	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	100	full	True	0.1	value	368	0.029933788305870485	0.007705891488786065	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	100	full	True	0	value	368	0.05372539304141619	0.07872786625194436	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	250	full	False	0.1	value	368	0.07822889175775458	0.08345624058425313	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	250	full	False	0	value	368	0.1223479225271814	0.1157965094534088	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	250	full	True	0.1	value	368	0.1288761956613947	0.1334968371709918	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	250	full	True	0	value	368	0.09555660623621683	0.11138226799909731	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	500	full	False	0.1	value	368	0.1294467301510967	0.13812692452920328	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	500	full	False	0	value	368	0.1235943640297325	0.12926857008923698	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	500	full	True	0.1	value	368	0.07609559605343766	0.08268921674718002	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	500	full	True	0	value	368	0.061146765683016475	0.07835880830018684	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	50	full	False	0.1	value	368	0.0856092482154108	0.06693728375140838	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	50	full	False	0	value	368	0.06646226468322229	0.0663571978846772	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	50	full	True	0.1	value	368	-0.0009807924211139157	-0.005063706361581939	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	50	full	True	0	value	368	-0.02710979545649358	-0.006358781784981773	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	fdr05	full	False	0.1	value	368	0.11071189175842266	0.13777713853315107	NPCr value (aprf-session-shift, standard)	CHF
+05	NPCr	psig95	full	False	0.1	value	368	0.11071189175842266	0.13777713853315107	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	0	full	False	0.1	value	368	0.5163066044998854	0.5193811334548789	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	0	full	False	0	value	368	0.5512775717525646	0.556884359257499	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	0	full	True	0.1	value	368	0.6691351788935112	0.6846371900305099	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	0	full	True	0	value	368	0.5286688449172188	0.5519430298146462	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	100	full	False	0.1	value	368	0.5259116763550168	0.5297137925063049	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	100	full	False	0	value	368	0.41890016010114073	0.44231450978473613	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	100	full	True	0.1	value	368	0.7574467288033728	0.7673129164086963	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	100	full	True	0	value	368	0.3288124084772134	0.3329162896255051	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	250	full	False	0.1	value	368	0.35255150785859113	0.34674006345295594	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	250	full	False	0	value	368	0.30998386836424463	0.3334000157137095	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	250	full	True	0.1	value	368	0.5101652582511975	0.5073342339434617	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	250	full	True	0	value	368	0.22621190797063095	0.2617594111724093	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	500	full	False	0.1	value	368	0.24513791114424324	0.2543079094989339	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	500	full	False	0	value	368	0.29460097443947986	0.3145212079047441	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	500	full	True	0.1	value	368	0.4853134463715112	0.48933230011908996	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	500	full	True	0	value	368	0.22069024700744366	0.22141164470767874	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	50	full	False	0.1	value	368	0.5788451839064316	0.5805464664725336	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	50	full	False	0	value	368	0.39476193003281623	0.4053258451994489	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	50	full	True	0.1	value	368	0.7563677642530318	0.7600136631852932	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	50	full	True	0	value	368	0.3510496684162643	0.3344946627977736	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	fdr05	full	False	0.1	value	368	0.5350695311067778	0.5357728953800683	NPCr value (aprf-session-shift, standard)	CHF
+06	NPCr	psig95	full	False	0.1	value	368	0.516823690778847	0.5198128252626788	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	0	full	False	0.1	value	368	0.249364788034364	0.25038799370846476	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	0	full	False	0	value	368	0.24846949529178353	0.24888574476123235	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	0	full	True	0.1	value	368	0.05486024445009905	0.07353889217827762	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	0	full	True	0	value	368	0.02329413748240515	0.05246019062554595	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	100	full	False	0.1	value	368	0.08985588018352217	0.11378644447334031	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	100	full	False	0	value	368	0.1868387210992971	0.19668861633106452	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	100	full	True	0.1	value	368	0.21485887883840643	0.22583455854205764	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	100	full	True	0	value	368	0.09304183344433382	0.13572660244610132	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	250	full	False	0.1	value	368	0.07912270698483331	0.08046812385213789	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	250	full	False	0	value	368	0.18287122206827244	0.1939597074031863	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	250	full	True	0.1	value	368	0.15230553002220992	0.15858314191265196	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	250	full	True	0	value	368	0.11645846880051	0.1325409481680062	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	500	full	False	0.1	value	368	0.12155726450292767	0.11784704554045855	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	500	full	False	0	value	368	0.1779019683300101	0.16677661388078352	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	500	full	True	0.1	value	368	0.12019858822505905	0.13387938549174308	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	500	full	True	0	value	368	0.15564532280490556	0.17390145590505315	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	50	full	False	0.1	value	368	0.19754713602122242	0.20506613547618216	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	50	full	False	0	value	368	0.20254462506972917	0.21034857853501987	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	50	full	True	0.1	value	368	0.14676748440875664	0.15301451031158975	NPCr value (aprf-session-shift, standard)	CHF
+07	NPCr	50	full	True	0	value	368	0.14798677691017537	0.16019524100740487	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	0	full	False	0.1	value	368	0.3406321102052611	0.3528964897030315	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	0	full	False	0	value	368	0.34160564213753675	0.35070141394819165	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	0	full	True	0.1	value	368	0.2528466274695278	0.26621123294034615	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	0	full	True	0	value	368	0.14033994345884632	0.1540041252370597	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	100	full	False	0.1	value	368	0.3174177303400042	0.32543395282290116	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	100	full	False	0	value	368	0.3083784069868696	0.31993759105573394	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	100	full	True	0.1	value	368	0.35741997478469256	0.35959927589735385	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	100	full	True	0	value	368	0.27858377143544144	0.2859669147339053	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	250	full	False	0.1	value	368	0.17698392583605116	0.17348903605295854	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	250	full	False	0	value	368	0.2196434341359186	0.23111796519868064	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	250	full	True	0.1	value	368	0.24464539994482937	0.2401651848045594	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	250	full	True	0	value	368	0.12040131296833559	0.11485700161277278	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	500	full	False	0.1	value	368	0.09799740448107308	0.10060731756423352	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	500	full	False	0	value	368	0.18833572131152088	0.1978931135626492	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	500	full	True	0.1	value	368	0.10829927000644068	0.11945529024407038	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	500	full	True	0	value	368	0.021495411908429733	0.04072164240541442	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	50	full	False	0.1	value	368	0.45422427083066064	0.4508828212913368	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	50	full	False	0	value	368	0.37395622614966356	0.38501031309264927	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	50	full	True	0.1	value	368	0.42285588654922734	0.42938880909315474	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	50	full	True	0	value	368	0.2605257080672908	0.2822368277071339	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	fdr05	full	False	0.1	value	368	0.28307436870111086	0.3002320163470088	NPCr value (aprf-session-shift, standard)	CHF
+08	NPCr	psig95	full	False	0.1	value	368	0.2930127224217182	0.30658308934970846	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	0	full	False	0.1	value	368	0.33473779203180276	0.3399023735686961	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	0	full	False	0	value	368	0.31551162066999916	0.3227060074928082	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	0	full	True	0.1	value	368	0.2548030419447731	0.25580148606609887	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	0	full	True	0	value	368	0.16440025727573718	0.15933860257630186	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	100	full	False	0.1	value	368	0.3878325489576282	0.39318258590950494	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	100	full	False	0	value	368	0.30777316278265165	0.30856424639621893	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	100	full	True	0.1	value	368	0.35613747077598057	0.3664504561506075	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	100	full	True	0	value	368	0.2257887300250412	0.21149622349727376	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	250	full	False	0.1	value	368	0.27016589934103746	0.2778216226550371	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	250	full	False	0	value	368	0.30146584755284106	0.297594649208731	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	250	full	True	0.1	value	368	0.29858209066191627	0.3037770925990088	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	250	full	True	0	value	368	0.1731808331397212	0.18468893311112544	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	500	full	False	0.1	value	368	0.2710012558685381	0.2737244048720788	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	500	full	False	0	value	368	0.27008384136128055	0.2778996740756438	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	500	full	True	0.1	value	368	0.22976017601990337	0.23376978630373743	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	500	full	True	0	value	368	0.09954606788999101	0.11737970061460369	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	50	full	False	0.1	value	368	0.42386510357249957	0.43819031126379027	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	50	full	False	0	value	368	0.35530744039001344	0.3716153402796425	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	50	full	True	0.1	value	368	0.3430619710158085	0.35259102920510166	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	50	full	True	0	value	368	0.1533238333889501	0.17114171184804636	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	fdr05	full	False	0.1	value	368	0.36636577153348243	0.37504574839519567	NPCr value (aprf-session-shift, standard)	CHF
+09	NPCr	psig95	full	False	0.1	value	368	0.349479703113346	0.3541395308460269	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	0	full	False	0.1	value	368	0.4794857699256251	0.48399107759535087	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	0	full	False	0	value	368	0.47143314306294853	0.47613968284098934	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	0	full	True	0.1	value	368	0.37583291450541584	0.37869971119693085	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	0	full	True	0	value	368	0.22603440955627735	0.21991132295601692	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	100	full	False	0.1	value	368	0.35556163163422877	0.34674199064852657	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	100	full	False	0	value	368	0.44335004867462735	0.4354691111181942	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	100	full	True	0.1	value	368	0.38836666353619326	0.3894669528495125	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	100	full	True	0	value	368	0.23362963947224757	0.25522332739493825	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	250	full	False	0.1	value	368	0.13407186002394142	0.14422264411880695	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	250	full	False	0	value	368	0.257895352392918	0.2534088727652791	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	250	full	True	0.1	value	368	0.24113533943588955	0.2339422703073004	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	250	full	True	0	value	368	0.19280860091352553	0.19663369125730426	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	500	full	False	0	value	368	0.20745725580758198	0.19025660111440237	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	500	full	True	0.1	value	368	0.17999300830658196	0.17671323424246438	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	500	full	True	0	value	368	0.17200857957221932	0.20363711996063014	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	50	full	False	0.1	value	368	0.41136005909371826	0.4009347300919838	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	50	full	False	0	value	368	0.45038328364711844	0.45212008084762056	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	50	full	True	0.1	value	368	0.42443331991281996	0.4238991925104844	NPCr value (aprf-session-shift, standard)	CHF
+10	NPCr	50	full	True	0	value	368	0.30031653031419514	0.29402837380545516	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	0	full	False	0.1	value	368	0.3831675474837576	0.36974692417400834	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	0	full	False	0	value	368	0.3462873728959052	0.33549102290774047	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	0	full	True	0.1	value	368	0.41978766252684974	0.4146062554693624	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	0	full	True	0	value	368	0.27358894283744173	0.2307036181510155	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	100	full	False	0.1	value	368	0.24256711547859938	0.24661936277028265	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	100	full	False	0	value	368	0.3289141159773762	0.3024020385594317	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	100	full	True	0.1	value	368	0.3992961064300441	0.39145870947166095	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	100	full	True	0	value	368	0.24081766873810442	0.21261688772154014	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	250	full	False	0	value	368	0.2403274137376721	0.2172383026996842	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	250	full	True	0.1	value	368	0.340814000310947	0.34217260995078697	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	250	full	True	0	value	368	0.22514350242207704	0.26036508517712686	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	500	full	False	0.1	value	368	0.2454211607936968	0.24201818334562922	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	500	full	False	0	value	368	0.2689177064736631	0.25663307095478494	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	500	full	True	0.1	value	368	0.19380799033637758	0.18408764809311837	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	500	full	True	0	value	368	0.2211661836081557	0.22110811140531944	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	50	full	False	0.1	value	368	0.26624639382928156	0.26281840513841853	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	50	full	False	0	value	368	0.28769268314404484	0.273030614466686	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	50	full	True	0.1	value	368	0.38383354914153167	0.36302968401290703	NPCr value (aprf-session-shift, standard)	CHF
+13	NPCr	50	full	True	0	value	368	0.19053604978313982	0.21875789640705143	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	0	full	False	0.1	value	368	0.20540558874984205	0.21640960860435393	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	0	full	False	0	value	368	0.208431479431621	0.21585843067118077	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	0	full	True	0.1	value	368	0.2575109561141732	0.23035094136160753	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	0	full	True	0	value	368	0.16218278327877694	0.12211192933805354	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	100	full	False	0.1	value	368	0.22367369158045972	0.21075328960483236	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	100	full	False	0	value	368	0.23513482986988174	0.24728809963325848	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	100	full	True	0.1	value	368	0.33184653193426095	0.3030698118246223	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	100	full	True	0	value	368	0.1767511442875633	0.13960026554287763	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	250	full	False	0.1	value	368	0.10812325986135937	0.10649104564107831	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	250	full	False	0	value	368	0.19265293166301573	0.21510971519202776	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	250	full	True	0.1	value	368	0.157739663546231	0.15329780806045848	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	250	full	True	0	value	368	0.1787203656260768	0.1545398856056686	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	500	full	False	0	value	368	0.1570175520602144	0.16854288862117928	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	500	full	True	0.1	value	368	0.26201070412804767	0.26394870534053755	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	500	full	True	0	value	368	0.12353837727845203	0.13437274755780018	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	50	full	False	0.1	value	368	0.21150194333955846	0.20652502252307753	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	50	full	False	0	value	368	0.20667357064445657	0.21033123377488508	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	50	full	True	0.1	value	368	0.3464824079918586	0.3294010849048484	NPCr value (aprf-session-shift, standard)	CHF
+14	NPCr	50	full	True	0	value	368	0.1352791049030351	0.1422077611498121	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	0	full	False	0.1	value	368	0.170614696976012	0.19582812350882042	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	0	full	False	0	value	368	0.27080662895714763	0.2827427165443995	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	0	full	True	0.1	value	368	0.2734928536392375	0.2738939980822858	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	0	full	True	0	value	368	0.07157207928537147	0.08665056724241567	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	100	full	False	0.1	value	368	0.25353828673153733	0.2560520214902685	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	100	full	False	0	value	368	0.23998596443881093	0.24738060502064418	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	100	full	True	0.1	value	368	0.2423909229883435	0.24497161055747482	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	100	full	True	0	value	368	0.06762297943413381	0.061606660803307275	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	250	full	False	0.1	value	368	0.041193535468658615	0.05466201156488273	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	250	full	False	0	value	368	0.17285655969797192	0.16953443074221977	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	250	full	True	0.1	value	368	0.2164186342087036	0.21921753255062412	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	250	full	True	0	value	368	0.08395347716410263	0.08596352202151977	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	500	full	False	0.1	value	368	0.13106968848436668	0.13251011303887764	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	500	full	False	0	value	368	0.16179891603199742	0.16902179672045733	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	500	full	True	0.1	value	368	0.10491762746433783	0.10731973973640857	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	500	full	True	0	value	368	0.058375980998514904	0.049555906900749	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	50	full	False	0.1	value	368	0.20946596421882513	0.21543926563458937	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	50	full	False	0	value	368	0.23071377959570144	0.23796336386522263	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	50	full	True	0.1	value	368	0.20256812225686838	0.2095006124839843	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	50	full	True	0	value	368	0.06236709360588982	0.06324381344047715	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	fdr05	full	False	0.1	value	368	0.25212827786584824	0.27342954394978686	NPCr value (aprf-session-shift, standard)	CHF
+pil01	NPCr	psig95	full	False	0.1	value	368	0.24130118129046366	0.26073414312888443	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	0	full	False	0.1	value	368	0.2967710536944627	0.3123155325742662	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	0	full	False	0	value	368	0.28659152327112974	0.30125439359717787	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	0	full	True	0.1	value	368	0.3506364396076366	0.36350088332990294	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	0	full	True	0	value	368	0.18388786017903372	0.1913541389918223	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	100	full	False	0.1	value	368	0.4296393122654302	0.43179009477404195	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	100	full	False	0	value	368	0.37449564313394035	0.35114755972277056	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	100	full	True	0.1	value	368	0.3536101441583427	0.3299484084468804	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	100	full	True	0	value	368	0.2810474893544347	0.2743449618457911	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	250	full	False	0.1	value	368	0.24206431168840212	0.24412749889758034	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	250	full	False	0	value	368	0.37334884067526675	0.35485259320712503	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	250	full	True	0.1	value	368	0.2702314810377672	0.2690837179382293	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	250	full	True	0	value	368	0.2508055303587553	0.2498946316424077	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	500	full	False	0.1	value	368	0.2860252250574263	0.294333834303385	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	500	full	False	0	value	368	0.3298610580737507	0.30551156861249074	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	500	full	True	0	value	368	0.2701150061802353	0.24212803349314974	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	50	full	False	0.1	value	368	0.3781108636162249	0.3646302199342367	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	50	full	False	0	value	368	0.3861094930047269	0.3709841837302921	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	50	full	True	0.1	value	368	0.3735729489390688	0.3699714424579758	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	50	full	True	0	value	368	0.25524203330773004	0.2583954913040396	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	fdr05	full	False	0.1	value	368	0.40768774522575013	0.40603023518047965	NPCr value (aprf-session-shift, standard)	CHF
+pil02	NPCr	psig95	full	False	0.1	value	368	0.41645708631074885	0.41484908211124993	NPCr value (aprf-session-shift, standard)	CHF
+03	NPCr	100	full	False	0.1	value-weighted	368	0.2861855043858339	0.2785578113629817	NPCr value (aprf-session-shift, weighted)	CHF
+03	NPCr	50	full	False	0.1	value-weighted	368	0.2596521727718784	0.26314602838540957	NPCr value (aprf-session-shift, weighted)	CHF
+03	NPCr	fdr05	full	False	0.1	value-weighted	368	0.15619815668351178	0.15704042185843833	NPCr value (aprf-session-shift, weighted)	CHF
+03	NPCr	psig95	full	False	0.1	value-weighted	368	0.15619815668351178	0.15704042185843833	NPCr value (aprf-session-shift, weighted)	CHF
+04	NPCr	100	full	False	0.1	value-weighted	368	0.4859508122877263	0.48990178641018317	NPCr value (aprf-session-shift, weighted)	CHF
+04	NPCr	50	full	False	0.1	value-weighted	368	0.49171193184171386	0.4877240554154781	NPCr value (aprf-session-shift, weighted)	CHF
+04	NPCr	fdr05	full	False	0.1	value-weighted	368	0.44583328949226236	0.4450752174395282	NPCr value (aprf-session-shift, weighted)	CHF
+04	NPCr	psig95	full	False	0.1	value-weighted	368	0.44583328949226236	0.4450752174395282	NPCr value (aprf-session-shift, weighted)	CHF
+05	NPCr	100	full	False	0.1	value-weighted	368	0.2367813759291604	0.2385819936433645	NPCr value (aprf-session-shift, weighted)	CHF
+05	NPCr	50	full	False	0.1	value-weighted	368	0.1525481257389038	0.15728421209811105	NPCr value (aprf-session-shift, weighted)	CHF
+05	NPCr	fdr05	full	False	0.1	value-weighted	368	0.3126269065827395	0.3228987270498617	NPCr value (aprf-session-shift, weighted)	CHF
+05	NPCr	psig95	full	False	0.1	value-weighted	368	0.3126269065827395	0.3228987270498617	NPCr value (aprf-session-shift, weighted)	CHF
+06	NPCr	100	full	False	0.1	value-weighted	368	0.5047496331227591	0.4995483638384985	NPCr value (aprf-session-shift, weighted)	CHF
+06	NPCr	50	full	False	0.1	value-weighted	368	0.6308909837487966	0.6286492679130988	NPCr value (aprf-session-shift, weighted)	CHF
+06	NPCr	fdr05	full	False	0.1	value-weighted	368	0.4501867253396338	0.4523079824157478	NPCr value (aprf-session-shift, weighted)	CHF
+06	NPCr	psig95	full	False	0.1	value-weighted	368	0.4501867253396338	0.4523079824157478	NPCr value (aprf-session-shift, weighted)	CHF
+08	NPCr	100	full	False	0.1	value-weighted	368	0.3213768326757017	0.3205687476050843	NPCr value (aprf-session-shift, weighted)	CHF
+08	NPCr	50	full	False	0.1	value-weighted	368	0.428733770234216	0.4299303510484752	NPCr value (aprf-session-shift, weighted)	CHF
+08	NPCr	fdr05	full	False	0.1	value-weighted	368	0.4024436080639689	0.4069379442942018	NPCr value (aprf-session-shift, weighted)	CHF
+08	NPCr	psig95	full	False	0.1	value-weighted	368	0.4024436080639689	0.4069379442942018	NPCr value (aprf-session-shift, weighted)	CHF
+09	NPCr	100	full	False	0.1	value-weighted	368	0.3101177884050366	0.31233191373661573	NPCr value (aprf-session-shift, weighted)	CHF
+09	NPCr	50	full	False	0.1	value-weighted	368	0.33059546695253716	0.3414007681247875	NPCr value (aprf-session-shift, weighted)	CHF
+09	NPCr	fdr05	full	False	0.1	value-weighted	368	0.36436248675454264	0.34886383297168605	NPCr value (aprf-session-shift, weighted)	CHF
+09	NPCr	psig95	full	False	0.1	value-weighted	368	0.36436248675454264	0.34886383297168605	NPCr value (aprf-session-shift, weighted)	CHF
+pil01	NPCr	100	full	False	0.1	value-weighted	368	0.2979957696447363	0.2869276217258172	NPCr value (aprf-session-shift, weighted)	CHF
+pil01	NPCr	50	full	False	0.1	value-weighted	368	0.3088953614029877	0.3091443322629501	NPCr value (aprf-session-shift, weighted)	CHF
+pil01	NPCr	fdr05	full	False	0.1	value-weighted	368	0.309974482075849	0.3066023613054138	NPCr value (aprf-session-shift, weighted)	CHF
+pil01	NPCr	psig95	full	False	0.1	value-weighted	368	0.309974482075849	0.3066023613054138	NPCr value (aprf-session-shift, weighted)	CHF
+pil02	NPCr	100	full	False	0.1	value-weighted	368	0.33332572202006383	0.33235740291004984	NPCr value (aprf-session-shift, weighted)	CHF
+pil02	NPCr	50	full	False	0.1	value-weighted	368	0.45769201575397056	0.45280519887294596	NPCr value (aprf-session-shift, weighted)	CHF
+pil02	NPCr	fdr05	full	False	0.1	value-weighted	368	0.3455715741765561	0.35733867549311576	NPCr value (aprf-session-shift, weighted)	CHF
+pil02	NPCr	psig95	full	False	0.1	value-weighted	368	0.3455715741765561	0.35733867549311576	NPCr value (aprf-session-shift, weighted)	CHF
+03	BensonV1	0	full	False	0.1	gabor	368	0.7030595125731723	0.702721071572995	V1 orientation (vonmises)	rad
+03	BensonV1	0	full	False	0	gabor	368	0.6250431458497144	0.6265708139253799	V1 orientation (vonmises)	rad
+03	BensonV1	0	full	True	0.1	gabor	368	0.6382039460502218	0.6372720325900953	V1 orientation (vonmises)	rad
+03	BensonV1	0	full	True	0	gabor	368	0.5508606950597661	0.5401358174745955	V1 orientation (vonmises)	rad
+03	BensonV1	100	full	False	0.1	gabor	368	0.7035797835841009	0.7046530753751652	V1 orientation (vonmises)	rad
+03	BensonV1	100	full	False	0	gabor	368	0.6941377953451706	0.6945997142728544	V1 orientation (vonmises)	rad
+03	BensonV1	100	full	True	0.1	gabor	368	0.6573088760378406	0.6579379175717921	V1 orientation (vonmises)	rad
+03	BensonV1	100	full	True	0	gabor	368	0.601019894685778	0.592496591178921	V1 orientation (vonmises)	rad
+03	BensonV1	100	spherical	False	0.1	gabor	368	0.554651486604776	0.5577243790348715	V1 orientation (vonmises)	rad
+03	BensonV1	250	full	False	0.1	gabor	368	0.453831373543097	0.45222386003332954	V1 orientation (vonmises)	rad
+03	BensonV1	250	full	False	0	gabor	368	0.7146106853985825	0.7138966145244705	V1 orientation (vonmises)	rad
+03	BensonV1	250	full	True	0.1	gabor	368	0.6037975855471519	0.6044202553631731	V1 orientation (vonmises)	rad
+03	BensonV1	250	full	True	0	gabor	368	0.5961304412436426	0.5857172245437609	V1 orientation (vonmises)	rad
+03	BensonV1	500	full	False	0.1	gabor	368	0.5068415279689611	0.5076928075191904	V1 orientation (vonmises)	rad
+03	BensonV1	500	full	False	0	gabor	368	0.7110117685863311	0.7144904839566746	V1 orientation (vonmises)	rad
+03	BensonV1	500	full	True	0.1	gabor	368	0.5237836123589104	0.5267544737749336	V1 orientation (vonmises)	rad
+03	BensonV1	500	full	True	0	gabor	368	0.6034438315977362	0.5871633351741278	V1 orientation (vonmises)	rad
+03	BensonV1	50	full	False	0.1	gabor	368	0.7569887840693357	0.7554289118286086	V1 orientation (vonmises)	rad
+03	BensonV1	50	full	False	0	gabor	368	0.6745900298079189	0.6787541980590472	V1 orientation (vonmises)	rad
+03	BensonV1	50	full	True	0.1	gabor	368	0.6956794634837076	0.6938631619251209	V1 orientation (vonmises)	rad
+03	BensonV1	50	full	True	0	gabor	368	0.613914548407712	0.6116315270399362	V1 orientation (vonmises)	rad
+03	BensonV1	fdr05	full	False	0.1	gabor	368	0.6965098109565704	0.6942063721813945	V1 orientation (vonmises)	rad
+03	BensonV1	psig95	full	False	0.1	gabor	368	0.6965098109565704	0.6942063721813945	V1 orientation (vonmises)	rad
+04	BensonV1	0	full	False	0.1	gabor	368	0.7358292627679421	0.7352412074286864	V1 orientation (vonmises)	rad
+04	BensonV1	0	full	False	0	gabor	368	0.7288612489828231	0.7306522163616552	V1 orientation (vonmises)	rad
+04	BensonV1	0	full	True	0.1	gabor	368	0.6803272181576172	0.6752719636611236	V1 orientation (vonmises)	rad
+04	BensonV1	0	full	True	0	gabor	368	0.6164338016974773	0.6162397995820387	V1 orientation (vonmises)	rad
+04	BensonV1	100	full	False	0.1	gabor	368	0.7635733113890825	0.7598945014551816	V1 orientation (vonmises)	rad
+04	BensonV1	100	full	False	0	gabor	368	0.7688047075458913	0.7697087722666052	V1 orientation (vonmises)	rad
+04	BensonV1	100	full	True	0.1	gabor	368	0.7866241430195663	0.7846442028570347	V1 orientation (vonmises)	rad
+04	BensonV1	100	full	True	0	gabor	368	0.7045489728926865	0.7030334314691543	V1 orientation (vonmises)	rad
+04	BensonV1	250	full	False	0.1	gabor	368	0.4958717620060035	0.49829501656931247	V1 orientation (vonmises)	rad
+04	BensonV1	250	full	False	0	gabor	368	0.781994608423469	0.7833831943873548	V1 orientation (vonmises)	rad
+04	BensonV1	250	full	True	0.1	gabor	368	0.5986121307916923	0.5980110930493868	V1 orientation (vonmises)	rad
+04	BensonV1	250	full	True	0	gabor	368	0.6972584951688331	0.6986449677428673	V1 orientation (vonmises)	rad
+04	BensonV1	500	full	False	0.1	gabor	368	0.6491841945308813	0.6509657361859165	V1 orientation (vonmises)	rad
+04	BensonV1	500	full	False	0	gabor	368	0.7674695442777604	0.7685171771071827	V1 orientation (vonmises)	rad
+04	BensonV1	500	full	True	0.1	gabor	368	0.5217370828815081	0.5204610003115767	V1 orientation (vonmises)	rad
+04	BensonV1	500	full	True	0	gabor	368	0.705611730314757	0.7031992521547697	V1 orientation (vonmises)	rad
+04	BensonV1	50	full	False	0.1	gabor	368	0.776587886565739	0.7769354691234255	V1 orientation (vonmises)	rad
+04	BensonV1	50	full	False	0	gabor	368	0.7690887128518897	0.7678731758397928	V1 orientation (vonmises)	rad
+04	BensonV1	50	full	True	0.1	gabor	368	0.7838608617597188	0.7821337548027176	V1 orientation (vonmises)	rad
+04	BensonV1	50	full	True	0	gabor	368	0.6677674855799605	0.6658934541863173	V1 orientation (vonmises)	rad
+04	BensonV1	fdr05	full	False	0.1	gabor	368	0.6913956391072341	0.6882214023191825	V1 orientation (vonmises)	rad
+04	BensonV1	psig95	full	False	0.1	gabor	368	0.6913956391072341	0.6882214023191825	V1 orientation (vonmises)	rad
+05	BensonV1	0	full	False	0.1	gabor	368	0.7321344985640124	0.7299195203089361	V1 orientation (vonmises)	rad
+05	BensonV1	0	full	False	0	gabor	368	0.7706529300240021	0.7703296357639092	V1 orientation (vonmises)	rad
+05	BensonV1	0	full	True	0.1	gabor	368	0.7283021509442398	0.7287433503295709	V1 orientation (vonmises)	rad
+05	BensonV1	0	full	True	0	gabor	368	0.6591072484854488	0.657131951913801	V1 orientation (vonmises)	rad
+05	BensonV1	100	full	False	0.1	gabor	368	0.7578040113532547	0.7545728143354314	V1 orientation (vonmises)	rad
+05	BensonV1	100	full	False	0	gabor	368	0.8119154307452396	0.8101420254916643	V1 orientation (vonmises)	rad
+05	BensonV1	100	full	True	0.1	gabor	368	0.7739599092596049	0.7745291410344949	V1 orientation (vonmises)	rad
+05	BensonV1	100	full	True	0	gabor	368	0.6590549332090474	0.6560290515397078	V1 orientation (vonmises)	rad
+05	BensonV1	250	full	False	0.1	gabor	368	0.4901011098847965	0.49531795681826385	V1 orientation (vonmises)	rad
+05	BensonV1	250	full	False	0	gabor	368	0.7791343217610534	0.7812622321294832	V1 orientation (vonmises)	rad
+05	BensonV1	250	full	True	0.1	gabor	368	0.618824519637502	0.618233504104438	V1 orientation (vonmises)	rad
+05	BensonV1	250	full	True	0	gabor	368	0.6294358856325944	0.6233083883432723	V1 orientation (vonmises)	rad
+05	BensonV1	500	full	False	0.1	gabor	368	0.3959075094632939	0.39642327117623793	V1 orientation (vonmises)	rad
+05	BensonV1	500	full	False	0	gabor	368	0.7781338071285118	0.7793456535073703	V1 orientation (vonmises)	rad
+05	BensonV1	500	full	True	0.1	gabor	368	0.5340864646558496	0.5352074724463051	V1 orientation (vonmises)	rad
+05	BensonV1	500	full	True	0	gabor	368	0.6428395805133444	0.6367013009279772	V1 orientation (vonmises)	rad
+05	BensonV1	50	full	False	0.1	gabor	368	0.740477578651044	0.7395448326646583	V1 orientation (vonmises)	rad
+05	BensonV1	50	full	False	0	gabor	368	0.7654924245430406	0.7646338880277708	V1 orientation (vonmises)	rad
+05	BensonV1	50	full	True	0.1	gabor	368	0.7754497293872755	0.7751577171218276	V1 orientation (vonmises)	rad
+05	BensonV1	50	full	True	0	gabor	368	0.6422486309709139	0.6384867655196034	V1 orientation (vonmises)	rad
+05	BensonV1	fdr05	full	False	0.1	gabor	368	0.6141632454933917	0.6132396020609042	V1 orientation (vonmises)	rad
+05	BensonV1	psig95	full	False	0.1	gabor	368	0.5564089137798408	0.5522522964095632	V1 orientation (vonmises)	rad
+06	BensonV1	0	full	False	0.1	gabor	368	0.9281417686847884	0.9279672633589467	V1 orientation (vonmises)	rad
+06	BensonV1	0	full	False	0	gabor	368	0.9398847216276685	0.9394011780763812	V1 orientation (vonmises)	rad
+06	BensonV1	0	full	True	0.1	gabor	368	0.8937697542367692	0.8910008193517539	V1 orientation (vonmises)	rad
+06	BensonV1	0	full	True	0	gabor	368	0.8571076171218871	0.8581721798949177	V1 orientation (vonmises)	rad
+06	BensonV1	100	full	False	0.1	gabor	368	0.9497942427606689	0.9485868728004719	V1 orientation (vonmises)	rad
+06	BensonV1	100	full	False	0	gabor	368	0.9370375995798284	0.9359922132837296	V1 orientation (vonmises)	rad
+06	BensonV1	100	full	True	0.1	gabor	368	0.9308784385461588	0.9301460700420329	V1 orientation (vonmises)	rad
+06	BensonV1	100	full	True	0	gabor	368	0.838585124872158	0.8403252465686827	V1 orientation (vonmises)	rad
+06	BensonV1	250	full	False	0.1	gabor	368	0.8055630296139694	0.8059618016961504	V1 orientation (vonmises)	rad
+06	BensonV1	250	full	False	0	gabor	368	0.9381192557651343	0.937569437944583	V1 orientation (vonmises)	rad
+06	BensonV1	250	full	True	0.1	gabor	368	0.8686992116030271	0.8675661145497812	V1 orientation (vonmises)	rad
+06	BensonV1	250	full	True	0	gabor	368	0.8667430730818013	0.8674388568143088	V1 orientation (vonmises)	rad
+06	BensonV1	500	full	False	0.1	gabor	368	0.8054198344094221	0.8072729420010162	V1 orientation (vonmises)	rad
+06	BensonV1	500	full	False	0	gabor	368	0.9176054060139408	0.9186427420143408	V1 orientation (vonmises)	rad
+06	BensonV1	500	full	True	0.1	gabor	368	0.786070053400814	0.7855851388405268	V1 orientation (vonmises)	rad
+06	BensonV1	500	full	True	0	gabor	368	0.8425098401361901	0.8463217853159375	V1 orientation (vonmises)	rad
+06	BensonV1	50	full	False	0.1	gabor	368	0.9494077636373295	0.9470944866299332	V1 orientation (vonmises)	rad
+06	BensonV1	50	full	False	0	gabor	368	0.9366227327254552	0.9360886206590874	V1 orientation (vonmises)	rad
+06	BensonV1	50	full	True	0.1	gabor	368	0.9063476354080776	0.9051649909393211	V1 orientation (vonmises)	rad
+06	BensonV1	50	full	True	0	gabor	368	0.8373259245386264	0.837930487364795	V1 orientation (vonmises)	rad
+06	BensonV1	fdr05	full	False	0.1	gabor	368	0.9475095220174605	0.9452743153831781	V1 orientation (vonmises)	rad
+06	BensonV1	psig95	full	False	0.1	gabor	368	0.9470248151124383	0.9443912238249008	V1 orientation (vonmises)	rad
+07	BensonV1	0	full	False	0.1	gabor	368	0.5491454815376673	0.546425434642938	V1 orientation (vonmises)	rad
+07	BensonV1	0	full	False	0	gabor	368	0.5784906644062418	0.580808160990542	V1 orientation (vonmises)	rad
+07	BensonV1	0	full	True	0.1	gabor	368	0.6901319627986118	0.6875735447567782	V1 orientation (vonmises)	rad
+07	BensonV1	0	full	True	0	gabor	368	0.6428546385130215	0.6426168574799315	V1 orientation (vonmises)	rad
+07	BensonV1	100	full	False	0.1	gabor	368	0.5866343501827	0.5864961961366519	V1 orientation (vonmises)	rad
+07	BensonV1	100	full	False	0	gabor	368	0.6823665946645037	0.6804046923251726	V1 orientation (vonmises)	rad
+07	BensonV1	100	full	True	0.1	gabor	368	0.66703398252778	0.6680144164441889	V1 orientation (vonmises)	rad
+07	BensonV1	100	full	True	0	gabor	368	0.6666045652989787	0.6649602307928538	V1 orientation (vonmises)	rad
+07	BensonV1	250	full	False	0.1	gabor	368	0.3940372753582724	0.40099683706321176	V1 orientation (vonmises)	rad
+07	BensonV1	250	full	False	0	gabor	368	0.676595447013707	0.6796719962724534	V1 orientation (vonmises)	rad
+07	BensonV1	250	full	True	0.1	gabor	368	0.4199795258381259	0.42010863515414093	V1 orientation (vonmises)	rad
+07	BensonV1	250	full	True	0	gabor	368	0.6419369470183345	0.6432222957971783	V1 orientation (vonmises)	rad
+07	BensonV1	500	full	False	0.1	gabor	368	0.5186563383357636	0.5190457400413243	V1 orientation (vonmises)	rad
+07	BensonV1	500	full	False	0	gabor	368	0.6748482815367283	0.6769263142222635	V1 orientation (vonmises)	rad
+07	BensonV1	500	full	True	0.1	gabor	368	0.3378321842761166	0.33884878661256285	V1 orientation (vonmises)	rad
+07	BensonV1	500	full	True	0	gabor	368	0.6237575480250517	0.6232698253931291	V1 orientation (vonmises)	rad
+07	BensonV1	50	full	False	0.1	gabor	368	0.6503035559855097	0.6544865335339831	V1 orientation (vonmises)	rad
+07	BensonV1	50	full	False	0	gabor	368	0.6296770668864824	0.6278086846249741	V1 orientation (vonmises)	rad
+07	BensonV1	50	full	True	0.1	gabor	368	0.6961440052788874	0.6956139198616182	V1 orientation (vonmises)	rad
+07	BensonV1	50	full	True	0	gabor	368	0.6188179021683657	0.6179558508634074	V1 orientation (vonmises)	rad
+08	BensonV1	0	full	False	0.1	gabor	368	0.7779758790194353	0.7742283500233785	V1 orientation (vonmises)	rad
+08	BensonV1	0	full	False	0	gabor	368	0.6963614838279205	0.6978428583798906	V1 orientation (vonmises)	rad
+08	BensonV1	0	full	True	0.1	gabor	368	0.688685649731927	0.6876468143620501	V1 orientation (vonmises)	rad
+08	BensonV1	0	full	True	0	gabor	368	0.5794826051613775	0.569231563357578	V1 orientation (vonmises)	rad
+08	BensonV1	100	full	False	0.1	gabor	368	0.7884947584337848	0.7857393906410992	V1 orientation (vonmises)	rad
+08	BensonV1	100	full	False	0	gabor	368	0.7265835746828138	0.7237455919910227	V1 orientation (vonmises)	rad
+08	BensonV1	100	full	True	0.1	gabor	368	0.796008474405242	0.793540675455052	V1 orientation (vonmises)	rad
+08	BensonV1	100	full	True	0	gabor	368	0.6561761438882959	0.6540237781322656	V1 orientation (vonmises)	rad
+08	BensonV1	250	full	False	0.1	gabor	368	0.5314698047828392	0.5316249743780094	V1 orientation (vonmises)	rad
+08	BensonV1	250	full	False	0	gabor	368	0.6967620268415267	0.6959725552979494	V1 orientation (vonmises)	rad
+08	BensonV1	250	full	True	0.1	gabor	368	0.6261843900129906	0.6268600360514535	V1 orientation (vonmises)	rad
+08	BensonV1	250	full	True	0	gabor	368	0.5972026880582046	0.5893999862824287	V1 orientation (vonmises)	rad
+08	BensonV1	500	full	False	0.1	gabor	368	0.5229912503613465	0.5207347972575929	V1 orientation (vonmises)	rad
+08	BensonV1	500	full	False	0	gabor	368	0.6838730845182934	0.6838522200679674	V1 orientation (vonmises)	rad
+08	BensonV1	500	full	True	0.1	gabor	368	0.49357559604731516	0.49106060712246363	V1 orientation (vonmises)	rad
+08	BensonV1	500	full	True	0	gabor	368	0.575211432395504	0.5679551297078408	V1 orientation (vonmises)	rad
+08	BensonV1	50	full	False	0.1	gabor	368	0.822362248220432	0.8197480563723148	V1 orientation (vonmises)	rad
+08	BensonV1	50	full	False	0	gabor	368	0.7251589234610494	0.7273049522892326	V1 orientation (vonmises)	rad
+08	BensonV1	50	full	True	0.1	gabor	368	0.8129929456416911	0.8118850708381333	V1 orientation (vonmises)	rad
+08	BensonV1	50	full	True	0	gabor	368	0.6441695510839944	0.6399945768701993	V1 orientation (vonmises)	rad
+08	BensonV1	fdr05	full	False	0.1	gabor	368	0.7892235653347401	0.788026173584586	V1 orientation (vonmises)	rad
+08	BensonV1	psig95	full	False	0.1	gabor	368	0.7892235653347401	0.788026173584586	V1 orientation (vonmises)	rad
+09	BensonV1	0	full	False	0.1	gabor	368	0.8015617886876549	0.7964444656008288	V1 orientation (vonmises)	rad
+09	BensonV1	0	full	False	0	gabor	368	0.8083004911750766	0.8042573192998245	V1 orientation (vonmises)	rad
+09	BensonV1	0	full	True	0.1	gabor	368	0.8197510916417942	0.8192891572656119	V1 orientation (vonmises)	rad
+09	BensonV1	0	full	True	0	gabor	368	0.652837489829183	0.6562719981256093	V1 orientation (vonmises)	rad
+09	BensonV1	100	full	False	0.1	gabor	368	0.7907246996808015	0.7898926203715131	V1 orientation (vonmises)	rad
+09	BensonV1	100	full	False	0	gabor	368	0.8395356049145968	0.8358982198922528	V1 orientation (vonmises)	rad
+09	BensonV1	100	full	True	0.1	gabor	368	0.8601636660366523	0.8590398462731378	V1 orientation (vonmises)	rad
+09	BensonV1	100	full	True	0	gabor	368	0.7344280491574209	0.7301239039446946	V1 orientation (vonmises)	rad
+09	BensonV1	250	full	False	0.1	gabor	368	0.5584416395011742	0.5573426058284547	V1 orientation (vonmises)	rad
+09	BensonV1	250	full	False	0	gabor	368	0.7761965274569216	0.777868692516889	V1 orientation (vonmises)	rad
+09	BensonV1	250	full	True	0.1	gabor	368	0.666124663010534	0.6666261502390366	V1 orientation (vonmises)	rad
+09	BensonV1	250	full	True	0	gabor	368	0.6870339932027233	0.6853716003036062	V1 orientation (vonmises)	rad
+09	BensonV1	500	full	False	0.1	gabor	368	0.6388591640963479	0.638914814266192	V1 orientation (vonmises)	rad
+09	BensonV1	500	full	False	0	gabor	368	0.7149294200481866	0.7156975042961541	V1 orientation (vonmises)	rad
+09	BensonV1	500	full	True	0.1	gabor	368	0.4762129029316784	0.48193275682358755	V1 orientation (vonmises)	rad
+09	BensonV1	500	full	True	0	gabor	368	0.6878143220172965	0.685888343835524	V1 orientation (vonmises)	rad
+09	BensonV1	50	full	False	0.1	gabor	368	0.8262625620417247	0.8206889923558071	V1 orientation (vonmises)	rad
+09	BensonV1	50	full	False	0	gabor	368	0.8189276397258742	0.816755571441209	V1 orientation (vonmises)	rad
+09	BensonV1	50	full	True	0.1	gabor	368	0.8328518788268122	0.8339469346150109	V1 orientation (vonmises)	rad
+09	BensonV1	50	full	True	0	gabor	368	0.7049520995338516	0.7043792784291489	V1 orientation (vonmises)	rad
+09	BensonV1	fdr05	full	False	0.1	gabor	368	0.7853360627545062	0.7787787781402665	V1 orientation (vonmises)	rad
+09	BensonV1	psig95	full	False	0.1	gabor	368	0.7311685836734083	0.7225038649964145	V1 orientation (vonmises)	rad
+10	BensonV1	0	full	False	0.1	gabor	368	0.5901664709136203	0.5949106318578802	V1 orientation (vonmises)	rad
+10	BensonV1	0	full	False	0	gabor	368	0.5772025411483728	0.5795278710457905	V1 orientation (vonmises)	rad
+10	BensonV1	0	full	True	0.1	gabor	368	0.7178475823386669	0.7169777942409057	V1 orientation (vonmises)	rad
+10	BensonV1	0	full	True	0	gabor	368	0.6941072343487635	0.6925828719803693	V1 orientation (vonmises)	rad
+10	BensonV1	100	full	False	0.1	gabor	368	0.7209410229088151	0.718292790840786	V1 orientation (vonmises)	rad
+10	BensonV1	100	full	False	0	gabor	368	0.6363207187044199	0.6383286574240167	V1 orientation (vonmises)	rad
+10	BensonV1	100	full	True	0.1	gabor	368	0.7339760599698614	0.7325032379685248	V1 orientation (vonmises)	rad
+10	BensonV1	100	full	True	0	gabor	368	0.4996821019723942	0.4985572446302857	V1 orientation (vonmises)	rad
+10	BensonV1	250	full	False	0.1	gabor	368	0.3686460091951701	0.36868879743330757	V1 orientation (vonmises)	rad
+10	BensonV1	250	full	False	0	gabor	368	0.5940509431646239	0.5926585555695222	V1 orientation (vonmises)	rad
+10	BensonV1	250	full	True	0.1	gabor	368	0.509876645141796	0.5121661097357921	V1 orientation (vonmises)	rad
+10	BensonV1	250	full	True	0	gabor	368	0.44243298606104	0.4452632475324968	V1 orientation (vonmises)	rad
+10	BensonV1	500	full	False	0.1	gabor	368	0.3883221772277333	0.3895320719856628	V1 orientation (vonmises)	rad
+10	BensonV1	500	full	False	0	gabor	368	0.5875987837555259	0.590591581441851	V1 orientation (vonmises)	rad
+10	BensonV1	500	full	True	0.1	gabor	368	0.3910297719584003	0.39296803084341453	V1 orientation (vonmises)	rad
+10	BensonV1	500	full	True	0	gabor	368	0.4329785860282211	0.4336557995394183	V1 orientation (vonmises)	rad
+10	BensonV1	50	full	False	0.1	gabor	368	0.7350045065217377	0.7309761451428576	V1 orientation (vonmises)	rad
+10	BensonV1	50	full	False	0	gabor	368	0.7050010439328367	0.7034769053958001	V1 orientation (vonmises)	rad
+10	BensonV1	50	full	True	0.1	gabor	368	0.743523394649263	0.7435322417094566	V1 orientation (vonmises)	rad
+10	BensonV1	50	full	True	0	gabor	368	0.5811946864242584	0.5799096442522074	V1 orientation (vonmises)	rad
+13	BensonV1	0	full	False	0.1	gabor	368	0.4495776940071648	0.4377357596645602	V1 orientation (vonmises)	rad
+13	BensonV1	0	full	False	0	gabor	368	0.24471488434679567	0.23714286190510367	V1 orientation (vonmises)	rad
+13	BensonV1	0	full	True	0.1	gabor	368	0.504679835140698	0.4935440611116805	V1 orientation (vonmises)	rad
+13	BensonV1	0	full	True	0	gabor	368	0.26658258154958847	0.25894635391602255	V1 orientation (vonmises)	rad
+13	BensonV1	100	full	False	0.1	gabor	368	0.5172321370924489	0.4964632764375145	V1 orientation (vonmises)	rad
+13	BensonV1	100	full	False	0	gabor	368	0.3257518225843672	0.31318899958733226	V1 orientation (vonmises)	rad
+13	BensonV1	100	full	True	0.1	gabor	368	0.529908735189898	0.5216680206510563	V1 orientation (vonmises)	rad
+13	BensonV1	100	full	True	0	gabor	368	0.42291493702451666	0.4176637441150673	V1 orientation (vonmises)	rad
+13	BensonV1	250	full	False	0.1	gabor	368	0.36008712717185154	0.3599234388657768	V1 orientation (vonmises)	rad
+13	BensonV1	250	full	False	0	gabor	368	0.5201840231073248	0.5123704933715506	V1 orientation (vonmises)	rad
+13	BensonV1	250	full	True	0.1	gabor	368	0.3662226891214093	0.36494819126942507	V1 orientation (vonmises)	rad
+13	BensonV1	250	full	True	0	gabor	368	0.45530125160215007	0.44835599613397487	V1 orientation (vonmises)	rad
+13	BensonV1	500	full	False	0.1	gabor	368	0.27351043970170014	0.27491141527527335	V1 orientation (vonmises)	rad
+13	BensonV1	500	full	False	0	gabor	368	0.5316826997911936	0.525497321600268	V1 orientation (vonmises)	rad
+13	BensonV1	500	full	True	0.1	gabor	368	0.3880890124927765	0.3888880707182727	V1 orientation (vonmises)	rad
+13	BensonV1	500	full	True	0	gabor	368	0.4840268923308408	0.48026683737740494	V1 orientation (vonmises)	rad
+13	BensonV1	50	full	False	0.1	gabor	368	0.40544054001645846	0.3846114395474009	V1 orientation (vonmises)	rad
+13	BensonV1	50	full	False	0	gabor	368	0.2536022614425052	0.24698412678162737	V1 orientation (vonmises)	rad
+13	BensonV1	50	full	True	0.1	gabor	368	0.5662849311314313	0.5573194680583688	V1 orientation (vonmises)	rad
+13	BensonV1	50	full	True	0	gabor	368	0.4072359887334914	0.4012822028942708	V1 orientation (vonmises)	rad
+14	BensonV1	0	full	False	0.1	gabor	368	0.41874761561323404	0.42045184541041475	V1 orientation (vonmises)	rad
+14	BensonV1	0	full	False	0	gabor	368	0.3876233553716584	0.38283754384081753	V1 orientation (vonmises)	rad
+14	BensonV1	0	full	True	0.1	gabor	368	0.3659022424114959	0.3777048151767685	V1 orientation (vonmises)	rad
+14	BensonV1	0	full	True	0	gabor	368	0.45930196406035845	0.4550235302137199	V1 orientation (vonmises)	rad
+14	BensonV1	100	full	False	0.1	gabor	368	0.3791999915833669	0.37551058331362513	V1 orientation (vonmises)	rad
+14	BensonV1	100	full	False	0	gabor	368	0.5332854575504888	0.535762778928366	V1 orientation (vonmises)	rad
+14	BensonV1	100	full	True	0.1	gabor	368	0.4479776110100799	0.45269047173006133	V1 orientation (vonmises)	rad
+14	BensonV1	100	full	True	0	gabor	368	0.4221317807961607	0.419688298997581	V1 orientation (vonmises)	rad
+14	BensonV1	250	full	False	0.1	gabor	368	0.20668024102709343	0.2058644530440207	V1 orientation (vonmises)	rad
+14	BensonV1	250	full	False	0	gabor	368	0.5588370520980837	0.5571960666179109	V1 orientation (vonmises)	rad
+14	BensonV1	250	full	True	0.1	gabor	368	0.29750800050796666	0.2977059751048704	V1 orientation (vonmises)	rad
+14	BensonV1	250	full	True	0	gabor	368	0.46935645936742987	0.4666926789270274	V1 orientation (vonmises)	rad
+14	BensonV1	500	full	False	0.1	gabor	368	0.2862818371952365	0.29152047790191427	V1 orientation (vonmises)	rad
+14	BensonV1	500	full	False	0	gabor	368	0.43584473808384416	0.4340877045810212	V1 orientation (vonmises)	rad
+14	BensonV1	500	full	True	0.1	gabor	368	0.32951448781334486	0.3281976997830337	V1 orientation (vonmises)	rad
+14	BensonV1	500	full	True	0	gabor	368	0.5107394455931958	0.5092353255249151	V1 orientation (vonmises)	rad
+14	BensonV1	50	full	False	0.1	gabor	368	0.44241822600324654	0.4454792000532983	V1 orientation (vonmises)	rad
+14	BensonV1	50	full	False	0	gabor	368	0.45762895680821547	0.45615342465291325	V1 orientation (vonmises)	rad
+14	BensonV1	50	full	True	0.1	gabor	368	0.469487042967339	0.46692405662788616	V1 orientation (vonmises)	rad
+14	BensonV1	50	full	True	0	gabor	368	0.4101637829052355	0.40707050171075276	V1 orientation (vonmises)	rad
+pil01	BensonV1	0	full	False	0.1	gabor	368	0.4530704165959878	0.4540787379352136	V1 orientation (vonmises)	rad
+pil01	BensonV1	0	full	False	0	gabor	368	0.4115394500666799	0.4102172384424312	V1 orientation (vonmises)	rad
+pil01	BensonV1	0	full	True	0.1	gabor	368	0.32985029402073596	0.31103718696934624	V1 orientation (vonmises)	rad
+pil01	BensonV1	0	full	True	0	gabor	368	0.2259185414713849	0.219423186314341	V1 orientation (vonmises)	rad
+pil01	BensonV1	100	full	False	0.1	gabor	368	0.5404804270674927	0.5366574393716863	V1 orientation (vonmises)	rad
+pil01	BensonV1	100	full	False	0	gabor	368	0.5067524335338471	0.507280183952659	V1 orientation (vonmises)	rad
+pil01	BensonV1	100	full	True	0.1	gabor	368	0.47755866049633433	0.473094128650785	V1 orientation (vonmises)	rad
+pil01	BensonV1	100	full	True	0	gabor	368	0.3875101140854438	0.38744196008790577	V1 orientation (vonmises)	rad
+pil01	BensonV1	250	full	False	0.1	gabor	368	0.30667664311990184	0.31011938875594003	V1 orientation (vonmises)	rad
+pil01	BensonV1	250	full	False	0	gabor	368	0.4681755946287732	0.4629482164681306	V1 orientation (vonmises)	rad
+pil01	BensonV1	250	full	True	0.1	gabor	368	0.41945724020942604	0.42109199038279044	V1 orientation (vonmises)	rad
+pil01	BensonV1	250	full	True	0	gabor	368	0.3996749878640468	0.39700557172339906	V1 orientation (vonmises)	rad
+pil01	BensonV1	500	full	False	0.1	gabor	368	0.34051296078252435	0.3407460837596043	V1 orientation (vonmises)	rad
+pil01	BensonV1	500	full	False	0	gabor	368	0.46209045271407645	0.458251249140699	V1 orientation (vonmises)	rad
+pil01	BensonV1	500	full	True	0.1	gabor	368	0.3286612252440479	0.33442947252616156	V1 orientation (vonmises)	rad
+pil01	BensonV1	500	full	True	0	gabor	368	0.39781476730591747	0.39909568362115605	V1 orientation (vonmises)	rad
+pil01	BensonV1	50	full	False	0.1	gabor	368	0.5511950564494703	0.5483497258550797	V1 orientation (vonmises)	rad
+pil01	BensonV1	50	full	False	0	gabor	368	0.4788030725859078	0.47680002815953865	V1 orientation (vonmises)	rad
+pil01	BensonV1	50	full	True	0.1	gabor	368	0.4729531745048665	0.48046736471814916	V1 orientation (vonmises)	rad
+pil01	BensonV1	50	full	True	0	gabor	368	0.34011483855630775	0.341397797617023	V1 orientation (vonmises)	rad
+pil01	BensonV1	fdr05	full	False	0.1	gabor	368	0.3128301520967648	0.3138484260347795	V1 orientation (vonmises)	rad
+pil01	BensonV1	psig95	full	False	0.1	gabor	368	0.3256396331305906	0.3255831317633303	V1 orientation (vonmises)	rad
+pil02	BensonV1	0	full	False	0.1	gabor	368	0.7026611329740896	0.6984984285323236	V1 orientation (vonmises)	rad
+pil02	BensonV1	0	full	False	0	gabor	368	0.6553234145174864	0.6560483330147793	V1 orientation (vonmises)	rad
+pil02	BensonV1	0	full	True	0.1	gabor	368	0.638021588531912	0.6357680775345137	V1 orientation (vonmises)	rad
+pil02	BensonV1	0	full	True	0	gabor	368	0.5319723217697038	0.5319527594542259	V1 orientation (vonmises)	rad
+pil02	BensonV1	100	full	False	0.1	gabor	368	0.7429510402096582	0.7391437779831698	V1 orientation (vonmises)	rad
+pil02	BensonV1	100	full	False	0	gabor	368	0.6784340517350322	0.6803622730800152	V1 orientation (vonmises)	rad
+pil02	BensonV1	100	full	True	0.1	gabor	368	0.6974156547392908	0.6971294438022428	V1 orientation (vonmises)	rad
+pil02	BensonV1	100	full	True	0	gabor	368	0.6099397035864947	0.6078716394009822	V1 orientation (vonmises)	rad
+pil02	BensonV1	250	full	False	0.1	gabor	368	0.5088619432180984	0.5093895773254875	V1 orientation (vonmises)	rad
+pil02	BensonV1	250	full	False	0	gabor	368	0.6934171081612899	0.6934968138987613	V1 orientation (vonmises)	rad
+pil02	BensonV1	250	full	True	0.1	gabor	368	0.5019916979328105	0.5034046074632756	V1 orientation (vonmises)	rad
+pil02	BensonV1	250	full	True	0	gabor	368	0.6001912421997784	0.5951227280836674	V1 orientation (vonmises)	rad
+pil02	BensonV1	500	full	False	0.1	gabor	368	0.45226853657688076	0.4564040838288435	V1 orientation (vonmises)	rad
+pil02	BensonV1	500	full	False	0	gabor	368	0.7080417802465161	0.7067817502230653	V1 orientation (vonmises)	rad
+pil02	BensonV1	500	full	True	0.1	gabor	368	0.4438467605385731	0.44353948366109947	V1 orientation (vonmises)	rad
+pil02	BensonV1	500	full	True	0	gabor	368	0.6088325918285121	0.6044163990681588	V1 orientation (vonmises)	rad
+pil02	BensonV1	50	full	False	0.1	gabor	368	0.7420983944013975	0.7383763752753219	V1 orientation (vonmises)	rad
+pil02	BensonV1	50	full	False	0	gabor	368	0.6860132468182305	0.6868524175891019	V1 orientation (vonmises)	rad
+pil02	BensonV1	50	full	True	0.1	gabor	368	0.7547186062448643	0.7525983912881038	V1 orientation (vonmises)	rad
+pil02	BensonV1	50	full	True	0	gabor	368	0.5804006317227889	0.5789802771537582	V1 orientation (vonmises)	rad
+pil02	BensonV1	fdr05	full	False	0.1	gabor	368	0.7046885005493504	0.6995666222512879	V1 orientation (vonmises)	rad
+pil02	BensonV1	psig95	full	False	0.1	gabor	368	0.7046885005493504	0.6995666222512879	V1 orientation (vonmises)	rad

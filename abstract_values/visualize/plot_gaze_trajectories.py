@@ -45,6 +45,14 @@ Usage (local, plain matplotlib/seaborn — no cluster needed):
     python -m abstract_values.visualize.plot_gaze_trajectories \\
         --tsv notes/data/gaze_trajectories_all.tsv \\
         --out notes/figures/gaze_trajectories.pdf
+
+Group-only variant for a talk slide (grand-average panel + gabor colour
+legend, talk-scale type, panel proportioned to the data, callouts
+auto-placed clear of the paths; writes both .pdf and .png):
+    python -m abstract_values.visualize.plot_gaze_trajectories --group-only \\
+        --tsv notes/data/gaze_trajectories_gabor.tsv \\
+        --onset-label "Gabor onset" --offset-label "Gabor offset" \\
+        --out .../figures/gaze_trajectories_gabor_group.pdf
 """
 from __future__ import annotations
 
@@ -199,7 +207,8 @@ def render_gabor(orientation_deg: float, size_deg: float, hole_deg: float,
     return 0.5 + 0.5 * contrast * grating * mask
 
 
-def plot_gabor_examples(gs_row, orientations: list, grating_params: dict, cmap_note: bool = True):
+def plot_gabor_examples(gs_row, orientations: list, grating_params: dict, cmap_note: bool = True,
+                         title_fontsize: float = 7.5, frame_lw: float = 3):
     """One small annular-grating patch per orientation, framed in that
     orientation's colour, so the colour <-> physical-grating mapping used
     everywhere else in the figure is unambiguous. Nothing but the grating
@@ -218,8 +227,8 @@ def plot_gabor_examples(gs_row, orientations: list, grating_params: dict, cmap_n
         for side in ("top", "bottom", "left", "right"):
             ax.spines[side].set_visible(True)
             ax.spines[side].set_color(orientation_color(ori))
-            ax.spines[side].set_linewidth(3)
-        ax.set_title(f"{ori:g}°", fontsize=7.5, pad=2)
+            ax.spines[side].set_linewidth(frame_lw)
+        ax.set_title(f"{ori:g}°", fontsize=title_fontsize, pad=2)
         # Attach the caveat as an xlabel (not a floating fig.text) so
         # constrained_layout reserves real space for it instead of letting
         # it drift into whatever panel happens to sit below.
@@ -229,11 +238,12 @@ def plot_gabor_examples(gs_row, orientations: list, grating_params: dict, cmap_n
                            fontsize=6, labelpad=3, ha="left", x=0)
 
 
-def annotate_onset_offset(ax, offset_xy: tuple, onset_label: str, offset_label: str):
+def annotate_onset_offset(ax, offset_xy: tuple, onset_label: str, offset_label: str,
+                           fontsize: float = 8):
     ax.annotate(
         f"{onset_label}\n(gaze recentred here)",
         xy=(0, 0), xytext=(0.35, 0.92), textcoords="axes fraction",
-        fontsize=8, ha="left", va="top",
+        fontsize=fontsize, ha="left", va="top",
         arrowprops=dict(arrowstyle="->", connectionstyle="angle3,angleA=0,angleB=70",
                          color="0.2", lw=1.1, mutation_scale=11, shrinkA=3, shrinkB=8,
                          relpos=(0.0, 0.0)),
@@ -241,11 +251,215 @@ def annotate_onset_offset(ax, offset_xy: tuple, onset_label: str, offset_label: 
     ax.annotate(
         offset_label,
         xy=offset_xy, xytext=(0.05, 0.08), textcoords="axes fraction",
-        fontsize=8, ha="left", va="bottom",
+        fontsize=fontsize, ha="left", va="bottom",
         arrowprops=dict(arrowstyle="->", connectionstyle="angle3,angleA=0,angleB=-70",
                          color="0.2", lw=1.1, mutation_scale=11, shrinkA=3, shrinkB=8,
                          relpos=(0.0, 1.0)),
     )
+
+
+TALK_RCPARAMS = {
+    # Talk-sized version of the paper rcParams above: same look, fonts and
+    # line weights scaled up for a figure that occupies half a 16:9 slide
+    # (rendered ~5 in wide, seen from the back of a lecture hall).
+    "font.size": 13,
+    "axes.labelsize": 13,
+    "axes.titlesize": 13,
+    "xtick.labelsize": 11,
+    "ytick.labelsize": 11,
+    "axes.linewidth": 1.1,
+    "xtick.major.size": 4,
+    "ytick.major.size": 4,
+    "xtick.major.width": 1.0,
+    "ytick.major.width": 1.0,
+}
+
+
+def padded_limits(x: np.ndarray, y: np.ndarray, pad_frac: float = 0.10,
+                   min_span: float = 0.6) -> tuple:
+    """Per-axis limits hugging the data, with a little padding.
+
+    symmetric_limits() (used by the paper figure) centres both axes on the
+    recentring origin and gives them a common span, which leaves most of
+    the panel empty — fine in a 6-column grid, wasteful when the panel has
+    to earn half a slide. Aspect stays equal (a degree of gaze is a degree
+    in both directions); only the box shape follows the data.
+    """
+    def one(v):
+        lo, hi = v.min(), v.max()
+        span = max(hi - lo, min_span)
+        pad = span * pad_frac
+        return (lo - pad, hi + pad)
+    return one(x), one(y)
+
+
+def nice_ticks(lim: tuple, max_ticks: int = 6) -> list:
+    """Round ticks inside `lim`, on a step that includes 0 (the origin)."""
+    span = lim[1] - lim[0]
+    for step in (0.25, 0.5, 1.0, 2.0, 5.0):
+        if span / step <= max_ticks:
+            break
+    k0 = int(np.ceil(lim[0] / step))
+    k1 = int(np.floor(lim[1] / step))
+    return [round(k * step, 10) for k in range(k0, k1 + 1)]
+
+
+# Candidate text anchors in axes fractions, with their text alignment.
+# The arrow-tail anchor (relpos) is not fixed per corner but derived from
+# where the target sits relative to the label — a fixed relpos on a wide
+# label puts the tail halfway across the panel and the connector then
+# dives back through the data.
+LABEL_ANCHORS = [
+    ((0.01, 0.99), "left",   "top"),
+    ((0.50, 0.99), "center", "top"),
+    ((0.99, 0.99), "right",  "top"),
+    ((0.01, 0.02), "left",   "bottom"),
+    ((0.50, 0.02), "center", "bottom"),
+    ((0.99, 0.02), "right",  "bottom"),
+    ((0.01, 0.50), "left",   "center"),
+    ((0.99, 0.50), "right",  "center"),
+]
+
+
+def _clearance(px: np.ndarray, py: np.ndarray, fx: np.ndarray, fy: np.ndarray) -> float:
+    """Smallest distance (axes-fraction units) from any probe point to the data."""
+    d = (px[:, None] - fx[None, :]) ** 2 + (py[:, None] - fy[None, :]) ** 2
+    return float(np.sqrt(d.min()))
+
+
+def place_callouts(gx, gy, xlim, ylim, ends) -> tuple:
+    """Choose corners for the two callouts: free label spot AND free arrow route.
+
+    Scoring only the label position isn't enough — the winning corner is
+    often across the panel from its target, so the straight connector then
+    runs the length of the fan and reads as one more trajectory. Each
+    candidate is therefore scored on the clearance of its whole route
+    (label point plus samples along the connector, stopping short of the
+    target the arrow has to reach), and the two labels are assigned
+    jointly so they can't claim the same corner.
+    """
+    def to_frac(x, y):
+        return ((x - xlim[0]) / (xlim[1] - xlim[0]),
+                (y - ylim[0]) / (ylim[1] - ylim[0]))
+
+    fx, fy = to_frac(gx, gy)
+    ox, oy = to_frac(0.0, 0.0)
+    ex, ey = to_frac(ends[:, 0], ends[:, 1])
+    t = np.linspace(0.0, 1.0, 24)
+
+    def score(anchor, tx, ty):
+        ax_, ay_ = anchor[0]
+        px, py = ax_ + t * (tx - ax_), ay_ + t * (ty - ay_)
+        # Ignore the final approach: every route ends on data by
+        # construction (that is what it is pointing at), and near the
+        # origin all orientations converge, so scoring it would rank every
+        # candidate equally bad.
+        far = np.hypot(px - tx, py - ty) > 0.12
+        if not far.any():
+            return 0.0
+        return _clearance(px[far], py[far], fx, fy)
+
+    onset = [score(a, ox, oy) for a in LABEL_ANCHORS]
+    # The offset label points at whichever endpoint dot is nearest it, so
+    # its target depends on the anchor — resolve per candidate.
+    offset, offset_target = [], []
+    for a in LABEL_ANCHORS:
+        j = np.argmin((ex - a[0][0]) ** 2 + (ey - a[0][1]) ** 2)
+        offset.append(score(a, ex[j], ey[j]))
+        offset_target.append(ends[j])
+    def joint(ij):
+        i, j = ij
+        sep = np.hypot(LABEL_ANCHORS[i][0][0] - LABEL_ANCHORS[j][0][0],
+                       LABEL_ANCHORS[i][0][1] - LABEL_ANCHORS[j][0][1])
+        # Clearance first (rounded, so near-ties really are ties), label
+        # separation only as the tie-break — clearance differences are a
+        # couple of axes-fraction hundredths, so any additive separation
+        # bonus large enough to notice would outvote them entirely.
+        return (round(min(onset[i], offset[j]), 3), sep)
+    best = max(((i, j) for i in range(len(LABEL_ANCHORS)) for j in range(len(LABEL_ANCHORS)) if i != j),
+               key=joint)
+    i, j = best
+    return LABEL_ANCHORS[i], LABEL_ANCHORS[j], tuple(offset_target[j])
+
+
+def callout(ax, text: str, target: tuple, anchor: tuple, xlim: tuple, ylim: tuple,
+             fontsize: float):
+    (xy_text, ha, va) = anchor
+    ty = (target[1] - ylim[0]) / (ylim[1] - ylim[0])
+    # Tail on the label's outer edge (the panel margin), not the edge
+    # facing the target: a label sitting in a corner is wider than the
+    # gap it sits in, so anchoring on the inner edge starts the connector
+    # well inside the data. Leaving from the margin lets it run down the
+    # empty edge and turn in at the end, the way a leader line should.
+    relpos = (0.0 if ha == "left" else 1.0,
+              {"top": 0.0, "bottom": 1.0}.get(va, 0.5) if va != "center"
+              else (0.0 if ty < xy_text[1] else 1.0))
+    ax.annotate(text, xy=target, xytext=xy_text, textcoords="axes fraction",
+                fontsize=fontsize, ha=ha, va=va,
+                arrowprops=dict(arrowstyle="-|>", color="0.2", lw=1.2, mutation_scale=9,
+                                connectionstyle="arc3,rad=0",  # straight: a curved
+                                # connector sweeps through whichever paths happen to
+                                # lie under it, and the two epochs fill the panel
+                                # differently
+                                shrinkA=4, shrinkB=9, relpos=relpos))
+
+
+def plot_group_figure(agg: dict, args) -> "plt.Figure":
+    """Grand-average panel only, sized for the right half of a 16:9 slide.
+
+    Same aggregation, recentring and colour convention as the full
+    multi-subject figure — just the group panel plus the gabor colour
+    legend, with talk-scale type. The per-subject grid is dropped, so the
+    N/trial-count bookkeeping moves into the panel title, and the two
+    onset/offset callouts are auto-placed in whichever corners this
+    epoch's mean paths leave empty.
+    """
+    mpl.rcParams.update(TALK_RCPARAMS)
+    grand, subjects, n_trials, keep = agg["grand"], agg["subjects"], agg["n_trials"], agg["keep"]
+    gx, gy = grand["x_deg"].to_numpy(), grand["y_deg"].to_numpy()
+    xlim, ylim = padded_limits(gx, gy)
+
+    # Panel proportions follow the data's own aspect (equal aspect means the
+    # box can't be square unless the data is), and the figure follows the
+    # panel, so no slide space is spent on empty axes.
+    if args.figsize is None:
+        panel_h = 4.2
+        panel_w = float(np.clip(panel_h * (xlim[1] - xlim[0]) / (ylim[1] - ylim[0]), 2.6, 5.2))
+        figsize = (panel_w + 1.1, panel_h + 1.5)
+    else:
+        figsize = args.figsize
+
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
+    gs = fig.add_gridspec(2, 6, height_ratios=[1.0, 0.19])
+
+    ax = fig.add_subplot(gs[0, :])
+    draw_trajectories(ax, grand, lw=2.4, dot_ms=7)
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_xticks(nice_ticks(xlim))
+    ax.set_yticks(nice_ticks(ylim))
+    ax.set_xlabel("Gaze x (deg)")
+    ax.set_ylabel("Gaze y (deg)")
+    n_used = int(n_trials.loc[n_trials.index.isin(keep)].sum())
+    ax.set_title(f"N = {len(subjects)} subjects, {n_used:,} trials", pad=6)
+
+    # The offset callout points at an endpoint dot, not the mean of all
+    # endpoints: during the gabor epoch the mean paths radiate in every
+    # direction, so their centroid sits in empty space mid-fan and the
+    # arrow would point at nothing.
+    ends = (grand.sort_values("sample_idx").groupby("orientation")
+                 .tail(1)[["x_deg", "y_deg"]].to_numpy())
+    if not args.no_callouts:
+        a_onset, a_offset, end_xy = place_callouts(gx, gy, xlim, ylim, ends)
+        # Short labels only: the paper figure's "(gaze recentred here)"
+        # gloss makes a box wide enough to shove the arrow tail into the data.
+        callout(ax, args.onset_label, (0, 0), a_onset, xlim, ylim, 11)
+        callout(ax, args.offset_label, end_xy, a_offset, xlim, ylim, 11)
+    sns.despine(ax=ax, offset=4, trim=True)
+
+    plot_gabor_examples(gs[1, :], [0, 30, 60, 90, 120, 150], load_grating_params(),
+                        cmap_note=False, title_fontsize=11, frame_lw=3.5)
+    return fig
 
 
 def aggregate_df(df: pd.DataFrame, qc_label: str = "") -> dict:
@@ -285,8 +499,16 @@ def aggregate_df(df: pd.DataFrame, qc_label: str = "") -> dict:
     return dict(df=df, per_subj=per_subj, grand=grand, subjects=subjects, n_trials=n_trials, keep=keep)
 
 
-def load_and_aggregate(tsv_path: str) -> dict:
+def load_and_aggregate(tsv_path: str, drop_pilots: bool = False) -> dict:
     df = pd.read_csv(tsv_path, sep="\t", dtype={"subject": str})
+    if drop_pilots:
+        # sub-pil## are MRI-protocol pilots, not study participants (see
+        # CLAUDE.md); they are in the eyetracking extraction because they
+        # ran the same task, but a figure captioned "N subjects" should
+        # not silently count them.
+        pilots = sorted(s for s in df["subject"].unique() if not s.isdigit())
+        df = df[df["subject"].str.isdigit()]
+        print(f"Dropped pilot subjects: {', '.join(pilots) if pilots else '(none)'}")
     return aggregate_df(df, qc_label=tsv_path)
 
 
@@ -301,11 +523,36 @@ def main():
                         "e.g. 'value estimation' or 'gabor presentation'.")
     p.add_argument("--onset-label", default="Response-bar onset")
     p.add_argument("--offset-label", default="Feedback onset\n(trial end)")
+    p.add_argument("--drop-pilots", action="store_true",
+                   help="Exclude sub-pil## (MRI-protocol pilots, not study "
+                        "participants) from the aggregate.")
+    p.add_argument("--no-callouts", action="store_true",
+                   help="Omit the onset/offset arrow annotations; --group-only only.")
+    p.add_argument("--group-only", action="store_true",
+                   help="Grand-average panel only, talk-scaled type, sized for "
+                        "half a 16:9 slide (drops the per-subject grid).")
+    p.add_argument("--figsize", default=None,
+                   help="W,H in inches; --group-only only. Default: derived from "
+                        "the grand average's own aspect ratio.")
     args = p.parse_args()
+    if args.figsize is not None:
+        args.figsize = tuple(float(v) for v in args.figsize.split(","))
     args.onset_label = args.onset_label.replace("\\n", "\n")
     args.offset_label = args.offset_label.replace("\\n", "\n")
 
-    agg = load_and_aggregate(args.tsv)
+    agg = load_and_aggregate(args.tsv, drop_pilots=args.drop_pilots)
+
+    if args.group_only:
+        fig = plot_group_figure(agg, args)
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # Both formats on purpose: PDF for anything print-like, PNG because
+        # the MARP decks composite raster images (a PDF <img> does not render).
+        for path in (out, out.with_suffix(".png" if out.suffix == ".pdf" else ".pdf")):
+            fig.savefig(path, bbox_inches="tight", pad_inches=0.03)
+            print(f"Wrote {path}")
+        return
+
     per_subj, grand, subjects, n_trials, keep = (
         agg["per_subj"], agg["grand"], agg["subjects"], agg["n_trials"], agg["keep"])
     ncols = args.ncols

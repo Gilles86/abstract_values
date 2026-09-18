@@ -27,6 +27,24 @@ if [ -n "$BOLD2ANAT_INIT" ]; then
     EXTRA_ARGS="--bold2anat-init $BOLD2ANAT_INIT"
 fi
 
+# NOTAL_CHECK=1 bind-mounts a recon-all patched to skip FreeSurfer's
+# talairach_afd goodness-of-fit gate (equivalent to `-notal-check`, which
+# fmriprep does not expose). Needed for subjects whose head was rotated far
+# enough in the scanner to false-positive the check — sub-27 is the first.
+# Build the patched copy with make_notalcheck_reconall.sh. See that script
+# for the full rationale and the evidence that it's a false positive.
+NOTAL_BIND=""
+if [ "${NOTAL_CHECK:-0}" = "1" ]; then
+    NOTAL_RECONALL=/shares/zne.uzh/gdehol/container_patches/recon-all-notalcheck
+    if [ ! -x "$NOTAL_RECONALL" ]; then
+        echo "ERROR: NOTAL_CHECK=1 but $NOTAL_RECONALL is missing."
+        echo "Run make_notalcheck_reconall.sh first."
+        exit 1
+    fi
+    NOTAL_BIND="-B ${NOTAL_RECONALL}:/opt/freesurfer/bin/recon-all"
+    echo "NOTAL_CHECK=1 — binding patched recon-all (talairach_afd disabled)."
+fi
+
 # `source /etc/profile.d/lmod.sh` alone defines `module` but leaves
 # MODULEPATH empty — module load works for interactive sbatch (which
 # inherits MODULEPATH from the submitting login shell), but fails when
@@ -53,6 +71,7 @@ apptainer run \
   -B /shares/zne.uzh/gdehol/ds-abstractvalue:/data \
   -B /scratch/gdehol:/workflow \
   -B ${FILTER_FILE}:/bids_filter.json \
+  $NOTAL_BIND \
   --cleanenv /shares/zne.uzh/containers/fmriprep-25.2.5 \
     /data /data/derivatives/fmriprep participant \
   --participant-label $PARTICIPANT_LABEL \

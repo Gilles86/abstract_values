@@ -1,0 +1,5 @@
+behaviour	neural	matched	rho	lo	hi	n
+κ_r (perceptual precision)	Orientation encoding	True	0.08647880493492996	-0.34867282723712956	0.5274999255549135	26
+1/σ_rep (value precision)	Value encoding	True	0.36759341687830105	-0.040300037723389574	0.6682016507002804	26
+κ_r (perceptual precision)	Value encoding (cross)	False	0.1641649893430236	-0.275906225877769	0.5099803944006531	26
+1/σ_rep (value precision)	Orientation encoding (cross)	False	0.691832731842059	0.39875446608037374	0.8550448478583248	26

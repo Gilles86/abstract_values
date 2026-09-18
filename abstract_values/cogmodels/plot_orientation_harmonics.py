@@ -57,6 +57,24 @@ SLOPE_FLOOR = 0.15          # CHF/deg; below this, bid error / |G'| explodes
 NULL_FLOOR = {"cos 2θ": 0.215, "cos 4θ": 0.170}
 
 
+def harmonic_fit(theta_deg, y):
+    """Least-squares fit  y = a0 + [2θ terms] + [4θ terms].
+
+    Returns the fitted curve on a dense grid plus each component separately, so
+    the plot can show what the two coefficients actually describe rather than
+    just their amplitudes.
+    """
+    th = np.deg2rad(theta_deg)
+    X = np.column_stack([np.ones(len(th)), np.cos(2*th), np.sin(2*th),
+                         np.cos(4*th), np.sin(4*th)])
+    b, *_ = np.linalg.lstsq(X, y, rcond=None)
+    g = np.linspace(0, 180, 361)
+    gt = np.deg2rad(g)
+    c2 = b[1]*np.cos(2*gt) + b[2]*np.sin(2*gt)
+    c4 = b[3]*np.cos(4*gt) + b[4]*np.sin(4*gt)
+    return g, b[0] + c2 + c4, b[0] + c2, b[0] + c4, b[0]
+
+
 def harmonics(theta_deg, y):
     th = np.deg2rad(theta_deg)
     X = np.column_stack([np.ones(len(th)), np.cos(2 * th), np.sin(2 * th),
@@ -136,105 +154,87 @@ def main():
     p.add_argument("--out", default="notes/figures/orientation_harmonics.pdf")
     a = p.parse_args()
 
-    beh, bra = behavioural_profiles(a.paradigm_tsv), brain_profiles(a.brain_tsv)
     beh_sd, bra_sd = behavioural_sd_deg(a.paradigm_tsv), brain_sd_deg(a.brain_tsv)
-    fig, axg = plt.subplots(2, 2, figsize=(7.25, 5.0), constrained_layout=True)
-    axes = [axg[0, 1], axg[1, 0], axg[1, 1]]
+    beh, bra = behavioural_profiles(a.paradigm_tsv), brain_profiles(a.brain_tsv)
 
-    # --- the implied noise models, in degrees, unnormalised -----------------
-    ax = axg[0, 0]
-    for cardinal in (0, 90, 180):
-        ax.axvline(cardinal, color="0.88", lw=0.7, ls=":", zorder=0)
-    for profs, col, mk, lab in ((beh_sd, BEHAV, "o", "Bids"),
-                                (bra_sd, BRAIN, None, "V1")):
-        grid = sorted(set(np.concatenate([q.index.values for q in profs.values()])))
+    def group(profs):
+        grid = np.array(sorted(set(np.concatenate([q.index.values for q in profs.values()]))))
         M = np.vstack([np.interp(grid, q.index.values, q.values) for q in profs.values()])
-        m, se = M.mean(0), M.std(0) / np.sqrt(len(M))
-        ax.fill_between(grid, m - se, m + se, color=col, alpha=0.22, lw=0)
-        ax.plot(grid, m, color=col, lw=1.3, marker=mk, ms=3.5 if mk else 0,
-                mec="white", mew=0.5)
-        ax.text(3, m[0] * (1.18 if col == BEHAV else 0.72), lab, color=col, fontsize=7)
-    ax.set_xticks([0, 45, 90, 135, 180]); ax.set_xlim(0, 180)
-    ax.set_xlabel("Orientation θ (deg)")
-    ax.set_ylabel("Implied orientation noise (deg)")
-    ax.set_title("The two implied noise models")
+        return grid, M.mean(0), M.std(0) / np.sqrt(len(M)), len(M)
 
+    fig, axg = plt.subplots(2, 2, figsize=(7.25, 5.2), constrained_layout=True)
 
-    # --- a: the two precision profiles, each normalised to its own mean ------
-    ax = axes[0]
-    for cardinal in (0, 90, 180):
-        ax.axvline(cardinal, color="0.88", lw=0.7, ls=":", zorder=0)
-    ax.axhline(1.0, color="0.5", lw=0.9, ls="--", zorder=1)
-    band(ax, beh, BEHAV, "Behaviour", "o")
-    band(ax, bra, BRAIN, "V1", None)
-    ax.set_xticks([0, 45, 90, 135, 180]); ax.set_xticklabels(["0", "45", "90", "135", "180"], fontsize=6.5)
-    ax.set_xlim(0, 180)
-    ax.set_xlabel("Orientation θ (deg)")
-    ax.set_ylabel("Relative precision\n(1 = subject's own mean)")
-    ax.set_title("Precision is not uniform across orientation")
-    ax.text(3, ax.get_ylim()[1] * 0.99, f"Bids (n = {len(beh)})", color=BEHAV,
-            fontsize=6.5, va="top")
-    ax.text(3, ax.get_ylim()[1] * 0.90, f"V1 encoding model (n = {len(bra)})",
-            color=BRAIN, fontsize=6.5, va="top")
-    ax.text(3, 1.02, "no structure", color="0.45", fontsize=6, va="bottom")
+    # --- a, b: the fitted noise function, and what each harmonic contributes -
+    for ax, (profs, col, name, mk) in zip(axg[0], ((beh_sd, BEHAV, "Bids", "o"),
+                                                   (bra_sd, BRAIN, "V1 encoding model", None))):
+        x, m, se, n = group(profs)
+        for c in (0, 90, 180):
+            ax.axvline(c, color="0.9", lw=0.7, ls=":", zorder=0)
+        ax.fill_between(x, m - se, m + se, color=col, alpha=0.20, lw=0, zorder=1)
+        ax.plot(x, m, color=col, lw=0, marker=mk or "o", ms=3.0, alpha=0.55,
+                mec="white", mew=0.4, zorder=2)
+        g, fit, only2, only4, mean = harmonic_fit(x, m)
+        ax.plot(g, fit, color=col, lw=1.8, zorder=4)
+        ax.plot(g, only2, color="0.35", lw=1.0, ls=(0, (4, 1.8)), zorder=3)
+        ax.plot(g, only4, color="0.35", lw=1.0, ls=(0, (1.2, 1.4)), zorder=3)
+        ax.axhline(mean, color="0.75", lw=0.7, zorder=0)
+        ax.set_xticks([0, 45, 90, 135, 180]); ax.set_xlim(0, 180)
+        ax.set_xlabel("Orientation θ (deg)")
+        ax.set_ylabel("Implied orientation noise (deg)")
+        ax.set_title(f"{name}  (n = {n})")
+        a2, a4 = harmonics(x, m)
+        ax.text(0.02, 0.03, f"— fitted   ---- 2θ only   ···· 4θ only\n"
+                            f"2θ {a2:.2f}   4θ {a4:.2f}  (of mean)",
+                transform=ax.transAxes, fontsize=6, color="0.35", va="bottom")
 
-    # --- b: per-subject harmonic amplitudes, against a clear zero -----------
-    ax = axes[1]
-    amps = {}
-    for name, profs in (("Behaviour", beh), ("V1", bra)):
-        amps[name] = np.array([harmonics(p.index.values, p.values) for p in profs.values()])
+    # --- c: per-subject amplitudes, against a clear zero and the null floor --
+    ax = axg[1, 0]
+    amps = {n_: np.array([harmonics(q.index.values, q.values) for q in pr.values()])
+            for n_, pr in (("Bids", beh), ("V1", bra))}
     rng = np.random.default_rng(0)
-    x0 = {"Behaviour": 0.0, "V1": 1.5}
-    ax.axhline(0, color="0.25", lw=1.0, zorder=3)          # a clear zero
-    for name, col in (("Behaviour", BEHAV), ("V1", BRAIN)):
+    x0 = {"Bids": 0.0, "V1": 1.5}
+    ax.axhline(0, color="0.2", lw=1.1, zorder=5)
+    for name, col in (("Bids", BEHAV), ("V1", BRAIN)):
         A = amps[name]
         for j, off in ((0, -0.28), (1, 0.28)):
-            x = x0[name] + off + rng.normal(0, 0.03, len(A))
-            ax.plot(x, A[:, j], "o", ms=3.6, color=col, alpha=0.5,
-                    mec="white", mew=0.4, zorder=2)
-            ax.hlines(np.median(A[:, j]), x0[name]+off-0.16, x0[name]+off+0.16,
-                      color=col, lw=2.2, zorder=4)
-            if name == "Behaviour":                         # artefact floor
+            xs = x0[name] + off + rng.normal(0, 0.035, len(A))
+            ax.plot(xs, A[:, j], "o", ms=3.6, color=col, alpha=0.45, mec="white", mew=0.4)
+            ax.hlines(np.median(A[:, j]), x0[name]+off-0.17, x0[name]+off+0.17,
+                      color=col, lw=2.4, zorder=4)
+            if name == "Bids":
                 f = NULL_FLOOR["cos 2θ" if j == 0 else "cos 4θ"]
-                ax.hlines(f, x0[name]+off-0.18, x0[name]+off+0.18, color="0.35",
-                          lw=1.1, ls=(0, (2.5, 1.6)), zorder=5)
+                ax.hlines(f, x0[name]+off-0.19, x0[name]+off+0.19, color="0.3",
+                          lw=1.2, ls=(0, (2.5, 1.6)), zorder=5)
     ax.set_xticks([-0.28, 0.28, 1.22, 1.78])
     ax.set_xticklabels(["2θ", "4θ", "2θ", "4θ"], fontsize=7)
     ax.set_xlim(-0.62, 2.12); ax.set_ylim(bottom=0)
-    ax.set_ylabel("Harmonic amplitude  (fraction of mean)")
-    ax.set_title("Both harmonics are present in both")
-    ax.text(0, ax.get_ylim()[1]*0.99, "Bids", color=BEHAV, fontsize=7, ha="center", va="top")
-    ax.text(1.5, ax.get_ylim()[1]*0.99, "V1", color=BRAIN, fontsize=7, ha="center", va="top")
+    ax.set_ylabel("Amplitude (fraction of mean)")
+    ax.set_title("Both harmonics, both domains")
+    ax.text(0, ax.get_ylim()[1]*0.98, "Bids", color=BEHAV, fontsize=7, ha="center", va="top")
+    ax.text(1.5, ax.get_ylim()[1]*0.98, "V1", color=BRAIN, fontsize=7, ha="center", va="top")
+    ax.text(0.02, 0.02, "dashed = floor from the |G′| conversion\n(perception switched off)",
+            transform=ax.transAxes, fontsize=6, color="0.35", va="bottom")
 
-    # --- c: do the two profiles agree orientation by orientation? -----------
-    ax = axes[2]
+    # --- d: do they line up orientation by orientation? ---------------------
+    ax = axg[1, 1]
     common = sorted(set(beh) & set(bra))
     grid = np.array(sorted(beh[common[0]].index.values))
-    Bh = np.vstack([np.interp(grid, beh[s].index.values, beh[s].values) for s in beh.values().__iter__().__class__ and beh])
-    Bh = np.vstack([np.interp(grid, v.index.values, v.values) for v in beh.values()])
-    Br = np.vstack([np.interp(grid, bra[s].index.values, bra[s].values) for s in common])
-    x, y = Br.mean(0), Bh.mean(0)
+    Bh = np.vstack([np.interp(grid, q.index.values, q.values) for q in beh.values()])
+    Br = np.vstack([np.interp(grid, bra[s_].index.values, bra[s_].values) for s_ in common])
     from scipy import stats as _st
-    r = _st.pearsonr(x, y)
-    sc = ax.scatter(x, y, c=grid, cmap="twilight", s=26, edgecolor="white", linewidth=0.4)
-    ax.axhline(1.0, color="0.85", lw=0.7, ls=":"); ax.axvline(1.0, color="0.85", lw=0.7, ls=":")
+    r = _st.pearsonr(Br.mean(0), Bh.mean(0))
+    sc = ax.scatter(Br.mean(0), Bh.mean(0), c=grid, cmap="twilight", s=30,
+                    edgecolor="white", linewidth=0.4)
     cb = fig.colorbar(sc, ax=ax, ticks=[0, 45, 90, 135, 180])
     cb.set_label("Orientation (deg)", fontsize=7); cb.ax.tick_params(labelsize=6)
     ax.set_xlabel("V1 relative precision"); ax.set_ylabel("Behavioural relative precision")
-    ax.set_title(f"But they do not line up:  r = {r.statistic:+.2f}")
+    ax.set_title(f"Same structure, different phase:  r = {r.statistic:+.2f}")
+    ax.text(0.02, 0.02, "one dot per orientation, group means",
+            transform=ax.transAxes, fontsize=6, color="0.35", va="bottom")
 
-    for name in ("Behaviour", "V1"):
-        A = amps[name]
-        print(f"{name:10s} n={len(A):2d}  cos2θ {np.median(A[:,0]):.3f}   "
-              f"cos4θ {np.median(A[:,1]):.3f}   ratio {np.median(A[:,1])/np.median(A[:,0]):.2f}")
-    fig.text(0.5, -0.09,
-             "Left: each subject's precision profile divided by their own mean, so bids "
-             "and V1 are on one scale; shading is ±1 SEM.   "
-             "Middle: amplitude of each harmonic per subject, medians as bars; the dashed "
-             "line is the floor this analysis produces when perception is noiseless, "
-             "created by dividing bid error by |G′| — bids clear it 2.8×.   "
-             "Right: each dot is one orientation (group means).",
-             ha="center", va="top", fontsize=6, color="0.4", wrap=True)
+    for name, A in amps.items():
+        print(f"{name:6s} n={len(A):2d}  2θ {np.median(A[:,0]):.3f}  4θ {np.median(A[:,1]):.3f}")
+    print(f"profile correspondence r = {r.statistic:+.3f}")
     sns.despine(fig=fig, offset=4)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(a.out, bbox_inches="tight")

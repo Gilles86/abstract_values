@@ -21,3 +21,18 @@ logs/*.log
 
 # Experiment session logs (generated at runtime)
 experiment/logs/*
+
+# Generated figures (regenerate with the scripts in abstract_values/visualize/)
+notes/**/*.pdf
+notes/figures/**/*.png
+notes/figures/**/*.svg
+notes/figures/**/*.html
+notes/figures/**/*.gii
+
+# Word versions of the instructions (the .md files are the source)
+experiment/*.docx
+
+# Tool state
+.pytest_cache/
+.snakemake/
+.ipynb_checkpoints/

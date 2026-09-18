@@ -17,6 +17,8 @@ Usage
 """
 
 import argparse
+import subprocess
+import time
 from pathlib import Path
 
 import cortex
@@ -90,11 +92,38 @@ def save_colorbar_pdf(colorbars, out_path):
     print(f'Colorbars saved to {out_path}')
 
 
+def save_static_flatmaps(ds, cbars, out_dir, subject, smoothed):
+    """Write one flatmap PNG per dataset, plus a matching colorbar PDF.
+
+    The datasets are ``blend_curvature()`` output — data and curvature are
+    already pre-blended into one RGB image, so pycortex has no live
+    vmin/vmax/cmap left to introspect and ``with_colorbar=True`` would draw a
+    meaningless 0-255 swatch (see the pycortex skill). Colorbars therefore go
+    into a separate PDF built from the real ranges.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    smooth_tag = '_smoothed' if smoothed else ''
+    written = []
+    for name, vtx in ds.items():
+        param = name.split('.', 1)[1]
+        fn = out_dir / f'sub-{subject}_aprf-{param}{smooth_tag}_flatmap.png'
+        fig = cortex.quickflat.make_figure(vtx, with_curvature=False,
+                                           with_colorbar=False)
+        fig.savefig(str(fn), dpi=200, bbox_inches='tight')
+        plt.close(fig)
+        print(f'  wrote {fn}')
+        written.append(fn)
+    cb = out_dir / f'sub-{subject}_aprf{smooth_tag}_colorbars.pdf'
+    save_colorbar_pdf(cbars, cb)
+    return written
+
+
 def main(subject, session, bids_folder=BIDS_FOLDER,
          fmriprep_deriv='fmriprep-flair', smoothed=False,
          r2_thr=0.0, gabor_r2_thr=None, r2_sigma=0.01, gabor_r2_sigma=None,
          mu_vmin=MU_VMIN, mu_vmax=MU_VMAX, params=None, cx_subject=None,
-         make_colorbars=False):
+         make_colorbars=False, static_png=None):
     bids_folder = Path(bids_folder)
 
     if cx_subject is None:
@@ -106,7 +135,7 @@ def main(subject, session, bids_folder=BIDS_FOLDER,
                 / f'sub-{subject}' / 'func')
 
     if params is None:
-        params = ['mu', 'sd', 'r2', 'gabor-r2']
+        params = ['mode', 'fwhm', 'r2', 'gabor-r2']
 
     print(f'sub-{subject}  all-sessions  pycortex subject: {cx_subject}')
 
@@ -122,22 +151,14 @@ def main(subject, session, bids_folder=BIDS_FOLDER,
     ds = {}
     cbars = []  # (label, cmap, vmin, vmax)
 
-    if 'mu' in params:
-        mu_all = load_bilateral(aprf_dir, subject, 'mu', smoothed)
-        in_range = ((mu_all >= mu_vmin) & (mu_all <= mu_vmax)).astype(np.float32)
+    if 'mode' in params:
+        mode_all = load_bilateral(aprf_dir, subject, 'mode', smoothed)
+        in_range = ((mode_all >= mu_vmin) & (mode_all <= mu_vmax)).astype(np.float32)
         valid = alpha_mask * in_range
-        ds[f'{subject}.mu'] = get_masked_vertex(
-            mu_all, valid, cx_subject,
+        ds[f'{subject}.mode'] = get_masked_vertex(
+            mode_all, valid, cx_subject,
             vmin=mu_vmin, vmax=mu_vmax, cmap='nipy_spectral')
-        cbars.append(('mu (CHF)', 'nipy_spectral', mu_vmin, mu_vmax))
-
-    if 'sd' in params:
-        sd_all = load_bilateral(aprf_dir, subject, 'sd', smoothed)
-        sd_vmax = (mu_vmax - mu_vmin) / 2
-        ds[f'{subject}.sd'] = get_masked_vertex(
-            sd_all, alpha_mask, cx_subject,
-            vmin=0.0, vmax=sd_vmax, cmap='hot')
-        cbars.append(('sd (CHF)', 'hot', 0.0, sd_vmax))
+        cbars.append(('mode (CHF)', 'nipy_spectral', mu_vmin, mu_vmax))
 
     if 'r2' in params:
         r2_vmax = float(np.nanpercentile(r2_all[r2_all > 0], 99.9)) if (r2_all > 0).any() else 0.3
@@ -169,8 +190,24 @@ def main(subject, session, bids_folder=BIDS_FOLDER,
                                f'{smooth_tag}_colorbars.pdf')
         save_colorbar_pdf(cbars, pdf_path)
 
+    if static_png:
+        print(f'Rendering {len(ds)} static flatmap(s) to {static_png} ...')
+        save_static_flatmaps(ds, cbars, static_png, subject, smoothed)
+        return
+
     print(f'Launching pycortex viewer with {len(ds)} dataset(s)...')
-    cortex.webgl.show(ds)
+    # cortex.webgl.show()'s server thread is daemon=True and dies the instant
+    # this script's main thread returns; open_browser=True also builds the
+    # URL from the machine hostname, which usually fails to resolve in a
+    # browser. Keep the process alive ourselves and open a plain localhost
+    # URL instead (see the pycortex skill for the full writeup).
+    server = cortex.webgl.show(ds, open_browser=False, autoclose=False)
+    url = f'http://localhost:{server.port}/mixer.html'
+    print(f'\n=== WEBSHOW READY ===\nOpen this URL:  {url}\n======================\n',
+          flush=True)
+    subprocess.run(['open', url])
+    while True:
+        time.sleep(3600)
 
 
 if __name__ == '__main__':
@@ -198,11 +235,15 @@ if __name__ == '__main__':
     parser.add_argument('--mu-vmax', type=float, default=MU_VMAX,
                         help=f'Upper bound for mu colorscale in CHF (default: {MU_VMAX})')
     parser.add_argument('--params', nargs='+',
-                        default=['mu', 'sd', 'r2', 'fwhm', 'gabor-r2'],
-                        choices=['mu', 'sd', 'r2', 'fwhm', 'gabor-r2'],
-                        help='Parameters to visualize (default: mu sd r2 fwhm gabor-r2)')
+                        default=['mode', 'r2', 'fwhm', 'gabor-r2'],
+                        choices=['mode', 'r2', 'fwhm', 'gabor-r2'],
+                        help='Parameters to visualize (default: mode r2 fwhm gabor-r2)')
     parser.add_argument('--cx-subject',
                         help="Pycortex subject name (default: abstractvalue.sub-<subject>)")
+    parser.add_argument('--static-png', default=None,
+                        help='Directory to write static flatmap PNGs to '
+                             '(one per --params entry, plus a colorbar PDF) '
+                             'instead of launching the webgl viewer.')
     parser.add_argument('--make-colorbars', action='store_true',
                         help='Save a PDF with colorbars alongside the surface files')
     args = parser.parse_args()
@@ -213,4 +254,4 @@ if __name__ == '__main__':
          r2_sigma=args.r2_sigma, gabor_r2_sigma=args.gabor_r2_sigma,
          mu_vmin=args.mu_vmin, mu_vmax=args.mu_vmax,
          params=args.params, cx_subject=args.cx_subject,
-         make_colorbars=args.make_colorbars)
+         make_colorbars=args.make_colorbars, static_png=args.static_png)

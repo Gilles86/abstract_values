@@ -475,6 +475,141 @@ def main_prevalence(subjects: list[str], models: list[str], bids_folder: Path,
         cortex.webgl.show(ds)
 
 
+def _bh_fdr_pthreshold(p: np.ndarray, q: float) -> float:
+    """Benjamini–Hochberg FDR threshold: largest p(i) with p(i) <= q*i/n.
+
+    Returns 0.0 (nothing survives) if no p-value satisfies the criterion.
+    Dependency-free (no statsmodels) — this env is kept minimal, see
+    the pycortex skill's env-split rule.
+    """
+    p = np.asarray(p, dtype=np.float64).ravel()
+    p = p[np.isfinite(p)]
+    if p.size == 0:
+        return 0.0
+    p_sorted = np.sort(p)
+    n = p_sorted.size
+    line = q * (np.arange(1, n + 1) / n)
+    below = p_sorted <= line
+    if not below.any():
+        return 0.0
+    return float(p_sorted[below][-1])
+
+
+def main_ttest(subjects: list[str], models: list[str], bids_folder: Path,
+              baseline_model: str = DEFAULT_NULL_MODEL,
+              fdr_q: float = 0.05,
+              smoothing: tuple[str, ...] = ("",),
+              static_png: str | None = None,
+              roi_overlay: list[str] | None = None,
+              correction_roi: list[str] | None = None) -> None:
+    """Paired one-sample t-test on (model cvR² − baseline cvR²) across
+    subjects, per vertex, Benjamini–Hochberg FDR-corrected.
+
+    Rationale
+    ---------
+    Both the raw group-mean cvR² (:func:`main`) and the binary prevalence
+    map (:func:`main_prevalence`) throw away information that a paired
+    t-test keeps. The group mean is dominated by very-negative noise
+    vertices and needs an ad hoc threshold to be readable; prevalence
+    discards effect *magnitude* entirely (15/22 subjects winning by a lot
+    looks identical to 15/22 winning by a hair). The per-subject,
+    per-vertex difference ``model cvR² − baseline cvR²`` is within-subject
+    (cancels each subject's own overall SNR level) and its t-statistic
+    keeps magnitude information while producing a proper p-value —
+    p ∈ (0, 1) by construction, so it FDR-corrects cleanly with none of
+    the negative-domain issues that break the empirical-null threshold on
+    raw cvR² (see the pycortex skill).
+
+    ``correction_roi``: whole-cortex BH-FDR (default, ``None``) is
+    extremely conservative — ~327k highly spatially-correlated vertex
+    tests — and can leave nothing surviving even where the effect is
+    real but modest (which is the norm for this task: the underlying
+    cvR² advantage over the null is small in absolute terms). Passing a
+    pycortex ROI name (or names, e.g. ``['NPC_R']``) restricts the FDR
+    correction's multiple-comparisons universe to those vertices only —
+    proper small-volume correction, not p-hacking, *provided the ROI was
+    chosen a priori* (this project's own default ROI for encoding-model
+    analyses is NPCr — see CLAUDE.md). The t-map itself is still computed
+    and plotted everywhere; only the significance threshold changes.
+    """
+    from scipy import stats
+
+    roi_idx = None
+    if correction_roi:
+        roi_verts = cortex.get_roi_verts(PYCORTEX_FSAVG_SUBJECT, roi=list(correction_roi))
+        roi_idx = np.unique(np.concatenate(list(roi_verts.values())))
+
+    ds: dict[str, cortex.Vertex] = {}
+    for model in models:
+        for smooth in smoothing:
+            full_desc = f"cvr2{smooth}"
+            model_stack, base_stack, used = [], [], []
+            for sub in subjects:
+                m_arr = load_bilateral(sub, model, bids_folder, desc=full_desc)
+                b_arr = load_bilateral(sub, baseline_model, bids_folder, desc=full_desc)
+                if m_arr is None or b_arr is None:
+                    continue
+                model_stack.append(m_arr)
+                base_stack.append(b_arr)
+                used.append(sub)
+            if len(used) < 3:
+                print(f"{model}{smooth}: only {len(used)} subjects with both "
+                      f"model+baseline data — skipping (need >=3 for a t-test)")
+                continue
+
+            diff = np.stack(model_stack, axis=0) - np.stack(base_stack, axis=0)
+            t, p = stats.ttest_1samp(diff, popmean=0.0, axis=0, alternative="greater")
+            t = np.nan_to_num(t, nan=0.0).astype(np.float64)
+            p = np.where(np.isfinite(p), p, 1.0)
+
+            p_for_fdr = p[roi_idx] if roi_idx is not None else p
+            p_thr = _bh_fdr_pthreshold(p_for_fdr, fdr_q)
+            sig = (p <= p_thr) & (t > 0)
+            if roi_idx is not None:
+                roi_only = np.zeros_like(sig)
+                roi_only[roi_idx] = True
+                sig = sig & roi_only
+            alpha = sig.astype(np.float32)
+            frac_sig = float(sig.mean()) * 100
+            mean_diff = diff.mean(axis=0)
+
+            t_ref = t[roi_idx] if roi_idx is not None else t
+            t_vmax = float(np.nanpercentile(t[sig], 99)) if sig.any() \
+                else float(np.nanpercentile(t_ref, 99.5))
+            t_vmax = max(t_vmax, 1.0)
+
+            v = cortex.Vertex(t.astype(np.float32), PYCORTEX_FSAVG_SUBJECT,
+                              vmin=0.0, vmax=t_vmax, cmap=R2_CMAP)
+            sig_note = (f"mean Δ={mean_diff[sig].mean():.4f}" if sig.any()
+                        else "no vertex survives")
+            scope = f"ROI({'+'.join(correction_roi)})" if correction_roi else "whole-cortex"
+            label = (f"ttest_{model}{smooth}  (n={len(used)}, "
+                     f"{scope} BH-FDR q={fdr_q:.2f} -> p<={p_thr:.1e}; "
+                     f"{frac_sig:.2f}% vertices sig, {sig_note})")
+            vtx = v.blend_curvature(alpha)
+            ds[label] = vtx
+            print(f"{model}{smooth}: n={len(used)} [{', '.join(used)}], "
+                  f"t range [{t.min():.2f}, {t.max():.2f}], "
+                  f"{scope} BH-FDR q={fdr_q} -> p<={p_thr:.2e}, "
+                  f"{frac_sig:.2f}% of vertices significant ({sig_note})")
+            if static_png:
+                n_combos = len(models) * len(smoothing)
+                out_path = _static_png_path(static_png, n_combos, model,
+                                            f"ttest_{full_desc}")
+                _save_png(vtx, out_path, label=label, cmap=R2_CMAP,
+                          vmin=0.0, vmax=t_vmax, cbar_label="t (model > null)",
+                          roi_overlay=roi_overlay)
+
+    if not ds:
+        raise SystemExit("Nothing to show — need fsaverage cvr2 files for "
+                         "both model and baseline (run aggregate_cvr2.py + "
+                         "sample_r2_to_surface.py --desc cvr2 for both).")
+
+    if not static_png:
+        print(f"\nLaunching pycortex viewer with {len(ds)} dataset(s)...")
+        cortex.webgl.show(ds)
+
+
 def main(subjects: list[str], models: list[str], bids_folder: Path,
          r2_thr: float, r2_sigma: float, desc: str = "r2",
          smoothing: tuple[str, ...] = ("", "_smoothed"),
@@ -672,7 +807,8 @@ if __name__ == "__main__":
                         "(default: both unsmoothed and smoothed). "
                         "Pass `--smoothing ''` for unsmoothed only or "
                         "`--smoothing _smoothed` for smoothed only.")
-    p.add_argument("--agg", default="mean", choices=["mean", "prevalence"],
+    p.add_argument("--agg", default="mean",
+                   choices=["mean", "prevalence", "ttest"],
                    help="How to combine subjects. 'mean' (default): "
                         "group-mean R² map with an FDR/empirical-null alpha "
                         "mask. 'prevalence': cross-model-comparable "
@@ -680,7 +816,13 @@ if __name__ == "__main__":
                         "subjects with cvR² > --cv-thr. Forces --desc cvr2 "
                         "(cvR²>0 is the parameter-count-fair, zero-anchored "
                         "criterion); binarising per subject discards the "
-                        "very-negative noise voxels that corrupt a mean.")
+                        "very-negative noise voxels that corrupt a mean. "
+                        "'ttest': paired one-sample t-test on (model cvR² − "
+                        "--baseline-model cvR²) per vertex, BH-FDR "
+                        "corrected at --fdr-q. Keeps effect magnitude "
+                        "(unlike prevalence) without the raw-mean's "
+                        "noise-vertex domination — the recommended default "
+                        "for a publication-facing figure. Forces --desc cvr2.")
     p.add_argument("--cv-thr", type=float, default=0.0,
                    help="Per-subject cvR² positivity threshold for "
                         "--agg prevalence (default 0.0 = held-out fit beats "
@@ -710,10 +852,20 @@ if __name__ == "__main__":
                         "outline locates it independent of color. No "
                         "argument (bare --roi-overlay) draws none; omitting "
                         "the flag entirely also draws none.")
+    p.add_argument("--fdr-q", type=float, default=0.05,
+                   help="Benjamini-Hochberg FDR level for --agg ttest "
+                        "(default 0.05).")
+    p.add_argument("--correction-roi", nargs="*", default=None,
+                   help="pycortex ROI name(s) (e.g. NPC_R) to restrict the "
+                        "--agg ttest BH-FDR multiple-comparisons universe "
+                        "to (small-volume correction). Default: whole "
+                        "cortex, which is extremely conservative given "
+                        "~327k spatially-correlated vertex tests. Only "
+                        "legitimate for an ROI chosen a priori.")
     args = p.parse_args()
 
-    if args.agg == "prevalence" and args.desc != "cvr2":
-        print("note: --agg prevalence requires cross-validated R²; "
+    if args.agg in ("prevalence", "ttest") and args.desc != "cvr2":
+        print(f"note: --agg {args.agg} requires cross-validated R²; "
               "forcing --desc cvr2")
         args.desc = "cvr2"
 
@@ -736,6 +888,12 @@ if __name__ == "__main__":
                         cv_thr=args.cv_thr, min_prevalence=args.min_prevalence,
                         baseline_model=baseline, smoothing=tuple(args.smoothing),
                         static_png=args.static_png)
+    elif args.agg == "ttest":
+        main_ttest(subjects, args.models, Path(args.bids_folder),
+                  baseline_model=args.baseline_model, fdr_q=args.fdr_q,
+                  smoothing=tuple(args.smoothing), static_png=args.static_png,
+                  roi_overlay=args.roi_overlay,
+                  correction_roi=args.correction_roi)
     else:
         # --fdr-alpha 0 (or negative) is the explicit "disable" sentinel.
         fdr_alpha = args.fdr_alpha if (args.fdr_alpha and args.fdr_alpha > 0) else None

@@ -1,0 +1,5 @@
+behaviour	neural	matched	rho	lo	hi	n
+κ_r (perceptual precision)	V1 orientation precision	True	0.12137342360694575	-0.350424038487936	0.5934551266491045	26
+1/σ_rep (value precision)	NPC value precision	True	0.4871970977615387	0.02089504085109096	0.8061520003138634	26
+κ_r (perceptual precision)	NPC value precision (cross)	False	-0.26234307038004023	-0.626982234904271	0.16984950356660858	26
+1/σ_rep (value precision)	V1 orientation precision (cross)	False	0.2891483516483516	-0.1416830671687386	0.6023843872415331	26

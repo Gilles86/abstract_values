@@ -1,0 +1,1 @@
+notes/data/objprior_local/run_all.sh: line 18: 37611 Killed: 9               PYTHONUNBUFFERED=1 $PY -u -m abstract_values.encoding_models.compute_expected_decoded_value_aprf $S --model fwhm-shift --n-voxels 250 --n-simulations 1000 --spherical-noise --prior $P --bids-folder /data/ds-abstractvalue >> $LOGDIR/eu.log 2>&1

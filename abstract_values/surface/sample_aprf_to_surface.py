@@ -70,31 +70,52 @@ def main(subject, session, bids_folder=BIDS_FOLDER,
     aprf_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'aprf'
                 / f'sub-{subject}' / 'func')
 
-    # aPRF parameter volumes; (desc, to_fsaverage)
+    # aPRF parameter volumes; (output_desc, source_desc_candidates, to_fsaverage)
+    #
+    # The preferred-value / width parameters were renamed between fit
+    # generations: older fits (the pilots) wrote `desc-mu` / `desc-sd`,
+    # current fits write `desc-mode` / `desc-fwhm` (see CLAUDE.md). We
+    # resolve each output to the first source desc that exists on disk so
+    # both generations sample to a single canonical surface desc — i.e.
+    # everyone gets `space-fsaverage_desc-mode` regardless of how the
+    # volume was named. The deprecated `mu`/`sd` surface descs are no
+    # longer emitted; only the canonical `mode`/`fwhm` are written.
     aprf_params = [
-        ('mu',        True),
-        ('sd',        True),
-        ('amplitude', False),
-        ('baseline',  False),
-        ('r2',        True),
-        ('fwhm',      True),
+        ('mode',      ('mode', 'mu'),  True),
+        ('fwhm',      ('fwhm', 'sd'),  True),
+        ('amplitude', ('amplitude',),  False),
+        ('baseline',  ('baseline',),   False),
+        ('r2',        ('r2',),         True),
     ]
 
     # Gabor (vonmises) R² volume
     vm_dir = (bids_folder / 'derivatives' / 'encoding_models' / 'vonmises'
               / f'sub-{subject}' / 'func')
+    # The smoothing tag belongs here too: without it a `--smoothed` run
+    # writes `desc-gabor-r2_smoothed` containing the *unsmoothed* vonmises
+    # R², so the two surfaces come out bit-identical (which then crashes
+    # pycortex's dataset packer on a content-hash collision).
     vm_r2 = (vm_dir / f'sub-{subject}_task-abstractvalue'
-                       f'_space-T1w_desc-r2_pe.nii.gz')
+                       f'_space-T1w_desc-r2{smooth_tag}_pe.nii.gz')
 
-    # Build list of (volume_path, surface_desc_label, to_fsaverage)
+    # Build list of (volume_path, surface_desc_label, to_fsaverage).
+    # `out_desc` is the canonical surface label; `src_candidates` are the
+    # volume desc names to try in order (handles the mu→mode / sd→fwhm
+    # rename across fit generations).
     volumes = []
-    for par, to_fsav in aprf_params:
-        fn = (aprf_dir / f'sub-{subject}_task-abstractvalue'
-                         f'_space-T1w_desc-{par}{smooth_tag}_pe.nii.gz')
-        if fn.exists():
-            volumes.append((fn, par, to_fsav))
-        else:
-            print(f'  WARNING: {fn.name} not found, skipping')
+    for out_desc, src_candidates, to_fsav in aprf_params:
+        fn = None
+        for src in src_candidates:
+            cand = (aprf_dir / f'sub-{subject}_task-abstractvalue'
+                               f'_space-T1w_desc-{src}{smooth_tag}_pe.nii.gz')
+            if cand.exists():
+                fn = cand
+                break
+        if fn is None:
+            print(f'  WARNING: no volume for desc-{out_desc} '
+                  f'(tried {", ".join(src_candidates)}), skipping')
+            continue
+        volumes.append((fn, out_desc, to_fsav))
 
     if vm_r2.exists():
         volumes.append((vm_r2, 'gabor-r2', True))
