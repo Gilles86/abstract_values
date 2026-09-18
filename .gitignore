@@ -36,3 +36,7 @@ experiment/*.docx
 .pytest_cache/
 .snakemake/
 .ipynb_checkpoints/
+
+# Generated viewers
+notes/figures/*webgl*/
+notes/figures/linear_vs_prf/
