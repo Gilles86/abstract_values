@@ -30,6 +30,7 @@ export KERAS_BACKEND=tensorflow
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 #   N_ITERATIONS    max gradient descent iterations per fold (default: 1000)
+#   MASK            restrict the fit to this mask NIfTI (default: brain mask)
 #   MODEL           standard|session-shift|fwhm-only-shift|fwhm-shift|
 #                   fully-shifted|gaussian|gauss-session-shift|linear
 #                   (default: standard)
@@ -54,6 +55,7 @@ ARGS=(
 )
 
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ -n "${MASK:-}" ] && ARGS+=(--mask "$MASK")
 [ "$MODEL" != "standard" ] && ARGS+=(--model "$MODEL")
 
 echo "fit_aprf_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}  model=${MODEL}"
