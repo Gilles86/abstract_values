@@ -45,7 +45,8 @@ N_ITERATIONS="${N_ITERATIONS:-1000}"
 MODEL="${MODEL:-standard}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
-REPO=$HOME/git/abstract_values
+REPO="${REPO:-$HOME/git/abstract_values}"
+export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(
     "$PARTICIPANT_LABEL"
