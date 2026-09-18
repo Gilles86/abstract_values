@@ -119,6 +119,12 @@ class ModelSpec:
     # claim rather than a reparameterisation.
     stimulus_space: str = 'value'
 
+    # Drop trials whose bid is missing (no response, or a first-frame slider
+    # confirm — see utils.data.MIN_VALID_RT). Set on the reported-value models
+    # and on their objective-value control so both are fitted on exactly the
+    # same trials and their cvR2 is comparable.
+    drop_invalid_bids: bool = False
+
     # Second grid axis. LogGaussianPRF-family models sweep FWHM linearly
     # over the stimulus range; a von Mises sweeps concentration (kappa),
     # which is positive, unbounded above and best sampled geometrically.
@@ -153,6 +159,40 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         out_subdir='aprf',
         cv_out_subdir='aprf.cv',
         grid_dims=1,
+    ),
+
+    # ── reported value (the participant's bid) ──────────────────────────
+    # Same architecture as 'standard', but the stimulus dimension is what the
+    # participant SAID the gabor was worth, not what it was worth. If a region
+    # represents the subjective quantity that drives the bid, the reported
+    # value should fit better there than the objective one; V1, which sees only
+    # the gabor, should not care. 'standard-bidmatched' is the objective-value
+    # control on the same (bid-present) trials.
+    'standard-bid': ModelSpec(
+        name='standard-bid',
+        cls=LogGaussianPRF,
+        cls_kwargs={'allow_neg_amplitudes': False,
+                    'parameterisation': 'mode_fwhm_natural'},
+        needs_session=False,
+        save_params=['mode', 'fwhm', 'amplitude', 'baseline'],
+        out_subdir='aprf-bid',
+        cv_out_subdir='aprf-bid.cv',
+        grid_dims=1,
+        stimulus_space='bid',
+        drop_invalid_bids=True,
+    ),
+
+    'standard-bidmatched': ModelSpec(
+        name='standard-bidmatched',
+        cls=LogGaussianPRF,
+        cls_kwargs={'allow_neg_amplitudes': False,
+                    'parameterisation': 'mode_fwhm_natural'},
+        needs_session=False,
+        save_params=['mode', 'fwhm', 'amplitude', 'baseline'],
+        out_subdir='aprf-bidmatched',
+        cv_out_subdir='aprf-bidmatched.cv',
+        grid_dims=1,
+        drop_invalid_bids=True,
     ),
 
     # ── orientation space ───────────────────────────────────────────────

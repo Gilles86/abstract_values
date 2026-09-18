@@ -51,9 +51,12 @@ def get_paradigm(sub, sessions, needs_session: bool,
                  space: str = 'value'):
     """Paradigm DataFrame indexed by (session, run, trial).
 
-    'x' is the objective CHF value, or — with ``space='orientation'`` — the
-    gabor orientation in radians wrapped to [0, pi), for models fitted in
-    orientation space. 'session' (when needed) is the 0-based session index
+    'x' is the objective CHF value; with ``space='orientation'`` the gabor
+    orientation in radians wrapped to [0, pi); with ``space='bid'`` the
+    participant's reported value for that trial (NaN when they did not respond
+    in time, clipped below at 1 CHF so the log-Gaussian stays defined).
+    A 'bid' column is always returned so the objective-value control can be
+    restricted to the same trials. 'session' (when needed) is the 0-based session index
     float for SessionShifted* models.
 
     The MultiIndex carries the ACTUAL session number (e.g. 1, 2) so
@@ -64,22 +67,27 @@ def get_paradigm(sub, sessions, needs_session: bool,
         events = sub.get_events(session, runs)
         for run in runs:
             run_ev = events.loc[run].reset_index().sort_values('onset')
+            bids = (run_ev[run_ev['event_type'] == 'response_bar']
+                    .set_index('trial_nr')['bid'])
             for _, row in run_ev[run_ev['event_type'] == 'gabor'].iterrows():
-                stim = (np.deg2rad(float(row['orientation'])) % np.pi
-                        if space == 'orientation' else float(row['value']))
+                bid = float(bids.get(row['trial_nr'], np.nan))
+                bid = np.nan if not np.isfinite(bid) else max(bid, 1.0)
+                stim = {'orientation': np.deg2rad(float(row['orientation'])) % np.pi,
+                        'value': float(row['value']),
+                        'bid': bid}[space]
                 rows.append({'session': session, 'run': run,
-                              'x': stim,
+                              'x': stim, 'bid': bid,
                               'session_idx': float(ses_idx)})
-    df = pd.DataFrame(rows).astype({'x': np.float32,
+    df = pd.DataFrame(rows).astype({'x': np.float32, 'bid': np.float32,
                                        'session_idx': np.float32})
     df.index = pd.MultiIndex.from_frame(
         df[['session', 'run']].assign(
             trial=df.groupby(['session', 'run']).cumcount()),
         names=['session', 'run', 'trial'])
     if needs_session:
-        return df[['x', 'session_idx']].rename(
+        return df[['x', 'bid', 'session_idx']].rename(
             columns={'session_idx': 'session'})
-    return df[['x']]
+    return df[['x', 'bid']]
 
 
 def _predict_test_fold(spec, pars, test_paradigm, test_data):
@@ -120,6 +128,10 @@ def main(subject, n_iterations=1000, mask=None,
     # ── paradigm + betas + masker ────────────────────────────────────────────
     paradigm = get_paradigm(sub, sessions, spec.needs_session,
                             space=spec.stimulus_space)
+    if spec.drop_invalid_bids:
+        keep = paradigm['bid'].notna() & paradigm['x'].notna()
+        print(f"  dropping {int((~keep).sum())} trials without a usable bid")
+        paradigm = paradigm[keep]
     value_min = float(paradigm['x'].min())
     value_max = float(paradigm['x'].max())
     print(f"  {len(paradigm)} trials  value range: "
@@ -132,8 +144,10 @@ def main(subject, n_iterations=1000, mask=None,
     masker = NiftiMasker(mask_img=mask,
                           target_affine=betas_img.affine,
                           target_shape=betas_img.shape[:3]).fit()
-    data = pd.DataFrame(masker.transform(betas_img).astype(np.float32),
-                          index=paradigm.index)
+    data = pd.DataFrame(masker.transform(betas_img).astype(np.float32))
+    if spec.drop_invalid_bids:
+        data = data.loc[np.asarray(keep)]
+    data.index = paradigm.index
     print(f"  {data.shape[1]} voxels in mask")
 
     smooth_label = '_smoothed' if smoothed else ''
