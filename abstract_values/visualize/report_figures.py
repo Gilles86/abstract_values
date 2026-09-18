@@ -192,9 +192,11 @@ def fig3(maps, ori, beh):
     dens = {c: density(pv[c]) for c in maps}
     ddiff = np.log(dens['cdf']) - np.log(dens['inverse_cdf'])
 
-    eu = pd.read_csv(FIG / 'expected_uncertainty_per_condition.tsv', sep='\t',
-                     dtype={'subject': str})
-    eu = eu[eu.variant == 'unsmoothed'].rename(columns={'condition': 'mapping'})
+    # Spherical noise + 200-point dense decoding grid: the full empirical noise
+    # covariance and the presented-value grid together produced a much stronger
+    # anti-density effect (see eu_density_flatgrid.py).
+    eu = pd.read_csv(DATA / 'expected_uncertainty_per_condition_spherical_dense.tsv',
+                     sep='\t', dtype={'subject': str}).rename(columns={'condition': 'mapping'})
     eu = eu.groupby(['subject', 'mapping', 'value'], as_index=False).sd_E.mean()
     r_neu = diff_profile_r(eu, 'value', 'sd_E', ddiff)
     beh_pos = beh[beh.sd > 0]
@@ -263,8 +265,8 @@ def fig3(maps, ori, beh):
 def fig5(beh):
     summ = pd.read_csv(DATA / 'brain_behavior_subject_summary.tsv', sep='\t')
     corr = pd.concat([
-        pd.read_csv(DATA / 'brain_behavior_correlations_seq29_expected.tsv', sep='\t').assign(measure='Expected SD'),
-        pd.read_csv(DATA / 'brain_behavior_correlations_sequential_extent.tsv', sep='\t').assign(measure='Tuned extent')])
+        pd.read_csv(DATA / 'brain_behavior_correlations_seq_expected.tsv', sep='\t').assign(measure='Expected SD'),
+        pd.read_csv(DATA / 'brain_behavior_correlations_seq_extent.tsv', sep='\t').assign(measure='Tuned extent')])
 
     s = pd.concat([pd.read_csv(f, sep='\t', dtype={'subject': str}) for f in
                    sorted((CF / 'coupling_iem-k24-kappa16').glob('sub-*/sub-*_desc-scores.tsv'))])
