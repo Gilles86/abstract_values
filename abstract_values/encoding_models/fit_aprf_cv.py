@@ -110,7 +110,11 @@ def _predict_test_fold(spec, pars, test_paradigm, test_data):
 
 def main(subject, n_iterations=1000, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False, model_type='standard'):
+         smoothed=False, debug=False, model_type='standard', desc='gabor'):
+    """``desc``: which GLMsingle single-trial betas to fit. 'gabor' (default) is
+    the stimulus epoch; 'response' is the bid-report epoch, where the gabor is
+    gone — a value code should survive there, a stimulus-driven one should not.
+    Non-default descs write to <cv_out_subdir>-<desc>."""
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder,
                    fmriprep_deriv=fmriprep_deriv)
@@ -137,7 +141,7 @@ def main(subject, n_iterations=1000, mask=None,
     print(f"  {len(paradigm)} trials  value range: "
           f"{value_min:.1f}–{value_max:.1f} CHF")
 
-    betas_img = sub.get_single_trial_estimates(sessions, desc='gabor',
+    betas_img = sub.get_single_trial_estimates(sessions, desc=desc,
                                                 smoothed=smoothed)
     if mask is None:
         mask = sub.get_brain_mask(sessions[0])
@@ -152,7 +156,9 @@ def main(subject, n_iterations=1000, mask=None,
 
     smooth_label = '_smoothed' if smoothed else ''
     out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-                / spec.cv_out_subdir / f'sub-{subject}' / 'func')
+                / (spec.cv_out_subdir if desc == 'gabor'
+                   else f'{spec.cv_out_subdir}-{desc}')
+                / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
     fn_run  = (f"sub-{subject}_ses-{{ses}}_task-abstractvalue"
                 f"_space-T1w_run-{{run}}_desc-cvr2{smooth_label}_pe.nii.gz")
@@ -213,6 +219,8 @@ if __name__ == '__main__':
                          help='Model variant (see module docstring).')
     parser.add_argument('--n-iterations', type=int, default=1000)
     parser.add_argument('--mask', default=None)
+    parser.add_argument('--desc', default='gabor', choices=['gabor', 'response'],
+                        help="Which single-trial betas to fit (default: the gabor epoch).")
     parser.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     parser.add_argument('--fmriprep-deriv', default='fmriprep',
                          choices=['fmriprep', 'fmriprep-t2w'])
@@ -220,6 +228,6 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
-    main(args.subject, n_iterations=args.n_iterations, mask=args.mask,
+    main(args.subject, desc=args.desc, n_iterations=args.n_iterations, mask=args.mask,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, debug=args.debug, model_type=args.model)
