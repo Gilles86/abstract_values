@@ -32,8 +32,13 @@ Create it once, from $expDir :
 if ($env:ABSTRACT_VALUES_BACKUP) {
     $backupDir = $env:ABSTRACT_VALUES_BACKUP
 } else {
-    $backupDir = "Z:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior"
+    $backupDir = "Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior"
 }
+
+# Hand the resolved location to the Python scripts this launcher starts, so
+# earnings.py looks for earlier sessions in the same place the logs are copied
+# to -- one source of truth, whichever drive letter this machine uses.
+$env:ABSTRACT_VALUES_BACKUP = $backupDir
 
 # Copy this session's logs to $backupDir. Never fails the session: the local
 # copy in $expDir\logs is always the primary one, the share is the backup.

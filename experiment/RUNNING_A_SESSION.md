@@ -300,7 +300,7 @@ Get-ChildItem *.ps1 | Unblock-File
 
    ```powershell
    Copy-Item -Path .\logs\sub-* -Destination `
-     "Z:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior\" -Recurse -Force
+     "Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior\" -Recurse -Force
    ```
 
    You can also set the destination once per shell before starting a session:

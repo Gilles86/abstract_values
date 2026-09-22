@@ -222,13 +222,13 @@ login. At the end of a session the launchers copy the logs to the project
 folder on the department share:
 
 ```
-Z:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior
+Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior
 ```
 
 Check it from this account before the participant arrives:
 
 ```powershell
-Test-Path "Z:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior"
+Test-Path "Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior"
 ```
 
 If the share is mounted under a different letter on this machine (it was `T:\`

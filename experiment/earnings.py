@@ -10,7 +10,7 @@ from utils import InstructionTrial
 # Default archive location: the project folder on the department share. The drive
 # letter differs per stim PC (T:\ on the old one, Z:\ on the current one), so it
 # can be overridden with the same environment variable _common.ps1 uses.
-DEFAULT_BACKUP_DIR = r'Z:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior'
+DEFAULT_BACKUP_DIR = r'Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior'
 
 
 def default_backup_dir():
