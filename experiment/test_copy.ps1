@@ -1,5 +1,5 @@
 # Test script for copying logs to the backup share.
-# Paths come from _common.ps1 -- no account-specific paths here.
+# $python, $expDir and Copy-LogsToBackup, all relative to this folder
 . "$PSScriptRoot\_common.ps1"
 
 Write-Host "=== Testing Log Copy Operation ==="

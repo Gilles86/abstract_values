@@ -119,235 +119,75 @@ After all runs, total variable earnings and final payment are displayed on scree
 
 ## Installation on a stimulus PC (or in a new Windows account)
 
-The experiment is a **[uv](https://docs.astral.sh/uv/) project** rooted at this
-`experiment/` folder. `pyproject.toml` is the single source of truth: Python
-`3.10.*`, `psychopy>=2026.1`, `exptools2` (installed straight from GitHub, not
-PyPI), `seaborn`, and `sr-research-pylink` for the Eyelink.
-
-`uv sync` builds a virtual environment at `experiment\.venv`. That folder is
-**per-account and never committed** — every Windows user that runs the
-experiment creates their own, inside their own copy of the repo. Nothing here
-needs administrator rights.
-
-### Step 1 — Install `uv` (once per Windows account)
+This folder is a [uv](https://docs.astral.sh/uv/) project: `pyproject.toml` pins
+Python 3.10, PsychoPy, `exptools2` (from GitHub) and the Eyelink bindings, and
+`uv sync` turns that into `experiment\.venv`. The venv is per-account and never
+committed — each Windows user builds their own, in their own copy of the repo,
+under their own profile. Nothing here needs admin rights.
 
 ```powershell
+# 1. uv - per-user install; reopen PowerShell afterwards so PATH picks it up
 powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
 
-It installs into `%USERPROFILE%\.local\bin` and puts that on the user's `PATH`.
-**Close and reopen PowerShell**, then check:
-
-```powershell
-uv --version
-```
-
-If that still says `uv is not recognized`, the PATH change has not reached the
-shell — reopen it again, or call it by full path
-(`& "$env:USERPROFILE\.local\bin\uv.exe" --version`).
-
-### Step 2 — Get the code into *this* account's profile
-
-Do not run out of another user's `C:\Users\...` folder — it will not be
-readable, and the logs have to land somewhere this account can write.
-
-```powershell
-cd $env:USERPROFILE
-mkdir experiments -Force
-cd experiments
+# 2. code, inside THIS account's profile
+cd $env:USERPROFILE ; mkdir experiments -Force ; cd experiments
 git clone https://github.com/Gilles86/abstract_values.git
 cd abstract_values\experiment
-```
 
-(No git on the machine? `winget install --id Git.Git -e` — or copy the repo
-folder over from a USB stick / the department share; only `experiment\` is actually needed on
-the stim PC.)
-
-### Step 3 — Build the environment
-
-```powershell
+# 3. environment - downloads its own Python 3.10, takes a few minutes
 uv sync
-```
 
-This downloads a private **Python 3.10** (no system Python required), resolves
-every dependency and creates `experiment\.venv`. Expect a few minutes on first
-run — PsychoPy and wxPython are large wheels. Verify:
-
-```powershell
-.\.venv\Scripts\python.exe -c "import psychopy, exptools2; print(psychopy.__version__)"
-```
-
-> **Note on reproducibility:** there is currently no `uv.lock` committed, so a
-> fresh `uv sync` resolves whatever versions are current *today* — not
-> necessarily what earlier participants ran on. If you want the stim PC frozen
-> to a known-good set, run `uv lock` on the machine that works and commit the
-> resulting `uv.lock`; from then on `uv sync` reproduces it exactly.
-
-### Step 4 — Nothing to edit
-
-There are no hardcoded paths left in the launchers. All of them start with
-
-```powershell
-. "$PSScriptRoot\_common.ps1"
-```
-
-and `_common.ps1` derives everything from where it sits:
-
-```powershell
-$expDir = $PSScriptRoot                                   # this folder
-$python = Join-Path $expDir ".venv\Scripts\python.exe"    # the uv env next to it
-```
-
-So the same checkout runs under any Windows account, from any folder, with no
-per-machine edits. If the `.venv` is missing, the script stops immediately with
-a message telling you to run `uv sync` — rather than halfway through a session.
-
-`_common.ps1` also defines the log-backup destination and the
-`Copy-LogsToBackup` helper the launchers call at the end of a session (Step 5).
-
-### Step 5 — Allow PowerShell to run the scripts
-
-See **[First run on a new PC — allow PowerShell scripts](#first-run-on-a-new-pc--allow-powershell-scripts)**
-below. Short version, once per account, no admin needed:
-
-```powershell
+# 4. allow PowerShell to run the launchers (once per account)
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 Get-ChildItem *.ps1 | Unblock-File
-```
 
-### Step 6 — Check the backup drive is mapped *in this account*
-
-Drive letters are per-user on Windows; they do not carry over from another
-login. At the end of a session the launchers copy the logs to the project
-folder on the department share:
-
-```
-Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior
-```
-
-Check it from this account before the participant arrives:
-
-```powershell
+# 5. is the backup share mapped in this account?
 Test-Path "Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior"
+
+# 6. smoke test - 3 trials; press 5 twenty times to clear the dummy-trigger screen
+uv run python task.py 99 1 99 cdf --settings sns_fmri --n_trials 3
+Remove-Item logs\sub-99 -Recurse -Force
 ```
 
-If the share is mounted under a different letter on this machine (it was `T:\`
-on the previous stim PC), do **not** edit the scripts — set the environment
-variable instead, which `_common.ps1` picks up:
+**Nothing to edit afterwards.** Every `.ps1` starts with `. "$PSScriptRoot\_common.ps1"`,
+which resolves the experiment folder and the interpreter from its own location —
+so the same checkout runs under any account, from any folder. A missing venv
+stops the script immediately with "run `uv sync`" instead of failing mid-session.
+
+**Smoke-test with `sns_fmri`, not the other settings files.** Those describe a
+desk monitor at 60 cm rather than the projector at 100 cm, so every degree-based
+size lands ~1.7× off and the display looks broken when it isn't.
+
+**Backup share on a different drive letter?** Don't edit the scripts —
+`_common.ps1` honours an override (the old stim PC used `T:\`):
 
 ```powershell
-# this session only
-$env:ABSTRACT_VALUES_BACKUP = "T:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior"
-
-# or permanently, for this Windows account
-[Environment]::SetEnvironmentVariable(
-    "ABSTRACT_VALUES_BACKUP",
-    "T:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior",
-    "User")
+[Environment]::SetEnvironmentVariable("ABSTRACT_VALUES_BACKUP", "T:\projects\2026\...\behavior", "User")
 ```
 
-An unreachable backup never aborts a session: the logs are always written to
-`experiment\logs\` first, and the copy step just prints a loud warning telling
-you to move them by hand.
+An unreachable share never aborts a session: logs go to `experiment\logs\` first,
+and the copy step only warns.
 
-### Step 7 — Smoke test before the participant arrives
+**No `uv.lock` is committed**, so `uv sync` resolves whatever is current today.
+To freeze a stim PC to a known-good set, run `uv lock` on the machine that works
+and commit the result.
 
-A three-trial dummy run, written as `sub-99`. Use **`sns_fmri`** — the settings
-the session itself runs on, so this also verifies that the stimuli come out the
-right size:
-
-```powershell
-.\.venv\Scripts\python.exe task.py 99 1 99 cdf --settings sns_fmri --n_trials 3
-```
-
-Equivalently, without naming the interpreter, `uv run python task.py 99 1 99 cdf
---settings sns_fmri --n_trials 3` — `uv run` resolves the project's `.venv`
-itself (and re-syncs it if it drifted from `pyproject.toml`). Then delete
-`logs\sub-99\`.
-
-It opens on the dummy-trigger screen, since `sns_fmri` waits for 20 sync pulses.
-No scanner needed to get past it: the trial counts keypresses of the sync
-character, so **press `5` twenty times** and the trials start (the console prints
-`Dummy scan 1/20`, `2/20`, …).
-
-> **Don't smoke-test with `sns_multisubject` or `single_subject`.** They describe
-> different rooms — a desk monitor at 60 cm viewing distance rather than the
-> projector at 100 cm — so every degree-based size (0.75° text, 7.5° gabor) comes
-> out roughly 1.7× off and the display looks wrong even though nothing is broken.
-> `sns_multisubject` also leaves `size` commented out. If the fonts and gabors on
-> a stim PC look unlike what you remember, check the settings name before
-> suspecting the install.
-
-### Updating an existing installation
-
-```powershell
-cd $env:USERPROFILE\experiments\abstract_values
-git pull
-cd experiment
-uv sync
-```
-
-`uv sync` is cheap when nothing changed, and is the only step needed after a
-dependency edit in `pyproject.toml`.
+**Updating an install:** `git pull` in the repo, then `uv sync` in `experiment\`.
 
 ### Troubleshooting
 
-| Symptom | Cause / fix |
+| Symptom | Fix |
 |---|---|
-| `No Python environment found at ...\.venv\Scripts\python.exe` | The environment was never built here — run `uv sync` in `experiment\` (Step 3). |
-| `Copying logs ... WARNING: backup location not reachable` | The backup drive is not mapped in this account, or it is not `Z:\` here — Step 6. Logs are safe in `experiment\logs\`. |
-| `uv is not recognized` | Reopen PowerShell after installing uv, or call `%USERPROFILE%\.local\bin\uv.exe`. |
-| `...ps1 cannot be loaded because running scripts is disabled` | Step 5 / the execution-policy section below. |
-| `ModuleNotFoundError: psychopy` | A different interpreter is being used — always go through `.venv\Scripts\python.exe` or `uv run`. |
-| `uv sync` fails on `exptools2` | No network access to GitHub from the stim PC, or git missing (uv needs git for a git dependency). |
-| Eyelink import fails | `sr-research-pylink` is installed by `uv sync`, but the run also needs SR Research's own runtime installed on the machine; `--eyetracker` is optional, drop it to test. |
-| Window opens on the wrong screen, or text/gabors are the wrong size | Not an install problem — almost always the wrong settings file. `sns_fmri` = scanner projector (1920×1200, screen 1, 100 cm); `sns_multisubject` / `single_subject` = desk monitor at 60 cm. |
+| `uv is not recognized` | Reopen PowerShell, or call `%USERPROFILE%\.local\bin\uv.exe` directly. |
+| `No Python environment found at ...\.venv\Scripts\python.exe` | Run `uv sync` in `experiment\` (step 3). |
+| `...ps1 cannot be loaded because running scripts is disabled` | Step 4. To scan right now without changing the machine: `powershell.exe -ExecutionPolicy Bypass -File .\run_fmri.ps1`. |
+| Refused only for freshly copied scripts | Mark-of-the-web on files from a share or zip: `Get-ChildItem *.ps1 \| Unblock-File`. |
+| Still refused after step 4 | Group Policy wins on UZH-domain machines. `Get-ExecutionPolicy -List` — if `MachinePolicy` or `UserPolicy` is anything but `Undefined`, SNS IT has to change it. |
+| `WARNING: backup location not reachable` | Share not mapped in this account, or not on `Z:\` here (step 5). Logs are safe in `experiment\logs\`. |
 
 ---
 
 ## Running the Experiment
-
-### First run on a new PC — allow PowerShell scripts
-
-Windows refuses to run `.ps1` files by default (its **execution policy**), so a
-fresh stim PC greets you with:
-
-```
-.\run_fmri.ps1 : File ...\run_fmri.ps1 cannot be loaded because running scripts
-is disabled on this system.
-```
-
-**One-off**, changes nothing on the machine — good when you just need to scan now:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\run_fmri.ps1
-```
-
-**Permanent for your user** — do this once on the stim PC and `.\run_fmri.ps1`
-works normally from then on. No admin rights needed:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
-
-`RemoteSigned` permits local scripts while still blocking unsigned ones that
-arrived from elsewhere — which is why a copy pulled off `T:\` or unzipped from a
-download can *still* be refused afterwards. That is Windows' "mark of the web";
-strip it with:
-
-```powershell
-Get-ChildItem *.ps1 | Unblock-File
-```
-
-**Still refusing?** Group Policy is overriding you — the SNS stim PCs are
-UZH-domain machines. Check which scope is winning:
-
-```powershell
-Get-ExecutionPolicy -List
-```
-
-If `MachinePolicy` or `UserPolicy` reads anything other than `Undefined`, neither
-command above will stick and SNS IT has to adjust it.
 
 ### Behavioral session (`run_task.ps1`)
 
@@ -356,7 +196,7 @@ cd path\to\experiment
 .\run_task.ps1
 ```
 
-Prompts for `subject_id` and `session_id`, then runs all phases in sequence: `examples.py` → `training.py` → `task.py` × 8 runs → `earnings.py`. Logs are copied to the department share afterwards (destination in `_common.ps1`, see [Step 6](#step-6--check-the-backup-drive-is-mapped-in-this-account)).
+Prompts for `subject_id` and `session_id`, then runs all phases in sequence: `examples.py` → `training.py` → `task.py` × 8 runs → `earnings.py`. Logs are copied to the department share afterwards (destination in `_common.ps1`, see [Installation](#installation-on-a-stimulus-pc-or-in-a-new-windows-account)).
 
 ### fMRI session (`run_fmri.ps1`)
 

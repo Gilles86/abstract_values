@@ -1,8 +1,7 @@
 # Quick test script to verify experimental setup
 # Run this before each experimental session to catch issues early
 
-# Paths and the backup destination come from _common.ps1, which resolves
-# everything relative to this folder -- no account-specific paths here.
+# $python, $expDir and Copy-LogsToBackup, all relative to this folder
 . "$PSScriptRoot\_common.ps1"
 
 Write-Host "=== Abstract Values Experiment - Quick System Check ===" -ForegroundColor Cyan

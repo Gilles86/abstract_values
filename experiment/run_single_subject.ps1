@@ -1,5 +1,4 @@
-# Paths and the log-backup helper come from _common.ps1, which resolves
-# everything relative to this folder -- no account-specific paths here.
+# $python, $expDir and Copy-LogsToBackup, all relative to this folder
 . "$PSScriptRoot\_common.ps1"
 
 Write-Host "Please enter the following details:"

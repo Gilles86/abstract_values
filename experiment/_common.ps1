@@ -1,12 +1,7 @@
-# Shared setup for every launcher in this folder. Dot-source it as the first
-# line of a script:
-#
+# Shared setup for every launcher here; dot-source it as the first line:
 #     . "$PSScriptRoot\_common.ps1"
-#
-# Nothing here is machine- or account-specific. The experiment directory is
-# simply wherever this file lives, and the interpreter is the uv-managed
-# virtual environment sitting next to it -- so the same checkout works under
-# any Windows account, on any stim PC, from any folder.
+# Paths are derived from this file's own location, so the same checkout runs
+# under any Windows account, on any stim PC, from any folder.
 
 $expDir = $PSScriptRoot
 $python = Join-Path $expDir ".venv\Scripts\python.exe"
@@ -23,21 +18,17 @@ Create it once, from $expDir :
 "@
 }
 
-# Where finished logs are archived after a session: the project folder on the
-# department share. The drive letter differs per machine (it was T:\ on the old
-# stim PC, Z:\ on the current one), so override it without editing this file:
-#
+# Where logs are archived after a session. The drive letter differs per machine
+# (T:\ on the old stim PC), so override it instead of editing this file:
 #     $env:ABSTRACT_VALUES_BACKUP = "T:\projects\2026\...\sourcedata\behavior"
-#
 if ($env:ABSTRACT_VALUES_BACKUP) {
     $backupDir = $env:ABSTRACT_VALUES_BACKUP
 } else {
     $backupDir = "Z:\Department\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior"
 }
 
-# Hand the resolved location to the Python scripts this launcher starts, so
-# earnings.py looks for earlier sessions in the same place the logs are copied
-# to -- one source of truth, whichever drive letter this machine uses.
+# Pass it on to the Python scripts, so earnings.py looks for earlier sessions
+# in the same place the logs are copied to.
 $env:ABSTRACT_VALUES_BACKUP = $backupDir
 
 # Copy this session's logs to $backupDir. Never fails the session: the local
