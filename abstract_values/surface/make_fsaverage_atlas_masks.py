@@ -55,7 +55,8 @@ BENSON_LABELS = {1: "V1", 2: "V2", 3: "V3", 4: "hV4", 5: "VO1", 6: "VO2",
                  7: "LO1", 8: "LO2", 9: "TO1", 10: "TO2", 11: "V3b",
                  12: "V3a"}
 
-WANG_WANTED = ["IPS0", "IPS1", "IPS2", "IPS3", "IPS4", "IPS5", "SPL1"]
+WANG_WANTED = ["IPS0", "IPS1", "IPS2", "IPS3", "IPS4", "IPS5", "SPL1",
+               "FEF"]
 BENSON_WANTED = ["LO1", "LO2", "TO1", "TO2", "V3a", "V3b"]
 # Unions worth having as one mask: IPS5 is ~20 vertices per hemisphere, far too
 # small to carry a per-vertex win vote on its own.

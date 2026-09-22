@@ -68,6 +68,10 @@ ATLAS_SPECS = [
     ("LO",   "gii:desc-LO_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",   [], "#E9724C"),
     ("TO1",  "gii:desc-TO1_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",  [], "#C44E52"),
     ("TO2",  "gii:desc-TO2_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",  [], "#8E2F3E"),
+    # Wang's most anterior label, and the only one outside occipito-parietal
+    # cortex — worth having as the frontal landmark when a cluster shows up
+    # there. Small (339 L / 101 R vertices on fsaverage).
+    ("FEF",  "gii:desc-FEF_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",  [], "#6A4C93"),
 ]
 
 
@@ -485,6 +489,13 @@ def main():
     p.add_argument("--clear-cache", action="store_true",
                    help="Drop the subject's cached ctm/svg so the next bundle "
                         "picks the new ROIs up.")
+    p.add_argument("--grid", type=int, default=900,
+                   help="Raster resolution for the contour (default 900). A "
+                        "small ROI needs more: the blur below can erase a "
+                        "100-vertex parcel entirely at the default.")
+    p.add_argument("--smooth", type=float, default=2.5,
+                   help="Gaussian blur in grid cells before contouring "
+                        "(default 2.5). Lower it for small ROIs.")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
@@ -502,6 +513,7 @@ def main():
     print(f"{len(specs)} ROI(s) -> {cx_subject}: "
           f"{', '.join(sp[0] for sp in specs)}")
     write_roi_overlay(args.subject, cx_subject, args.bids_folder, specs=specs,
+                      grid=args.grid, smooth=args.smooth,
                       prune=args.prune, dry_run=args.dry_run)
 
     if args.clear_cache and not args.dry_run:

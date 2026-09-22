@@ -50,7 +50,7 @@ from abstract_values.visualize.model_winner_maps import (CANDIDATES, load_stack,
 # Early visual -> dorsal -> IPS -> the numerosity maps, which is the order the
 # argument runs in: orientation should own the first group by construction.
 RETINOTOPIC = ["V1", "V2", "V3", "hV4", "LO1", "LO2", "TO1", "TO2",
-               "V3b", "V3a", "IPS0", "IPS1", "IPS2", "IPS3"]
+               "V3b", "V3a", "IPS0", "IPS1", "IPS2", "IPS3", "SPL1", "FEF"]
 NUMBER_FIELDS = ["NTO", "NPC1", "NPC2", "NPC3", "NF1", "NF2", "NINS"]
 
 mpl.rcParams.update({
