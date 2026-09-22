@@ -40,15 +40,15 @@ from braincoder.optimize import WeightFitter
 from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.models import GaussianValuePRF
+from abstract_values.encoding_models.ridge_alpha import (
+    DEFAULT_RIDGE_ALPHA, enforce_default_alpha)
+from abstract_values.utils.data import Subject, BIDS_FOLDER
+
 # Ridge penalty for the closed-form weight fit. Carried over from the
 # orientation-space V1 sweep (visualize/plot_v1_sweep.py), which is the
 # only place it was actually cross-validated -- the value-space basis has
 # not been swept, so treat 10 as a sane default rather than a tuned one.
 DEFAULT_ALPHA = DEFAULT_RIDGE_ALPHA
-
-from abstract_values.encoding_models.ridge_alpha import (
-    DEFAULT_RIDGE_ALPHA, enforce_default_alpha)
-from abstract_values.utils.data import Subject, BIDS_FOLDER
 
 
 def _build_basis_model(basis):
