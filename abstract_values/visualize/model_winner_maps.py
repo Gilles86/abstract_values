@@ -98,8 +98,8 @@ NULL_MODEL = "aprf-null.cv"
 # ``surface.make_fsaverage_atlas_masks`` (Wang-15 for IPS, Benson-14 for the
 # rest); they sit between the retinotopic panels and NPC precisely because
 # "just caudal of numerical IPS" is the region the group maps keep pointing at.
-ROI_PANELS = ["Whole cortex", "V1", "V2", "V3", "hV4", "LO", "V3a", "V3b",
-              "IPS0", "IPS1", "IPS2", "IPS3",
+ROI_PANELS = ["Whole cortex", "V1", "V2", "V3", "hV4", "LO", "TO1", "TO2",
+              "V3a", "V3b", "IPS0", "IPS1", "IPS2", "IPS3",
               "NPC1r", "NPC2r", "NPC3r", "OFC"]
 PYCORTEX_ROI = {"V1": ["V1"], "V2": ["V2"], "V3": ["V3"], "hV4": ["hV4"],
                 "NPC1r": ["NPC1_R"], "NPC2r": ["NPC2_R"], "NPC3r": ["NPC3_R"],
@@ -411,7 +411,9 @@ def roi_summary_figure(deriv, subjects, out_pdf, models=CANDIDATES,
                             color=colours[val_idx[0]], fontweight="bold")
                 for r in rows[row_start:]:
                     r["value_family_share"] = value_share / 100
-                ax.text(-0.02, 1.16, "abcdefghijklmnop"[i], transform=ax.transAxes,
+                letter = ("abcdefghijklmnopqrstuvwxyz"[i] if i < 26
+                          else f"{i + 1}")
+                ax.text(-0.02, 1.16, letter, transform=ax.transAxes,
                         fontsize=8, fontweight="bold", va="bottom", ha="right")
                 ax.set_xticks(range(len(labels)))
                 ax.set_xticklabels(short, fontsize=6.5)
