@@ -170,6 +170,18 @@ triggers have arrived. **You never press anything to start a run** — the scann
 
 ## 6. Running the fMRI task (stim PC in the console room)
 
+**Pre-flight, before the participant is in the room** — three dummy trials that also confirm the
+stimuli come out the right size:
+
+```powershell
+.\.venv\Scripts\python.exe task.py 99 1 99 cdf --settings sns_fmri --n_trials 3
+```
+
+It waits on the dummy-trigger screen; press `5` twenty times to get past it without the scanner.
+Afterwards delete `logs\sub-99\`. If text and gabors look unexpectedly large or small, it's the
+settings name, not the machine — `sns_fmri` is the only correct one here (`sns_multisubject` and
+`single_subject` describe a desk monitor at 60 cm instead of the projector at 100 cm).
+
 1. On the stim PC in the console room, open PowerShell and go to the experiment folder:
 
    ```powershell

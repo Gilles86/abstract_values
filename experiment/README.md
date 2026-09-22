@@ -252,20 +252,31 @@ you to move them by hand.
 
 ### Step 7 — Smoke test before the participant arrives
 
-A three-trial dummy run, written as `sub-99`:
+A three-trial dummy run, written as `sub-99`. Use **`sns_fmri`** — the settings
+the session itself runs on, so this also verifies that the stimuli come out the
+right size:
 
 ```powershell
-.\.venv\Scripts\python.exe task.py 99 1 99 cdf --settings sns_multisubject --n_trials 3
+.\.venv\Scripts\python.exe task.py 99 1 99 cdf --settings sns_fmri --n_trials 3
 ```
 
 Equivalently, without naming the interpreter, `uv run python task.py 99 1 99 cdf
---settings sns_multisubject --n_trials 3` — `uv run` resolves the project's
-`.venv` itself (and re-syncs it if it drifted from `pyproject.toml`). Then
-delete `logs\sub-99\`.
+--settings sns_fmri --n_trials 3` — `uv run` resolves the project's `.venv`
+itself (and re-syncs it if it drifted from `pyproject.toml`). Then delete
+`logs\sub-99\`.
 
-For the fMRI settings, add `--settings sns_fmri`; note it waits for scanner
-triggers, so test that one in the console with the scanner or expect it to sit
-at the dummy-trigger screen.
+It opens on the dummy-trigger screen, since `sns_fmri` waits for 20 sync pulses.
+No scanner needed to get past it: the trial counts keypresses of the sync
+character, so **press `5` twenty times** and the trials start (the console prints
+`Dummy scan 1/20`, `2/20`, …).
+
+> **Don't smoke-test with `sns_multisubject` or `single_subject`.** They describe
+> different rooms — a desk monitor at 60 cm viewing distance rather than the
+> projector at 100 cm — so every degree-based size (0.75° text, 7.5° gabor) comes
+> out roughly 1.7× off and the display looks wrong even though nothing is broken.
+> `sns_multisubject` also leaves `size` commented out. If the fonts and gabors on
+> a stim PC look unlike what you remember, check the settings name before
+> suspecting the install.
 
 ### Updating an existing installation
 
@@ -290,7 +301,7 @@ dependency edit in `pyproject.toml`.
 | `ModuleNotFoundError: psychopy` | A different interpreter is being used — always go through `.venv\Scripts\python.exe` or `uv run`. |
 | `uv sync` fails on `exptools2` | No network access to GitHub from the stim PC, or git missing (uv needs git for a git dependency). |
 | Eyelink import fails | `sr-research-pylink` is installed by `uv sync`, but the run also needs SR Research's own runtime installed on the machine; `--eyetracker` is optional, drop it to test. |
-| Window opens on the wrong screen / wrong size | Not an install problem — see `settings/` (`sns_fmri.yml`, `sns_multisubject.yml`). |
+| Window opens on the wrong screen, or text/gabors are the wrong size | Not an install problem — almost always the wrong settings file. `sns_fmri` = scanner projector (1920×1200, screen 1, 100 cm); `sns_multisubject` / `single_subject` = desk monitor at 60 cm. |
 
 ---
 
