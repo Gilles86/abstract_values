@@ -62,7 +62,10 @@ import matplotlib as mpl
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
+import nibabel as nib
 import numpy as np
+import pandas as pd
+from matplotlib.backends.backend_pdf import PdfPages
 
 from abstract_values.utils.data import BIDS_FOLDER
 from abstract_values.visualize.group_surface_maps import (
@@ -83,6 +86,138 @@ mpl.rcParams.update({
 })
 
 NULL_MODEL = "aprf-null.cv"
+
+# Per-ROI panels, in the order the argument runs: early retinotopic cortex
+# (where orientation should win by construction — orientation sets value in
+# this task), then the NPC subdivisions, then OFC as the a-priori value ROI.
+# V1-hV4 and the NPC subdivisions come from the fsaverage overlay that already
+# ships with the pycortex store; OFC has no surface definition in this project,
+# so it is taken from FreeSurfer's own fsaverage aparc (Desikan-Killiany
+# lateral + medial orbitofrontal), which is on the same 163842-vertex mesh.
+# IPS0-3 / V3a / V3b / LO come from the atlas masks written by
+# ``surface.make_fsaverage_atlas_masks`` (Wang-15 for IPS, Benson-14 for the
+# rest); they sit between the retinotopic panels and NPC precisely because
+# "just caudal of numerical IPS" is the region the group maps keep pointing at.
+ROI_PANELS = ["Whole cortex", "V1", "V2", "V3", "hV4", "LO", "V3a", "V3b",
+              "IPS0", "IPS1", "IPS2", "IPS3",
+              "NPC1r", "NPC2r", "NPC3r", "OFC"]
+PYCORTEX_ROI = {"V1": ["V1"], "V2": ["V2"], "V3": ["V3"], "hV4": ["hV4"],
+                "NPC1r": ["NPC1_R"], "NPC2r": ["NPC2_R"], "NPC3r": ["NPC3_R"],
+                "NPCr": ["NPCr"], "NPCl": ["NPCl"],
+                "NPC1l": ["NPC1_L"], "NPC2l": ["NPC2_L"], "NPC3l": ["NPC3_L"]}
+APARC_ROI = {"OFC": ["lateralorbitofrontal", "medialorbitofrontal"],
+             "mOFC": ["medialorbitofrontal"],
+             "lOFC": ["lateralorbitofrontal"]}
+
+
+def aparc_mask(deriv, names, n_vertices):
+    """Boolean L+R fsaverage mask for a set of Desikan-Killiany labels."""
+    label_dir = (deriv / "fmriprep" / "sourcedata" / "freesurfer" /
+                 "fsaverage" / "label")
+    out = []
+    for hemi in ("lh", "rh"):
+        fn = label_dir / f"{hemi}.aparc.annot"
+        if not fn.exists():
+            return None
+        labels, _, annot_names = nib.freesurfer.read_annot(str(fn))
+        annot_names = [n.decode() for n in annot_names]
+        idx = [annot_names.index(n) for n in names if n in annot_names]
+        out.append(np.isin(labels, idx))
+    mask = np.concatenate(out)
+    return mask if mask.size == n_vertices else None
+
+
+def surface_mask(deriv, roi, n_vertices):
+    """Boolean mask from ``derivatives/surface_masks``, or None.
+
+    ``IPS0`` takes both hemispheres; a trailing ``l``/``r`` (``IPS0r``, as in
+    the NPC naming) takes one. Written by
+    ``abstract_values.surface.make_fsaverage_atlas_masks``.
+    """
+    d = deriv / "surface_masks"
+
+    def load(base, hemis):
+        parts = []
+        for hemi, side in hemis:
+            fn = d / f"desc-{base}_{side}_space-fsaverage_hemi-{hemi}.label.gii"
+            if not fn.exists():
+                return None
+            parts.append(nib.load(str(fn)).darrays[0].data.astype(bool))
+        mask = np.zeros(n_vertices, bool)
+        half = n_vertices // 2
+        for (hemi, _), part in zip(hemis, parts):
+            sl = slice(0, half) if hemi == "lh" else slice(half, n_vertices)
+            if part.size != half:
+                return None
+            mask[sl] = part
+        return mask
+
+    both = (("lh", "L"), ("rh", "R"))
+    mask = load(roi, both)
+    if mask is None and roi[-1:] in ("l", "r"):
+        hemi = "lh" if roi[-1] == "l" else "rh"
+        side = "L" if roi[-1] == "l" else "R"
+        mask = load(roi[:-1], ((hemi, side),))
+    return mask
+
+
+def roi_masks(deriv, rois, n_vertices):
+    """{name: boolean (n_vertices,)} — 'Whole cortex' is all-True."""
+    verts = None
+    masks = {}
+    for roi in rois:
+        if roi == "Whole cortex":
+            masks[roi] = np.ones(n_vertices, bool)
+        elif roi in PYCORTEX_ROI:
+            if verts is None:
+                verts = cortex.utils.get_roi_verts(CX_FSAVERAGE)
+            m = np.zeros(n_vertices, bool)
+            for key in PYCORTEX_ROI[roi]:
+                if key not in verts:
+                    print(f"  skip {roi}: no '{key}' in the {CX_FSAVERAGE} overlay")
+                    m = None
+                    break
+                m[verts[key]] = True
+            if m is not None:
+                masks[roi] = m
+        elif (m := surface_mask(deriv, roi, n_vertices)) is not None:
+            masks[roi] = m
+        elif roi in APARC_ROI:
+            m = aparc_mask(deriv, APARC_ROI[roi], n_vertices)
+            if m is None:
+                print(f"  skip {roi}: no fsaverage aparc.annot under "
+                      f"{deriv / 'fmriprep' / 'sourcedata' / 'freesurfer'}")
+            else:
+                masks[roi] = m
+        else:
+            print(f"  skip {roi}: unknown ROI")
+    return masks
+
+
+def prevalence_gate(prevalence, min_prevalence, width):
+    """Fade the map in with prevalence instead of cutting it off.
+
+    A hard ``prevalence >= min_prevalence`` throws away 39% of cortex
+    (smoothed) at a threshold nothing in the data picks out, and the vertices
+    just under it look identical to vertices where nobody has signal. Fading
+    linearly over ``[min_prevalence - width, min_prevalence]`` keeps the same
+    centre of mass while letting the marginal ring read as marginal.
+    ``width=0`` restores the old hard gate.
+    """
+    if width <= 0:
+        return (prevalence >= min_prevalence).astype(np.float32)
+    lo = min_prevalence - width
+    return np.clip((prevalence - lo) / width, 0, 1).astype(np.float32)
+
+
+def margin_alpha(margin, lo, hi, floor):
+    """Opacity from how far the modal winner leads the runner-up.
+
+    ``floor`` lifts every vertex the gate admits off full transparency, so a
+    near-tie still shows its (weakly held) winner rather than disappearing.
+    """
+    ramp = np.clip((margin - lo) / max(hi - lo, 1e-6), 0, 1)
+    return (floor + (1.0 - floor) * ramp).astype(np.float32)
 
 # (cv dir, short label, colour) — colours double as the modal-map palette
 # Hue encodes the space (blue = orientation, red = value), lightness the
@@ -204,6 +339,124 @@ def summary_figure(deriv, subjects, out_pdf, models=CANDIDATES,
     print(f"Wrote {out_pdf}")
 
 
+def roi_summary_figure(deriv, subjects, out_pdf, models=CANDIDATES,
+                       smoothing=(False, True), rois=ROI_PANELS, out_tsv=None):
+    """The win-share summary, one panel per ROI, one page per smoothing level.
+
+    Same quantity as ``summary_figure`` — the share of a subject's *signal*
+    vertices each model wins — but computed inside an ROI instead of over the
+    whole cortical sheet. Whole cortex is kept as the first panel so every
+    other panel is read as a departure from it.
+    """
+    rows = []
+    with PdfPages(str(out_pdf)) as pdf:
+        for sm in smoothing:
+            wins, signal, labels, used = winner_per_subject(deriv, subjects,
+                                                            models, sm)
+            if wins is None:
+                continue
+            masks = roi_masks(deriv, rois, wins.shape[1])
+            colours = [c for _, l, c in models if l in labels]
+            short = [l.replace("vonMises ", "vM\n").replace("aPRF ", "aPRF\n")
+                     for l in labels]
+            ncol = 3 if len(masks) <= 9 else 4
+            nrow = int(np.ceil(len(masks) / ncol))
+            fig, axes = plt.subplots(nrow, ncol,
+                                     figsize=(2.4 * ncol, 2.15 * nrow),
+                                     sharey=True, sharex=True, squeeze=False)
+            tag = "smoothed" if sm else "unsmoothed"
+            print(f"\n  {tag}: n={len(used)}")
+            for i, (ax, (roi, mask)) in enumerate(zip(axes.ravel(),
+                                                      masks.items())):
+                share = np.full((len(used), len(labels)), np.nan)
+                sig_frac = np.zeros(len(used))
+                for j in range(len(used)):
+                    sig = signal[j] & mask
+                    sig_frac[j] = sig.sum() / max(mask.sum(), 1)
+                    if sig.sum() == 0:
+                        continue
+                    for m in range(len(labels)):
+                        share[j, m] = np.mean(wins[j][sig] == m)
+                rng = np.random.default_rng(0)
+                row_start = len(rows)
+                for m in range(len(labels)):
+                    x = m + rng.uniform(-0.17, 0.17, share.shape[0])
+                    ax.scatter(x, 100 * share[:, m], s=7, alpha=.5,
+                               color=colours[m], linewidths=0, zorder=3)
+                    mean = 100 * np.nanmean(share[:, m])
+                    ax.hlines(mean, m - 0.32, m + 0.32, color=colours[m],
+                              lw=2.0, zorder=4)
+                    ax.annotate(f"{mean:.0f}", (m + 0.34, mean),
+                                textcoords="offset points", xytext=(1, -2.5),
+                                ha="left", fontsize=6, color=colours[m],
+                                fontweight="bold", zorder=5)
+                    for j, sub_id in enumerate(used):
+                        rows.append(dict(roi=roi, smoothed=sm, subject=sub_id,
+                                         model=labels[m],
+                                         win_share=share[j, m],
+                                         roi_vertices=int(mask.sum()),
+                                         signal_fraction=sig_frac[j]))
+                ax.axhline(100 / len(labels), color="0.7", lw=0.6,
+                           ls=(0, (4, 3)), zorder=0)
+                ax.set_title(f"{roi}  ({mask.sum() // 1000}k vtx, "
+                             f"{100 * sig_frac.mean():.0f}% signal)",
+                             fontsize=7.5)
+                # The two aPRF columns are the "value family" of the modal-family
+                # map, so their sum is the number that map is showing here.
+                val_idx = [m for m, l in enumerate(labels) if "aPRF" in l]
+                value_share = 100 * np.nansum(np.nanmean(share, axis=0)[val_idx])
+                ax.annotate(f"Value {value_share:.0f}%",
+                            (0.97, 0.955), xycoords="axes fraction",
+                            ha="right", va="top", fontsize=6.5,
+                            color=colours[val_idx[0]], fontweight="bold")
+                for r in rows[row_start:]:
+                    r["value_family_share"] = value_share / 100
+                ax.text(-0.02, 1.16, "abcdefghijklmnop"[i], transform=ax.transAxes,
+                        fontsize=8, fontweight="bold", va="bottom", ha="right")
+                ax.set_xticks(range(len(labels)))
+                ax.set_xticklabels(short, fontsize=6.5)
+                for tick, c in zip(ax.get_xticklabels(), colours):
+                    tick.set_color(c)
+                ax.set_yticks([0, 25, 50, 75, 100])
+                ax.set_xlim(-0.6, len(labels) - 0.1)
+                ax.set_ylim(0, 100)
+                if i % ncol == 0:
+                    ax.set_ylabel("Signal vertices won (%)")
+                if i == 0:
+                    ax.annotate("Chance", (-0.55, 100 / len(labels)),
+                                textcoords="offset points", xytext=(0, 3),
+                                fontsize=6, color="0.45", ha="left")
+                print(f"    {roi:12s} "
+                      + "  ".join(f"{l}={100 * np.nanmean(share[:, m]):.0f}%"
+                                  for m, l in enumerate(labels)))
+            for ax in axes.ravel()[len(masks):]:
+                ax.set_axis_off()
+            sns_despine(fig)
+            fig.suptitle(f"Which model wins inside each ROI — {tag}, "
+                         f"n={len(used)}", fontsize=9)
+            fig.tight_layout(rect=(0, 0, 1, 0.965))
+            pdf.savefig(fig)
+            plt.close(fig)
+    print(f"Wrote {out_pdf}")
+    if out_tsv:
+        pd.DataFrame(rows).to_csv(out_tsv, sep="\t", index=False)
+        print(f"Wrote {out_tsv}")
+
+
+def sns_despine(fig):
+    """Offset/trim spines without pulling seaborn into the pycortex2 env."""
+    for ax in fig.axes:
+        if not ax.get_visible() or not ax.has_data():
+            continue
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        for side in ("left", "bottom"):
+            ax.spines[side].set_position(("outward", 4))
+        ticks = ax.get_yticks()
+        ax.spines["left"].set_bounds(ticks[0], ticks[-1])
+        ax.spines["bottom"].set_bounds(0, len(ax.get_xticks()) - 1)
+
+
 def family_vote(deriv, subjects, models, ori, val, smoothed=False):
     """Per subject: does the best value model beat the best orientation model?
 
@@ -227,7 +480,8 @@ def family_vote(deriv, subjects, models, ori, val, smoothed=False):
     return np.vstack(votes), np.vstack(sigs)
 
 
-def value_only_modal(deriv, subjects, value_models, gate, colours, tag):
+def value_only_modal(deriv, subjects, value_models, gate, colours, tag,
+                     margin_lo=0.05, margin_hi=0.30, alpha_floor=0.0):
     """Modal winner among the aPRF variants alone, ignoring vonMises.
 
     Gated on a value model beating the null by itself, so the question is
@@ -253,7 +507,8 @@ def value_only_modal(deriv, subjects, value_models, gate, colours, tag):
     cmap = mpl.colors.ListedColormap(colours)
     labels = [l for _, l, _ in value_models]
     name = f"Modal aPRF variant{tag} ({' / '.join(labels)})"
-    vtx = blended(modal, gate * np.clip((margin - 0.10) / 0.30, 0, 1),
+    vtx = blended(modal, gate * margin_alpha(margin, margin_lo, margin_hi,
+                                             alpha_floor),
                   CX_FSAVERAGE, -0.5, len(value_models) - 0.5, cmap)
     for m, l in enumerate(labels):
         print(f"      {l:11s} modal at "
@@ -263,7 +518,9 @@ def value_only_modal(deriv, subjects, value_models, gate, colours, tag):
 
 
 def build_winner_datasets(deriv, subjects, models=CANDIDATES,
-                          smoothing=(False, True), min_prevalence=0.4):
+                          smoothing=(False, True), min_prevalence=0.4,
+                          prevalence_width=0.25, margin_lo=0.05,
+                          margin_hi=0.30, alpha_floor=0.0):
     ds, cbars = {}, []
     subjects_used = {}
     for sm in smoothing:
@@ -275,7 +532,7 @@ def build_winner_datasets(deriv, subjects, models=CANDIDATES,
         n = len(used)
         colours = [c for _, l, c in models if l in labels]
         prevalence = signal.mean(axis=0)
-        gate = (prevalence >= min_prevalence).astype(np.float32)
+        gate = prevalence_gate(prevalence, min_prevalence, prevalence_width)
         # Report both filters. "No subject beats null" sounds like the
         # decisive exclusion but is nearly toothless with 29 subjects: almost
         # every vertex has someone clearing their own null somewhere. The
@@ -283,7 +540,10 @@ def build_winner_datasets(deriv, subjects, models=CANDIDATES,
         print(f"  {'smoothed' if sm else 'unsmoothed'}: n={n}; "
               f"{100 * np.mean(prevalence == 0):.1f}% of vertices have no "
               f"subject beating the null; "
-              f"{100 * gate.mean():.1f}% pass prevalence >= {min_prevalence:.0%}")
+              f"{100 * np.mean(prevalence >= min_prevalence):.1f}% pass "
+              f"prevalence >= {min_prevalence:.0%}, "
+              f"{100 * np.mean(gate > 0):.1f}% are drawn at all "
+              f"(fade width {prevalence_width:.2f})")
 
         # per-model: among subjects with signal here, how often does it win?
         frac = []
@@ -306,11 +566,19 @@ def build_winner_datasets(deriv, subjects, models=CANDIDATES,
         margin = (top[-1] - top[-2]) if stack.shape[0] > 1 else top[-1]
         cmap = mpl.colors.ListedColormap(colours)
         name = f"Modal winner{tag} ({' / '.join(labels)})"
-        # Opacity on the margin over the runner-up, starting above the median
-        # margin (~0.25). Scaling from zero shows every vertex including the
-        # near-ties, which is most of cortex and reads as a solid wash.
-        confident = np.clip((margin - 0.15) / 0.35, 0, 1)
-        ds[name] = blended(modal, gate * confident, CX_FSAVERAGE,
+        # Opacity on the margin over the runner-up. The ramp used to start
+        # at 0.15 on the assumption that the median margin was ~0.25; with
+        # four models and 29 subjects it is actually 0.13 smoothed / 0.17
+        # unsmoothed, so that start silently blanked more than half of the
+        # cortex the gate had admitted (72% of all vertices fully transparent).
+        # Starting at --margin-lo (0.05 by default) keeps only true ties
+        # invisible; --alpha-floor lifts even those into view.
+        confident = margin_alpha(margin, margin_lo, margin_hi, alpha_floor)
+        alpha = gate * confident
+        print(f"    modal winner: {100 * np.mean(alpha == 0):.1f}% of vertices "
+              f"fully transparent, mean alpha {alpha.mean():.2f} "
+              f"(margin median {np.median(margin):.2f})")
+        ds[name] = blended(modal, alpha, CX_FSAVERAGE,
                            -0.5, len(labels) - 0.5, cmap)
         cbars.append((f"Modal winner: {' / '.join(labels)}", cmap,
                       -0.5, len(labels) - 0.5))
@@ -355,7 +623,8 @@ def build_winner_datasets(deriv, subjects, models=CANDIDATES,
                 # there is value signal, which shape fits it".
                 vm = [models[i] for i in val]
                 sub_ds = value_only_modal(deriv, subjects_used[sm], vm, gate,
-                                          [colours[i] for i in val], tag)
+                                          [colours[i] for i in val], tag,
+                                          margin_lo, margin_hi, alpha_floor)
                 for nm2, (vtx2, cb2) in sub_ds.items():
                     ds[nm2] = vtx2
                     cbars.append(cb2)
@@ -383,6 +652,11 @@ def main():
                         "splits its own vote in the modal map and gets more "
                         "chances in the argmax.")
     p.add_argument("--summary", default=None, help="write the summary PDF here")
+    p.add_argument("--roi-summary", default=None,
+                   help="write the per-ROI summary PDF here (one panel per "
+                        "ROI, one page per smoothing level)")
+    p.add_argument("--rois", nargs="+", default=ROI_PANELS,
+                   help=f"ROIs for --roi-summary (default: {' '.join(ROI_PANELS)})")
     p.add_argument("--html", nargs="?", const="", default=None,
                    help="build the winner webgl bundle (default "
                         "<out-root>/model-winner)")
@@ -401,6 +675,18 @@ def main():
                         "subjects almost everywhere has someone clearing "
                         "their own null, so this threshold is the real "
                         "filter, not the null test.")
+    p.add_argument("--prevalence-width", type=float, default=0.25,
+                   help="Fade the prevalence gate in over this width below "
+                        "--min-prevalence (default 0.25, i.e. 0.15 -> 0.40). "
+                        "0 restores the old hard cut-off.")
+    p.add_argument("--margin-lo", type=float, default=0.05,
+                   help="Win-fraction margin over the runner-up at which the "
+                        "modal-winner map starts to appear (default 0.05).")
+    p.add_argument("--margin-hi", type=float, default=0.30,
+                   help="Margin at which it reaches full opacity (default 0.30).")
+    p.add_argument("--alpha-floor", type=float, default=0.0,
+                   help="Minimum opacity for any vertex the gate admits "
+                        "(default 0: exact ties stay invisible).")
     p.add_argument("--smoothing", default="both",
                    choices=["both", "unsmoothed", "smoothed"])
     args = p.parse_args()
@@ -418,11 +704,19 @@ def main():
     if args.summary:
         summary_figure(deriv, subjects, args.summary, models, smoothing)
 
+    if args.roi_summary:
+        roi_summary_figure(deriv, subjects, args.roi_summary, models, smoothing,
+                           args.rois,
+                           out_tsv=str(Path(args.roi_summary).with_suffix(".tsv")))
+
     if args.html is not None:
         dest = Path(args.html) if args.html else \
             Path(args.out_root) / "model-winner"
         ds, cbars = build_winner_datasets(deriv, subjects, models, smoothing,
-                                          args.min_prevalence)
+                                          args.min_prevalence,
+                                          args.prevalence_width,
+                                          args.margin_lo, args.margin_hi,
+                                          args.alpha_floor)
         if not ds:
             raise SystemExit("No winner datasets built.")
         dest.mkdir(parents=True, exist_ok=True)
@@ -441,8 +735,9 @@ def main():
         if args.serve is not None:
             serve_directory(dest.parent, args.serve)
 
-    if args.summary is None and args.html is None:
-        raise SystemExit("Nothing to do — pass --summary and/or --html.")
+    if args.summary is None and args.roi_summary is None and args.html is None:
+        raise SystemExit("Nothing to do — pass --summary, --roi-summary "
+                         "and/or --html.")
 
 
 if __name__ == "__main__":
