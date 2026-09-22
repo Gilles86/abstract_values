@@ -57,13 +57,41 @@ BENSON_LABELS = {1: "V1", 2: "V2", 3: "V3", 4: "hV4", 5: "VO1", 6: "VO2",
 
 WANG_WANTED = ["IPS0", "IPS1", "IPS2", "IPS3", "IPS4", "IPS5", "SPL1",
                "FEF"]
-BENSON_WANTED = ["LO1", "LO2", "TO1", "TO2", "V3a", "V3b"]
+BENSON_WANTED = ["LO1", "LO2", "TO1", "TO2", "V3a", "V3b",
+                 # V1-hV4 too: BensonV1/V2/V3 exist as volumetric masks
+                 # already, but hV4 does not, and anything that wants to turn
+                 # these into per-subject masks needs the fsaverage label.
+                 "V1", "V2", "V3", "hV4"]
 # Unions worth having as one mask: IPS5 is ~20 vertices per hemisphere, far too
 # small to carry a per-vertex win vote on its own.
 UNIONS = {"LO": ("benson", ["LO1", "LO2"]),
           "IPS": ("wang", ["IPS0", "IPS1", "IPS2", "IPS3", "IPS4", "IPS5"]),
           "IPSpost": ("wang", ["IPS0", "IPS1"]),
           "IPSant": ("wang", ["IPS2", "IPS3", "IPS4", "IPS5"])}
+
+
+# Numerosity maps that exist only as hand-drawn ROIs in the shared fsaverage
+# pycortex overlay. Exporting them as label.gii puts them on the same footing
+# as the atlas ROIs, so the surface->volume mask pipeline can reach them.
+OVERLAY_WANTED = ["NTO", "NF1", "NF2", "NINS"]
+
+
+def overlay_masks(names, n_hemi):
+    """{(name, hemi): boolean} from the fsaverage pycortex overlay."""
+    import cortex
+    verts = cortex.utils.get_roi_verts("fsaverage")
+    out = {}
+    for name in names:
+        for hemi, side in (("lh", "L"), ("rh", "R")):
+            key = f"{name}_{side}"
+            if key not in verts:
+                print(f"  skip {key}: not in the fsaverage overlay")
+                continue
+            m = np.zeros(2 * n_hemi, bool)
+            m[verts[key]] = True
+            sl = slice(0, n_hemi) if hemi == "lh" else slice(n_hemi, 2 * n_hemi)
+            out[(name, hemi, side)] = m[sl]
+    return out
 
 
 def find_atlas_dir(explicit=None):
@@ -143,6 +171,12 @@ def main():
     if args.wang_lo:
         jobs += [("LO1w", "wang", ["LO1"]), ("LO2w", "wang", ["LO2"]),
                  ("LOw", "wang", ["LO1", "LO2"])]
+
+    n_hemi = atlases["wang"][0]["lh"].size
+    for (name, hemi, side), mask in overlay_masks(OVERLAY_WANTED, n_hemi).items():
+        out = (out_dir / f"desc-{name}_{side}_space-fsaverage"
+                         f"_hemi-{hemi}.label.gii")
+        write_label(mask, out, args.dry_run)
 
     for name, source, parts in jobs:
         for hemi, side in (("lh", "L"), ("rh", "R")):
