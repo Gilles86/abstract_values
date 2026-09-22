@@ -14,12 +14,14 @@ Participants view flickering annular gratings (gabors) at 23 different orientati
 
 The mapping assignment is determined by **subject ID parity** and **session number**:
 
-| Subject ID | Session 1   | Session 2   |
-|------------|-------------|-------------|
-| Odd (1, 3, 5, …)  | `inverse_cdf` | `cdf`         |
-| Even (2, 4, 6, …) | `cdf`         | `inverse_cdf` |
+| Subject ID | Session 1 | Session 2 |
+|---|---|---|
+| Odd (1, 3, 5, …)  | `inverse_cdf` — booklet **B** | `cdf` — booklet **A** |
+| Even (2, 4, 6, …) | `cdf` — booklet **A** | `inverse_cdf` — booklet **B** |
 
-This is a standard AB/BA counterbalancing design: every participant sees both mappings, with order flipped between odd and even subjects. The assignment is implemented in `run_task.ps1` (lines 24–28).
+This is a standard AB/BA counterbalancing design: every participant sees both mappings, with order flipped between odd and even subjects. Each launcher computes the mapping from participant number + session (e.g. `run_fmri.ps1`, lines 23–27) — **you never type it**.
+
+The printed instruction booklets are labelled by mapping on their first page: **A = `cdf`** (`instructions_mapping_cdf_v5.docx`), **B = `inverse_cdf`** (`instructions_mapping_invcdf_v5.docx`). Every launcher prints the mapping it picked — check that line against the booklet before the participant starts reading, and if they disagree, fix the booklet, never the software. Full session protocol: [`RUNNING_A_SESSION.md`](RUNNING_A_SESSION.md).
 
 ### Mappings
 
