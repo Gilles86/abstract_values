@@ -1,8 +1,6 @@
-$python     = "C:\Users\gdehol\experiments\abstract_values\experiment\.venv\Scripts\python.exe"
-$expDir     = "C:\Users\gdehol\experiments\abstract_values\experiment"
-
-if (-not (Test-Path $python))  { throw "Python not found: $python" }
-if (-not (Test-Path $expDir))  { throw "Experiment directory not found: $expDir" }
+# Paths and the log-backup helper come from _common.ps1, which resolves
+# everything relative to this folder -- no account-specific paths here.
+. "$PSScriptRoot\_common.ps1"
 
 Write-Host "Hello! Please enter the following details:"
 
@@ -49,9 +47,7 @@ for ($run = 1; $run -le 8; $run++) {
 Write-Host "Displaying total earnings..."
 & $python "$expDir\earnings.py" $subject_id $session_id --settings sns_fmri
 
-# Copy logs to network drive
-Write-Host "Copying logs to T:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior..."
-Copy-Item -Path "$expDir\logs\sub-*" -Destination "T:\projects\2026\dehollander_bedi_ruff_abstract_values\data\sourcedata\behavior\" -Recurse -Force
-Write-Host "Logs copied successfully!"
+# Copy logs to the department share (destination set in _common.ps1)
+Copy-LogsToBackup
 
 Read-Host

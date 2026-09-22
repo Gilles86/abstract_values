@@ -39,4 +39,4 @@ ds-abstractvalue/
 
 ## Preprocessing
 
-See `experiment/README.md` for full task design details and `CLAUDE.md` for developer/analysis workflow notes.
+See `experiment/README.md` for full task design details — including [installing the task on a stimulus PC](experiment/README.md#installation-on-a-stimulus-pc-or-in-a-new-windows-account) with `uv` — and `CLAUDE.md` for developer/analysis workflow notes.

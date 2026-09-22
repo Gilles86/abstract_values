@@ -1,4 +1,6 @@
-
+# Paths and the log-backup helper come from _common.ps1, which resolves
+# everything relative to this folder -- no account-specific paths here.
+. "$PSScriptRoot\_common.ps1"
 
 Write-Host "Hello! Please enter the following details:"
 
@@ -27,31 +29,23 @@ if ($subject_id % 2 -eq 0) {
     $mapping = if ($session_id -eq 1) { "inverse_cdf" } else { "cdf" }
 }
 
-Write-Host "Activating virtual environment..."
-# & "n:\client_write\gilles\venv\exptools\Scripts\Activate.ps1"
-& "c:\Expfiles\gilles\venv\exptools\Scripts\Activate.ps1"
-
-# Run the Python command
-
 Write-Host ("Running experiment for subject {0}, session {1}: {2}" -f $subject_id, $session_id, $mapping)
 
-python examples.py $subject_id $session_id $mapping --settings sns_multisubject
+& $python "$expDir\examples.py" $subject_id $session_id $mapping --settings sns_multisubject
 
-python training.py $subject_id $session_id $mapping --settings sns_multisubject
+& $python "$expDir\training.py" $subject_id $session_id $mapping --settings sns_multisubject
 
 # Run the main task for 8 runs
 for ($run = 1; $run -le 8; $run++) {
     Write-Host ("Running main task - Run {0} of 8" -f $run)
-    python task.py $subject_id $session_id $run $mapping --settings sns_multisubject
+    & $python "$expDir\task.py" $subject_id $session_id $run $mapping --settings sns_multisubject
 }
 
 # Display total earnings
 Write-Host "Displaying total earnings..."
-python earnings.py $subject_id $session_id --settings sns_multisubject
+& $python "$expDir\earnings.py" $subject_id $session_id --settings sns_multisubject
 
-# Copy logs to network drive
-Write-Host "Copying logs to N:\client_write\gilles\experiment\logs..."
-Copy-Item -Path "logs\sub-*" -Destination "N:\client_write\gilles\experiment\logs\" -Recurse -Force
-Write-Host "Logs copied successfully!"
+# Copy logs to the department share (destination set in _common.ps1)
+Copy-LogsToBackup
 
 Read-Host

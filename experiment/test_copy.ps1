@@ -1,43 +1,47 @@
-# Test script for copying logs to network drive
+# Test script for copying logs to the backup share.
+# Paths come from _common.ps1 -- no account-specific paths here.
+. "$PSScriptRoot\_common.ps1"
 
 Write-Host "=== Testing Log Copy Operation ==="
 Write-Host ""
 
+$source = Join-Path $expDir "logs\sub-*"
+
 # Show what's in the local logs folder
 Write-Host "=== LOCAL LOGS (what will be copied) ==="
-if (Test-Path "logs\sub-*") {
-    Get-ChildItem -Path "logs\sub-*" -Directory | ForEach-Object { Write-Host $_.Name }
+if (Test-Path $source) {
+    Get-ChildItem -Path $source -Directory | ForEach-Object { Write-Host $_.Name }
 } else {
-    Write-Host "No sub-* folders found in logs\"
+    Write-Host "No sub-* folders found in $expDir\logs"
 }
 Write-Host ""
 
 # Show what's currently in the destination
-Write-Host "=== CURRENT DESTINATION (N:\client_write\gilles\experiment\logs) ==="
-if (Test-Path "N:\client_write\gilles\experiment\logs") {
-    Get-ChildItem -Path "N:\client_write\gilles\experiment\logs" -Directory | ForEach-Object { Write-Host $_.Name }
+Write-Host "=== CURRENT DESTINATION ($backupDir) ==="
+if (Test-Path $backupDir) {
+    Get-ChildItem -Path $backupDir -Directory | ForEach-Object { Write-Host $_.Name }
 } else {
-    Write-Host "Destination path doesn't exist yet"
+    Write-Host "Destination not reachable (drive not mapped in this account?)"
 }
 Write-Host ""
 
 # Confirm before copying
-Write-Host "This will copy all sub-* folders from logs\ to N:\client_write\gilles\experiment\logs\"
+Write-Host "This will copy all sub-* folders from $expDir\logs to $backupDir"
 Write-Host "Existing files with same names will be overwritten."
-Write-Host "Other subject folders already on N:\ will NOT be affected."
+Write-Host "Other subject folders already at the destination will NOT be affected."
 Write-Host ""
 $confirm = Read-Host "Proceed with copy? (yes/no)"
 
 if ($confirm -eq "yes") {
     Write-Host ""
-    Write-Host "Copying logs to N:\client_write\gilles\experiment\logs..."
-    Copy-Item -Path "logs\sub-*" -Destination "N:\client_write\gilles\experiment\logs\" -Recurse -Force
-    Write-Host "Logs copied successfully!"
+    Copy-LogsToBackup
     Write-Host ""
-    
+
     # Show what's in destination after copy
-    Write-Host "=== DESTINATION AFTER COPY ==="
-    Get-ChildItem -Path "N:\client_write\gilles\experiment\logs" -Directory | ForEach-Object { Write-Host $_.Name }
+    if (Test-Path $backupDir) {
+        Write-Host "=== DESTINATION AFTER COPY ==="
+        Get-ChildItem -Path $backupDir -Directory | ForEach-Object { Write-Host $_.Name }
+    }
 } else {
     Write-Host "Copy cancelled."
 }

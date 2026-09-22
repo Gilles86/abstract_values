@@ -1,8 +1,6 @@
-$python = "C:\ExpFiles\gilles\psychopy\python.exe"
-$expDir = "C:\Users\gdehol\abstract_values\experiment"
-
-if (-not (Test-Path $python)) { throw "Python not found: $python" }
-if (-not (Test-Path $expDir)) { throw "Experiment directory not found: $expDir" }
+# Paths and the log-backup helper come from _common.ps1, which resolves
+# everything relative to this folder -- no account-specific paths here.
+. "$PSScriptRoot\_common.ps1"
 
 Write-Host "Please enter the following details:"
 
@@ -33,5 +31,9 @@ Write-Host "Running examples..."
 
 Write-Host "Running training..."
 & $python "$expDir\training.py" $subject_id $session_id $mapping --settings single_subject
+
+# Archive the learning-phase logs too -- nothing used to copy these off the
+# testing-room PC, which is why sourcedata holds no phase-1/2 files.
+Copy-LogsToBackup
 
 Read-Host
