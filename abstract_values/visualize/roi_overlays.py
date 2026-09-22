@@ -56,6 +56,20 @@ FSAVERAGE_SPECS = [
     ("NPCr", "gii:desc-NPC_R_space-fsaverage_hemi-{hemi}.label.gii", [], "#F4A261"),
 ]
 
+# Atlas ROIs written by surface.make_fsaverage_atlas_masks: Wang-15 for the
+# IPS bands (Benson has no parietal cortex) and Benson-14 for the rest. Both
+# hemispheres live in one label each, so one spec covers both.
+ATLAS_SPECS = [
+    ("IPS0", "gii:desc-IPS0_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii", [], "#0B7A3B"),
+    ("IPS1", "gii:desc-IPS1_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii", [], "#2E9E57"),
+    ("IPS2", "gii:desc-IPS2_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii", [], "#59BE7A"),
+    ("IPS3", "gii:desc-IPS3_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii", [], "#8ED9A3"),
+    ("V3a",  "gii:desc-V3a_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",  [], "#4C9BE8"),
+    ("LO",   "gii:desc-LO_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",   [], "#E9724C"),
+    ("TO1",  "gii:desc-TO1_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",  [], "#C44E52"),
+    ("TO2",  "gii:desc-TO2_{HEMI}_space-fsaverage_hemi-{hemi}.label.gii",  [], "#8E2F3E"),
+]
+
 
 def _fs_subject_dir(bids_folder, subject):
     """fmriprep names the FreeSurfer subject sub-XX_ses-1, not sub-XX."""
@@ -430,3 +444,87 @@ def burn_outlines_into(ds, subject, cx_subject, bids_folder, width=2,
             vtx.green.data[edge] = g
             vtx.blue.data[edge] = b
     return ds
+
+
+def main():
+    """Write ROIs into a pycortex subject's overlays.svg.
+
+    The fsaverage store is shared with every other project on this machine, so
+    this adds and replaces only the ROIs it is given and never prunes there
+    (`--prune` is available for the per-subject overlays, which only this
+    pipeline writes).
+
+    Pycortex caches the overlay next to the subject's `.ctm`, and `make_static`
+    copies the cached one — so a bundle built before this ran will not show the
+    new ROIs until the cache is cleared, which `--clear-cache` does.
+    """
+    import argparse
+    import cortex
+
+    from abstract_values.utils.data import BIDS_FOLDER
+
+    p = argparse.ArgumentParser(description=main.__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--subject", default="fsaverage",
+                   help="FreeSurfer subject the annot/label sources come from "
+                        "(ignored by the gii:/benson: sources).")
+    p.add_argument("--cx-subject", default=None,
+                   help="pycortex subject to write into (default: fsaverage "
+                        "for --specs fsaverage/atlas, abstractvalue.sub-<s> "
+                        "otherwise).")
+    p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
+    p.add_argument("--specs", default="atlas",
+                   choices=["atlas", "fsaverage", "subject", "all"],
+                   help="Which ROI set to write (default: atlas — the Wang/"
+                        "Benson masks from make_fsaverage_atlas_masks).")
+    p.add_argument("--rois", nargs="+", default=None,
+                   help="Restrict to these ROI labels.")
+    p.add_argument("--prune", action="store_true",
+                   help="Also delete ROIs the spec set no longer defines. "
+                        "Never do this on the shared fsaverage overlay.")
+    p.add_argument("--clear-cache", action="store_true",
+                   help="Drop the subject's cached ctm/svg so the next bundle "
+                        "picks the new ROIs up.")
+    p.add_argument("--dry-run", action="store_true")
+    args = p.parse_args()
+
+    specs = {"atlas": ATLAS_SPECS, "fsaverage": FSAVERAGE_SPECS,
+             "subject": ROI_SPECS,
+             "all": FSAVERAGE_SPECS + ATLAS_SPECS}[args.specs]
+    if args.rois:
+        specs = [sp for sp in specs if sp[0] in set(args.rois)]
+        missing = set(args.rois) - {sp[0] for sp in specs}
+        if missing:
+            raise SystemExit(f"Unknown ROI(s): {sorted(missing)}")
+    cx_subject = args.cx_subject or ("fsaverage"
+                                     if args.specs in ("atlas", "fsaverage", "all")
+                                     else f"abstractvalue.sub-{args.subject}")
+    print(f"{len(specs)} ROI(s) -> {cx_subject}: "
+          f"{', '.join(sp[0] for sp in specs)}")
+    write_roi_overlay(args.subject, cx_subject, args.bids_folder, specs=specs,
+                      prune=args.prune, dry_run=args.dry_run)
+
+    if args.clear_cache and not args.dry_run:
+        cache = Path(cortex.database.default_filestore) / cx_subject / "cache"
+        gone = 0
+        for stale in cache.glob(f"{cx_subject}_[[]*"):
+            stale.unlink()
+            gone += 1
+        print(f"  cleared {gone} cached ctm/svg file(s) in {cache}")
+
+    if not args.dry_run:
+        import numpy as np
+        ov = cortex.db.get_overlay(cx_subject, modify_svg_file=False)
+        masks = annot_masks(args.subject, args.bids_folder, specs)
+        for label, *_ in specs:
+            idx = np.asarray(ov.rois.get_mask(label), dtype=int)
+            got = np.zeros(masks[label].shape, bool)
+            got[idx] = True
+            src = masks[label]
+            dice = 2 * (got & src).sum() / max(got.sum() + src.sum(), 1)
+            print(f"  read-back {label:5s}: {got.sum():5d} vtx, "
+                  f"Dice {dice:.3f} against the source mask")
+
+
+if __name__ == "__main__":
+    main()
