@@ -274,7 +274,7 @@ def _flat_to_svg(cx_subject, svgshape):
 
 
 def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5,
-                   hemi_sizes=None):
+                   hemi_sizes=None, min_area_frac=0.25):
     """Closed SVG paths around ``mask``, contoured in flatmap space.
 
     ``smooth`` is a Gaussian blur (in grid cells) applied to the rasterised
@@ -298,7 +298,8 @@ def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5,
             sub[sl] = mask[sl]
             if sub.any():
                 out += _contour_paths(sub, svg_xy, svgshape, grid, flip_y,
-                                      smooth, hemi_sizes=None)
+                                      smooth, hemi_sizes=None,
+                                      min_area_frac=min_area_frac)
             start += n
         return out
 
@@ -323,10 +324,22 @@ def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5,
     cs = plt.contour(gx, gy, z, levels=[0.5])
     plt.close(fig)
 
+    segs = [seg for seg in cs.allsegs[0] if len(seg) >= 8]  # specks, not parcels
+
+    # The viewer labels every PATH, not every ROI, so a parcel that contours
+    # into ten pieces writes its name ten times on top of itself. Keep only
+    # the pieces that carry the region: anything below min_area_frac of the
+    # largest piece (by polygon area) is a fringe fragment of the same parcel.
+    # This bites at high --grid / low --smooth, where a ragged boundary breaks
+    # up instead of closing: FEF came out as 10 paths at 2400/1.0.
+    if segs and min_area_frac:
+        area = [0.5 * abs(np.dot(sg[:, 0], np.roll(sg[:, 1], 1)) -
+                          np.dot(sg[:, 1], np.roll(sg[:, 0], 1))) for sg in segs]
+        keep = max(area) * min_area_frac
+        segs = [sg for sg, a in zip(segs, area) if a >= keep]
+
     paths = []
-    for seg in cs.allsegs[0]:
-        if len(seg) < 8:                      # specks, not parcels
-            continue
+    for seg in segs:
         if flip_y:
             seg = np.column_stack([seg[:, 0], h - seg[:, 1]])
         d = "M " + " L ".join(f"{x:.2f},{y:.2f}" for x, y in seg) + " Z"
@@ -336,7 +349,7 @@ def _contour_paths(mask, svg_xy, svgshape, grid=900, flip_y=True, smooth=2.5,
 
 def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
                       grid=900, flip_y=True, smooth=2.5, prune=False,
-                      dry_run=False):
+                      dry_run=False, min_area_frac=0.25):
     """Write IPS/LO/M1 as real pycortex ROIs into the subject's overlays.svg."""
     import xml.etree.ElementTree as ET
     import cortex
@@ -404,7 +417,8 @@ def write_roi_overlay(subject, cx_subject, bids_folder, specs=ROI_SPECS,
         group.set(f"{{{INK_NS}}}label", label)
         group.set("id", f"roi_{label}")
         paths = _contour_paths(masks[label], svg_xy, svgshape, grid,
-                               flip_y, smooth, hemi_sizes=hemi_sizes)
+                               flip_y, smooth, hemi_sizes=hemi_sizes,
+                               min_area_frac=min_area_frac)
         for i, d in enumerate(paths):
             el = ET.SubElement(group, f"{{{SVG_NS}}}path")
             el.set("d", d)
@@ -496,6 +510,11 @@ def main():
     p.add_argument("--smooth", type=float, default=2.5,
                    help="Gaussian blur in grid cells before contouring "
                         "(default 2.5). Lower it for small ROIs.")
+    p.add_argument("--min-area-frac", type=float, default=0.25,
+                   help="Drop contour pieces smaller than this fraction of "
+                        "the largest piece in the same hemisphere (default "
+                        "0.25). The viewer writes the ROI name once per path, "
+                        "so fragments become stacked duplicate labels.")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
@@ -514,6 +533,7 @@ def main():
           f"{', '.join(sp[0] for sp in specs)}")
     write_roi_overlay(args.subject, cx_subject, args.bids_folder, specs=specs,
                       grid=args.grid, smooth=args.smooth,
+                      min_area_frac=args.min_area_frac,
                       prune=args.prune, dry_run=args.dry_run)
 
     if args.clear_cache and not args.dry_run:
