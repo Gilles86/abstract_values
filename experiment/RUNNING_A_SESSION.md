@@ -3,16 +3,16 @@
 One participant session: learning phases in the testing room, then 8 fMRI runs. Irini owns
 everything scanner-side (positioning, protocol, starting acquisitions); you own the stimulus PC.
 
-| | |
-|---|---|
-| Participant number | `____` plain integer, e.g. `31` — not `01`, not `sub-31` |
-| Session | `1` / `2` |
-| Booklet | A or B, from the table below |
-| Scan start | `____` |
-| Phones | Gilles `____` · Irini `____` |
+**Thursday 24 September: two participants, `33` and `34`, both session 1.**
 
-**Open questions for Gilles:** which PC/login in the testing room and where the repo is on it;
-who pays out and at which session.
+| Participant | Type in the prompts | Booklet |
+|---|---|---|
+| 33 | `33`, session `1` | **B** (`inverse_cdf`) |
+| 34 | `34`, session `1` | **A** (`cdf`) |
+
+Plain integers — not `01`, not `sub-33`. Everything below is one participant's session; it runs
+twice. Second sessions are next week, with Gilles. Gilles is reachable by phone (you have the
+number) and Irini is in the console room.
 
 | When | Where | What |
 |---|---|---|
@@ -20,15 +20,16 @@ who pays out and at which session.
 | −50 | Testing room | Paperwork, booklet (~10 min self-paced), then `run_single_subject.ps1` (phases 1–2, ~40 min) |
 | −10 | Scanner | Hand over to Irini |
 | 0 | Console room | `run_fmri.ps1`: practice during the anatomical, then 8 runs |
-| +60 | Console room | Earnings screen, payment, check the logs |
+| +60 | Console room | Earnings screen (no payout — that is session 2), check the logs |
 
 Participant time ≈ 2.5 h. Each session uses a *different* angle→value mapping — worth saying out
 loud, since what they learned on the other day does not transfer.
 
 ## Booklet
 
-The software derives the mapping from participant number + session. **You never type it.** Each
-launcher prints the mapping it picked — check that line against the booklet in front of you.
+Thursday's two are in the table above. The general rule, for any other session: the software
+derives the mapping from participant number + session, and **you never type it**. Each launcher
+prints the mapping it picked — check that line against the booklet in front of you.
 
 | Participant number | Session 1 | Session 2 |
 |---|---|---|
@@ -46,6 +47,9 @@ figure.
 cd $env:USERPROFILE\experiments\abstract_values\experiment
 powershell.exe -ExecutionPolicy Bypass -File .\run_single_subject.ps1     # asks subject, session
 ```
+
+Both commands are in this account's PowerShell history from yesterday — `Get-History`, or arrow up
+/ `Ctrl+R`, beats retyping the path.
 
 Phase 1 (study, self-paced: ←/→ to browse, space once all 25 seen) runs into phase 2 (slider
 estimates with feedback, 230 trials in 10 blocks, ~32 min, breaks between blocks). Mouse-driven
@@ -107,10 +111,14 @@ middle — use the command above for that.
 
 ## End of session
 
-The earnings screen reads the local `logs` folder first and the department share for anything
-missing, so session 2 finds session 1 even from a different stim PC. It prints where each session
-came from and warns `session 1 has 6/8 runs; missing run(s): [7, 8]` — **read those lines before
-paying out.** Away from the stim PC: `python calculate_earnings.py --bids_folder <root>`.
+**No money changes hands on Thursday** — participants are paid after session 2, by Gilles. The
+earnings screen still comes up and shows the participant their running total; let them read it,
+that's all.
+
+It reads the local `logs` folder first and the department share for anything missing, so next
+week's session 2 finds session 1 even from another stim PC. It prints where each session came from
+and warns `session 1 has 6/8 runs; missing run(s): [7, 8]` — worth a glance, since that warning is
+what next week's payment depends on.
 
 If the log copy warned instead of printing `Logs copied successfully!`:
 
@@ -126,4 +134,4 @@ Completeness check before leaving, in `logs\sub-{nr}\ses-{session}\` — eight `
 `.edf`, eight `reward_*.txt`, plus the practice `task-training` TSV and the earnings TSV.
 
 Then message Gilles: participant, session, mapping, runs completed, anything odd (aborts, motion,
-missing triggers, eyetracker trouble). If this was session 1, fix the date for session 2.
+missing triggers, eyetracker trouble).

@@ -31,8 +31,4 @@ Write-Host "Running examples..."
 Write-Host "Running training..."
 & $python "$expDir\training.py" $subject_id $session_id $mapping --settings single_subject
 
-# Archive the learning-phase logs too -- nothing used to copy these off the
-# testing-room PC, which is why sourcedata holds no phase-1/2 files.
-Copy-LogsToBackup
-
 Read-Host
