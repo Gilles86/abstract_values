@@ -82,7 +82,8 @@ instead of the projector at 100 cm, so everything comes out ~1.7× off.
 powershell.exe -ExecutionPolicy Bypass -File .\run_fmri.ps1     # subject, session, eyetracker? y
 ```
 
-Then it runs by itself: practice run (36 trials, no triggers — do it **during the anatomical**),
+Then it runs by itself: practice run (36 trials, no triggers — do it **during the anatomical**, the
+participant clicks through its screens with the trackball),
 eyetracker calibration, run 1, … run 8, earnings screen, log copy to the share. **Don't close the
 PowerShell window** — the whole session is one script.
 
@@ -100,6 +101,8 @@ you don't press anything to get there. `c` is how you bring it back, in run 1 or
 | Eyetracker computer | **Agree** | Ends calibration |
 | Eyetracker computer | `Escape` | Leaves calibration and goes on to run 1 — **not `Q`** |
 | Stim PC — between runs | `Q` or `space` | Ends the finished run and starts the next one |
+| **Participant's trackball** | button | Their way through every "Click to continue / Click to start" screen in the practice run, and through the slider on every trial |
+| Stim PC — `Please do not move while the scanner is making noises` | `space` | The one screen the trackball cannot dismiss; you end the practice run from here |
 
 `Escape` is the one that's easy to get wrong: `Q` during calibration kills the run instead of
 leaving the calibration screen.
@@ -112,6 +115,11 @@ opening phase; if nothing happens, press again.
 If a calibration key does nothing on the eyetracker computer, try the same key on the stim PC
 keyboard — which machine owns which key depends on how the Eyelink is set up, and that is exactly
 what the pre-flight is for.
+
+The participant needs no keyboard: the instruction screens in the practice run take a trackball
+press, and so does the between-runs screen — so it can also vanish because they fidgeted, which
+costs nothing (the next run still waits for its triggers). Each screen ignores the button for its
+first half-second, so a button already held down doesn't skip it.
 
 ## When something goes wrong
 
