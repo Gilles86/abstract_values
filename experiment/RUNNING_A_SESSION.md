@@ -35,8 +35,10 @@ launcher prints the mapping it picked — check that line against the booklet in
 | Odd (31, 33, …) | **B** = `inverse_cdf` | **A** = `cdf` |
 | Even (32, 34, …) | **A** = `cdf` | **B** = `inverse_cdf` |
 
-Mismatch found after they started reading: stop, phone Gilles, restart with the right booklet.
-Never fix it in the software.
+Mismatch found after they started reading: swap in the right booklet and start the reading over
+— the table above is the whole rule, so you don't need to check with anyone. Never fix it the other
+way round, in the software. Mention it to Gilles afterwards, since they've seen the wrong mapping
+figure.
 
 ## Testing room — phases 1 and 2
 
@@ -96,11 +98,11 @@ middle — use the command above for that.
 | Symptom | What to do |
 |---|---|
 | `running scripts is disabled on this system` | Use the `-ExecutionPolicy Bypass` form above; for files copied off a share, `Get-ChildItem *.ps1 \| Unblock-File`. |
-| `No Python environment found at ...\.venv\...` | Not built in this Windows account: `uv sync` in the experiment folder (README, "Installation on a stimulus PC"). If `uv` is missing too, phone Gilles rather than pointing it at another Python. |
+| `No Python environment found at ...\.venv\...` | Not built in this Windows account: `uv sync` in the experiment folder (README, "Installation on a stimulus PC"). Never point the launcher at some other Python — that's how you end up on a different PsychoPy. |
 | Trigger counter not moving | Triggers aren't reaching the stim PC — ask Irini (sequence actually running? cable?). `Q` and redo the run. |
 | `WARNING: backup location not reachable` | Share not mapped in this account. Data are safe in `experiment\logs`; copy by hand (below). |
 | `No reward files found`, or `session 1 has 0/8 runs` on a session 2 | The share fallback found nothing, so the total is wrong. Map the drive or set `$env:ABSTRACT_VALUES_BACKUP`, rerun `run_fmri_resume.ps1` option `e`. Don't improvise a payment figure. |
-| Gabor wrong size / wrong screen | Stop, phone Gilles. Don't edit `settings\`. |
+| Gabor or text the wrong size | Check the settings name in the console line: `run_fmri.ps1` passes `sns_fmri`, which is correct for this room. If it says that and still looks wrong, the projector resolution or Windows display scaling differs from 1920×1200 at 100 %. Don't edit `settings\`. |
 | Windows dialog on top | Dismiss it on the stim PC; the task gets no input while one is open. |
 
 ## End of session
