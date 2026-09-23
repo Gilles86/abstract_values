@@ -62,7 +62,8 @@ slider — give it room.
 | Runs × volumes | 8 × 367, TR 0.996 s |
 | Trigger char | `5`, task waits for 20 per run (~20 s) |
 
-Each run starts itself once the triggers arrive; you never press anything to start one. Tell the
+Each run starts itself once the triggers arrive; you never press anything to start a run. The keys
+you do press — calibration, and moving from one run to the next — are in the table below. Tell the
 participant: eyes on the fixation cross throughout, don't move between runs either.
 
 Pre-flight before they're in the room — 3 dummy trials, also confirms stimulus geometry
@@ -80,14 +81,32 @@ powershell.exe -ExecutionPolicy Bypass -File .\run_fmri.ps1     # subject, sessi
 ```
 
 Then it runs by itself: practice run (36 trials, no triggers — do it **during the anatomical**),
-eyetracker calibration, run 1, … run 8, earnings screen, log copy to the share. After each run an
-earnings screen waits for **space** before the next one. **Don't close the PowerShell window** —
-the whole session is one script.
+eyetracker calibration, run 1, … run 8, earnings screen, log copy to the share. **Don't close the
+PowerShell window** — the whole session is one script.
+
+### Keys, in order
+
+| Where | Key | What it does |
+|---|---|---|
+| Trigger-wait screen, run 1 | `c` | Starts eyetracker calibration (run 1 also offers it by itself) |
+| Calibration, each target | `space` | Accepts that fixation |
+| Eyetracker computer | `V` | Starts validation; accept its targets the same way |
+| Eyetracker computer | **Agree** | Ends calibration |
+| Calibration | `Escape` | Leaves calibration and goes on to run 1 — **not `Q`** |
+| Between runs | `Q` or `space` | Ends the finished run and starts the next one |
+
+`Escape` is the one that is easy to get wrong: `Q` during calibration kills the run instead of
+leaving the calibration screen.
+
+Between runs is the opposite — the screen showing `This run: … / Total so far: …` accepts both
+`Q` and `space`, and by then that run's data and its reward file are already written, so `Q` there
+is the normal way to move on.
 
 ## When something goes wrong
 
-**`Q` aborts the current run and immediately continues with the next one.** Abort run 3 and the
-script moves to run 4; run 3 is simply missing. Let 4–8 finish, then redo it by hand with the
+**`Q` in the middle of a run aborts it** — same key that advances between runs, different
+consequence: nothing is saved for that run and the script goes straight on to the next one. Abort
+run 3 and it moves to run 4; run 3 is simply missing. Let 4–8 finish, then redo it by hand with the
 mapping the script printed (same filenames, so the partial files are overwritten):
 
 ```powershell
