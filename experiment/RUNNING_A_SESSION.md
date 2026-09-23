@@ -106,7 +106,8 @@ leaving the calibration screen.
 
 Between runs is the opposite — the screen showing `This run: … / Total so far: …` accepts both
 `Q` and `space`, and by then that run's events and reward file are already written, so `Q` there is
-the normal way to move on.
+the normal way to move on. A press in the first half-second of that screen is swallowed by its
+opening phase; if nothing happens, press again.
 
 If a calibration key does nothing on the eyetracker computer, try the same key on the stim PC
 keyboard — which machine owns which key depends on how the Eyelink is set up, and that is exactly
