@@ -66,11 +66,13 @@ Each run starts itself once the triggers arrive; you never press anything to sta
 you do press — calibration, and moving from one run to the next — are in the table below. Tell the
 participant: eyes on the fixation cross throughout, don't move between runs either.
 
-Pre-flight before they're in the room — 3 dummy trials, also confirms stimulus geometry
-(press `5` twenty times to clear the trigger screen, then delete `logs\sub-99\`):
+Pre-flight before they're in the room — 3 dummy trials. It confirms the stimulus geometry and lets
+you rehearse the calibration keys on both keyboards (press `5` twenty times to clear the trigger
+screen, then delete `logs\sub-99\`). Run 99 doesn't calibrate by itself, so press `c` to get the
+calibration up. Drop `--eyetracker` if the Eyelink isn't on yet:
 
 ```powershell
-.\.venv\Scripts\python.exe task.py 99 1 99 cdf --settings sns_fmri --n_trials 3
+.\.venv\Scripts\python.exe task.py 99 1 99 cdf --settings sns_fmri --n_trials 3 --eyetracker
 ```
 
 `sns_fmri` is the only correct settings file here; the others describe a desk monitor at 60 cm
@@ -86,21 +88,29 @@ PowerShell window** — the whole session is one script.
 
 ### Keys, in order
 
-| Where | Key | What it does |
+Two keyboards: the **stim PC** starts and ends runs, the **eyetracker computer** drives the
+calibration once it is up. In run 1 the calibration comes up on its own, before the trigger screen —
+you don't press anything to get there. `c` is how you bring it back, in run 1 or any later run.
+
+| Machine | Key | What it does |
 |---|---|---|
-| Trigger-wait screen, run 1 | `c` | Starts eyetracker calibration (run 1 also offers it by itself) |
-| Calibration, each target | `space` | Accepts that fixation |
+| Stim PC — any trigger-wait screen | `c` | Starts calibration (run 1 brings it up by itself) |
+| Eyetracker computer | `space` | Accepts each fixation target |
 | Eyetracker computer | `V` | Starts validation; accept its targets the same way |
 | Eyetracker computer | **Agree** | Ends calibration |
-| Calibration | `Escape` | Leaves calibration and goes on to run 1 — **not `Q`** |
-| Between runs | `Q` or `space` | Ends the finished run and starts the next one |
+| Eyetracker computer | `Escape` | Leaves calibration and goes on to run 1 — **not `Q`** |
+| Stim PC — between runs | `Q` or `space` | Ends the finished run and starts the next one |
 
-`Escape` is the one that is easy to get wrong: `Q` during calibration kills the run instead of
+`Escape` is the one that's easy to get wrong: `Q` during calibration kills the run instead of
 leaving the calibration screen.
 
 Between runs is the opposite — the screen showing `This run: … / Total so far: …` accepts both
-`Q` and `space`, and by then that run's data and its reward file are already written, so `Q` there
-is the normal way to move on.
+`Q` and `space`, and by then that run's events and reward file are already written, so `Q` there is
+the normal way to move on.
+
+If a calibration key does nothing on the eyetracker computer, try the same key on the stim PC
+keyboard — which machine owns which key depends on how the Eyelink is set up, and that is exactly
+what the pre-flight is for.
 
 ## When something goes wrong
 
