@@ -90,7 +90,10 @@ def get_paradigm(subjects=None, paradigm_tsv=None, condition=None):
 def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                perceptual_prior="long_term", fit_prior_weight=False,
                no_seam_crossing=False, prior_fourier_order=0,
-               cardinal_truncation=False, fit_motor_noise=False):
+               cardinal_truncation=False, fit_motor_noise=False,
+               param="kappa-sigma"):
+    if param != "kappa-sigma" and model_name not in ("sequential", "categorical"):
+        raise ValueError(f"--param {param} needs a two-stage model, not {model_name}")
     if model_name == "perception":
         from bauer.efficient_coding import EfficientPerceptionModel
         return EfficientPerceptionModel(paradigm, grid_resolution=grid_resolution,
@@ -111,6 +114,9 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
         else:
             # Paper Fig. 6: hard three-category gate around the 90 deg cardinal.
             from bauer.efficient_coding import CategoricalSequentialModel as cls
+        if param == "total-share":
+            from abstract_values.cogmodels.reparam import with_total_share
+            cls = with_total_share(cls)
         return cls(paradigm, grid_resolution=grid_resolution,
                    perceptual_prior=perceptual_prior,
                    lapse_rate=lapse_rate,
@@ -130,7 +136,8 @@ def subject_parameters(idata, paradigm, model_name):
     post = idata.posterior
     rows = {}
     fourier = [f"prior_{c}{k}" for k in range(1, 9) for c in "ab"]
-    for par in ("kappa_r", "sigma_rep", "sigma_motor", "prior_weight", *fourier):
+    for par in ("kappa_r", "sigma_rep", "total_noise", "perceptual_share",
+                "sigma_motor", "prior_weight", *fourier):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
             continue
@@ -243,6 +250,14 @@ def main():
                    help="Fit subjects independently. Required for a single "
                         "subject: with one subject the group SD is unidentified "
                         "and its HalfCauchy tail lets kappa_r run away.")
+    p.add_argument("--param", default="kappa-sigma",
+                   choices=["kappa-sigma", "total-share"],
+                   help="Coordinates the two-stage models are sampled in. "
+                        "'total-share' samples total bid noise (CHF) and the "
+                        "perceptual share of it, with kappa_r / sigma_rep as "
+                        "Deterministics -- removes their ridge (see "
+                        "cogmodels/reparam.py). Default keeps old results "
+                        "reproducible.")
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
@@ -266,7 +281,8 @@ def main():
                        prior_fourier_order=a.prior_fourier_order,
                        no_seam_crossing=a.no_seam_crossing,
                        cardinal_truncation=a.cardinal_truncation,
-                       fit_motor_noise=a.fit_motor_noise)
+                       fit_motor_noise=a.fit_motor_noise,
+                       param=a.param)
 
     model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -307,7 +323,16 @@ def main():
         tag += "_motor"
     if a.lapse_rate != 0.01:
         tag += f"_lapse{a.lapse_rate:g}"
+    if a.param != "kappa-sigma":
+        tag += f"_{a.param}"
     nc = out / f"efficient_coding_{tag}_trace.nc"
+    # Stamp the options that change the posterior, so a later rebuild of the
+    # model reads them back instead of today's defaults.
+    idata.posterior.attrs.update(
+        model=a.model, param=a.param, grid_resolution=a.grid_resolution,
+        lapse_rate=a.lapse_rate, perceptual_prior=a.perceptual_prior,
+        cardinal_truncation=int(a.cardinal_truncation),
+        fit_motor_noise=int(a.fit_motor_noise), group_sd_dist=a.group_sd_dist)
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
 
