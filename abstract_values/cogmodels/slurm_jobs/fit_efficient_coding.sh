@@ -37,6 +37,9 @@ FIND_INIT="${FIND_INIT:-}"
 MOTOR="${MOTOR:-}"
 # FOURIER=K fits the prior as a K-harmonic circular Fourier series.
 FOURIER="${FOURIER:-}"
+# PARAM=total-share samples total bid noise + perceptual share instead of
+# (kappa_r, sigma_rep); sequential/categorical only. See cogmodels/reparam.py.
+PARAM="${PARAM:-kappa-sigma}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -55,7 +58,7 @@ export JAX_COMPILATION_CACHE_DIR="${JAX_COMPILATION_CACHE_DIR:-/scratch/gdehol/j
 mkdir -p "$JAX_COMPILATION_CACHE_DIR"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
-echo "fit_efficient_coding (GPU): model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID prior=$PRIOR chain_method=$CHAIN_METHOD"
+echo "fit_efficient_coding (GPU): model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID prior=$PRIOR param=$PARAM chain_method=$CHAIN_METHOD"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
 
 cd "$REPO" || exit 1
@@ -78,4 +81,5 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     ${FIND_INIT:+--find-init "$FIND_INIT"} \
     ${MOTOR:+--fit-motor-noise} \
     ${FOURIER:+--prior-fourier-order "$FOURIER"} \
+    --param "$PARAM" \
     --out-dir "$OUTDIR"
