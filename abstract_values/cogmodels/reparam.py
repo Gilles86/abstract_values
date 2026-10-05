@@ -115,8 +115,7 @@ class TotalShareMixin:
         n_sub = self._n_subjects(pm.Model.get_context())
         total = pt.specify_shape(
             self.build_hierarchical_nodes('total_noise', **TOTAL_NOISE_PRIOR), (n_sub,))
-        share = pt.specify_shape(
-            self.build_hierarchical_nodes('perceptual_share', **SHARE_PRIOR), (n_sub,))
+        share = pt.specify_shape(self._build_share(n_sub), (n_sub,))
         perc = total * pt.sqrt(share)
         kappa_raw = (PERC_SCALE / perc) ** 2
         k_sat = 1.5 * max_resolvable_kappa(self.grid_resolution)
@@ -125,9 +124,80 @@ class TotalShareMixin:
         pm.Deterministic('sigma_rep', total * pt.sqrt(1.0 - share),
                          dims=('subject',))
 
+    def _build_share(self, n_sub):
+        """Per-subject perceptual share: logit-normal, hierarchical."""
+        return self.build_hierarchical_nodes('perceptual_share', **SHARE_PRIOR)
 
-def with_total_share(model_cls):
-    """A subclass of a bauer two-stage model using the total-share coordinates."""
+
+# ── two-component population for the share ───────────────────────────────────
+#
+# The total-share fits showed the share is bimodal across subjects: ~40% sit at
+# s ~ 0.99 (value noise ~ 0), the rest at 0.02-0.45. A single logit-normal
+# group then needs a group SD ~ 3.3, and the s ~ 1 subjects -- whose likelihood
+# is flat in s once sigma_rep is below what the bids can resolve -- wander along
+# a long logit tail scaled by that SD: 43% of iterations at max tree depth.
+#
+# total-share-mix replaces that group distribution by a two-component mixture
+# on z = logit(s), with membership marginalised out (no discrete parameters):
+#
+#   z_s ~ w N(MU_HIGH, SD_HIGH) + (1 - w) N(mu_low, sd_low)
+#
+#   'perceptual-dominated' component: FIXED at logit 3.5 +- 1.75 (centre
+#       s ~ 0.97, sigma_rep ~ 0.2 T). Its exact location is not identified --
+#       that is the flat part of the likelihood -- so it is pinned rather than
+#       learned. Being fixed it also orders the components: no label switching.
+#   'value-noise' component: mu_low ~ N(-1.5, 1)  (s ~ 0.18), sd_low ~
+#       HalfNormal(1.5).
+#   w ~ Beta(2, 2).
+#
+# The component widths are deliberately generous. A first version with the
+# perceptual component at 4 +- 1 and sd_low ~ HalfNormal(1) left a low-density
+# valley at logit ~1-2 between the components; sub-06, whose likelihood is
+# broad across that valley, then sat in one mode per chain (2 chains at
+# z ~ -2.5, 2 at z ~ +4.8; r_hat 1.67). Overlapping components remove the
+# barrier without giving back the long single-Gaussian tail.
+#
+# z is sampled centred: a mixture has no exact non-centred form, the
+# perceptual component's scale is fixed (no funnel), and the value-noise
+# component holds the data-informed subjects. The posterior probability that a
+# subject belongs to the perceptual-dominated component is stored as
+# `share_high_prob`.
+
+MIX_MU_HIGH, MIX_SD_HIGH = 3.5, 1.75
+MIX_MU_LOW_PRIOR = (-1.5, 1.0)
+MIX_SD_LOW_PRIOR = 1.5
+MIX_W_PRIOR = (2.0, 2.0)
+
+
+class TotalShareMixMixin(TotalShareMixin):
+    parameterisation = 'total-share-mix'
+
+    def _build_share(self, n_sub):
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        w = pm.Beta('share_w_high', *MIX_W_PRIOR)
+        mu_low = pm.Normal('share_mu_low', *MIX_MU_LOW_PRIOR)
+        sd_low = pm.HalfNormal('share_sd_low', MIX_SD_LOW_PRIOR)
+        mus = pt.stack([mu_low, pt.as_tensor(MIX_MU_HIGH)])
+        sds = pt.stack([sd_low, pt.as_tensor(MIX_SD_HIGH)])
+        ws = pt.stack([1.0 - w, w])
+        z = pm.NormalMixture('perceptual_share_untransformed', w=ws, mu=mus,
+                             sigma=sds, dims=('subject',))
+        lp_low = pm.logp(pm.Normal.dist(mu_low, sd_low), z) + pt.log1p(-w)
+        lp_high = pm.logp(pm.Normal.dist(MIX_MU_HIGH, MIX_SD_HIGH), z) + pt.log(w)
+        pm.Deterministic('share_high_prob',
+                         pt.exp(lp_high - pt.logaddexp(lp_low, lp_high)),
+                         dims=('subject',))
+        return pm.Deterministic('perceptual_share', pm.math.invlogit(z),
+                                dims=('subject',))
+
+
+def with_total_share(model_cls, mixture=False):
+    """A subclass of a bauer two-stage model using the total-share coordinates
+    (``mixture=True``: two-component population for the share)."""
     if 'sigma_rep' not in getattr(model_cls, 'base_parameters', []):
         raise ValueError(f"{model_cls.__name__} has no kappa_r/sigma_rep pair")
-    return type(f"{model_cls.__name__}TotalShare", (TotalShareMixin, model_cls), {})
+    mixin = TotalShareMixMixin if mixture else TotalShareMixin
+    suffix = "TotalShareMix" if mixture else "TotalShare"
+    return type(f"{model_cls.__name__}{suffix}", (mixin, model_cls), {})

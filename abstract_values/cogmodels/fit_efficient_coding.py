@@ -114,9 +114,9 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
         else:
             # Paper Fig. 6: hard three-category gate around the 90 deg cardinal.
             from bauer.efficient_coding import CategoricalSequentialModel as cls
-        if param == "total-share":
+        if param in ("total-share", "total-share-mix"):
             from abstract_values.cogmodels.reparam import with_total_share
-            cls = with_total_share(cls)
+            cls = with_total_share(cls, mixture=param == "total-share-mix")
         return cls(paradigm, grid_resolution=grid_resolution,
                    perceptual_prior=perceptual_prior,
                    lapse_rate=lapse_rate,
@@ -137,6 +137,7 @@ def subject_parameters(idata, paradigm, model_name):
     rows = {}
     fourier = [f"prior_{c}{k}" for k in range(1, 9) for c in "ab"]
     for par in ("kappa_r", "sigma_rep", "total_noise", "perceptual_share",
+                "share_high_prob",
                 "sigma_motor", "prior_weight", *fourier):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
@@ -251,13 +252,15 @@ def main():
                         "subject: with one subject the group SD is unidentified "
                         "and its HalfCauchy tail lets kappa_r run away.")
     p.add_argument("--param", default="kappa-sigma",
-                   choices=["kappa-sigma", "total-share"],
+                   choices=["kappa-sigma", "total-share", "total-share-mix"],
                    help="Coordinates the two-stage models are sampled in. "
                         "'total-share' samples total bid noise (CHF) and the "
                         "perceptual share of it, with kappa_r / sigma_rep as "
                         "Deterministics -- removes their ridge (see "
-                        "cogmodels/reparam.py). Default keeps old results "
-                        "reproducible.")
+                        "cogmodels/reparam.py). 'total-share-mix' gives the "
+                        "share a two-component population (value-noise vs "
+                        "perceptual-dominated subjects). Default keeps old "
+                        "results reproducible.")
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
