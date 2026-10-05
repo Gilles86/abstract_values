@@ -6,6 +6,14 @@
 #SBATCH --mem=32G
 #SBATCH --time=08:00:00
 #SBATCH --gres=gpu:1
+# Jobs 6892838/9 both landed on the same 2-GPU H100 NVL node (u24-chaihm0-633,
+# GPUMEM96GB) in the same second and both died in 25 s with "Unable to
+# initialize backend 'cuda': no supported devices found" -- either the
+# simultaneous-cuInit race or a driver/CUDA mismatch on that node type, which
+# no earlier fit had ever run on. Belt and braces: stick to the node types
+# every past fit succeeded on (A100 80GB, H100 HBM3, H200), and warm CUDA
+# under a per-node lock below, failing fast rather than sampling on CPU.
+#SBATCH --constraint=GPUMEM80GB|GPUMEM140GB
 #SBATCH --account=zne.uzh
 
 # Hierarchical MCMC fit of the Bedi et al. efficient-coding models.
@@ -60,6 +68,26 @@ export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 echo "fit_efficient_coding (GPU): model=$MODEL draws=$DRAWS tune=$TUNE chains=$CHAINS grid=$GRID prior=$PRIOR param=$PARAM chain_method=$CHAIN_METHOD"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
+
+# cuInit warm-up under a node-local lock (sciencecluster skill, gpu_jobs.md):
+# the first job on a node initialises the driver alone, later ones find it
+# warm. Retry a few times; if JAX still sees no GPU, stop -- a silent CPU
+# fallback would take ~20x the walltime.
+PY=$HOME/data/conda/envs/bauer_cuda/bin/python
+ok=0
+for attempt in 1 2 3; do
+    if ( flock -w 120 -x 200 || exit 0
+         $PY -c "import jax; d = jax.devices('gpu'); print(f'cuInit OK: {d}', flush=True)"
+       ) 200>"/tmp/cuinit_warm_$(hostname -s).flock"; then
+        ok=1; break
+    fi
+    echo "cuInit attempt $attempt failed; retrying in $((attempt * 20)) s"
+    sleep $((attempt * 20))
+done
+if [ "$ok" != 1 ]; then
+    echo "ERROR: JAX cannot see a GPU on $(hostname -s); not falling back to CPU." >&2
+    exit 3
+fi
 
 cd "$REPO" || exit 1
 PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
