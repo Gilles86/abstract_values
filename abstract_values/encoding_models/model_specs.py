@@ -24,7 +24,7 @@ The registry itself lives in :data:`MODEL_SPECS`. Look up by short
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Type
 
 from braincoder.models import (
@@ -314,6 +314,26 @@ MODEL_SPECS: dict[str, ModelSpec] = {
     ),
 }
 
+
+
+# ── Reported-value twins ───────────────────────────────────────────────────
+# Every value model also on the participant's BID ('<name>-bid'), with its
+# objective-value control on the same bid-present trials ('<name>-bidmatched'),
+# plus the orientation model and the null on those trials, so all cvR² in a
+# bid comparison come from one trial set.
+def _twin(base, suffix, **changes):
+    spec = MODEL_SPECS[base]
+    sub = spec.out_subdir
+    return replace(spec, name=f'{base}-{suffix}', out_subdir=f'{sub}-{suffix}',
+                   cv_out_subdir=f'{sub}-{suffix}.cv', drop_invalid_bids=True,
+                   **changes)
+
+
+for _base in ('session-shift', 'linear'):
+    MODEL_SPECS[f'{_base}-bid'] = _twin(_base, 'bid', stimulus_space='bid')
+    MODEL_SPECS[f'{_base}-bidmatched'] = _twin(_base, 'bidmatched')
+for _base in ('vonmises-prf', 'null'):
+    MODEL_SPECS[f'{_base}-bidmatched'] = _twin(_base, 'bidmatched')
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 

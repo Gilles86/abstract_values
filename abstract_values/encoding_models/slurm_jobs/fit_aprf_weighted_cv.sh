@@ -40,9 +40,11 @@ ARGS=(
 )
 
 SESSION_SHIFT="${SESSION_SHIFT:-0}"
+SPACE="${SPACE:-value}"   # value | bid (reported value) | bidmatched (objective value, bid trials)
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$SESSION_SHIFT" = "1" ] && ARGS+=(--session-shift)
 [ "$BASIS" != "loggauss" ] && ARGS+=(--basis "$BASIS")
+[ "$SPACE" != "value" ] && ARGS+=(--space "$SPACE")
 
 echo "fit_aprf_weighted_cv: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  n_basis=${N_BASIS}  smoothed=${SMOOTHED}  basis=${BASIS}"
 echo "Args: ${ARGS[*]}"

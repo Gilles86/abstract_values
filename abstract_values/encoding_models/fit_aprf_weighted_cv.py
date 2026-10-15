@@ -101,7 +101,10 @@ def make_basis_parameters(n_basis, value_min, value_max, fwhm=None):
 
 def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, basis='loggauss', session_shift=False):
+         smoothed=False, basis='loggauss', session_shift=False, space='value'):
+    """``space``: 'value' (objective CHF, all trials), 'bid' (the reported
+    value, trials with a usable bid only) or 'bidmatched' (objective CHF on
+    exactly the 'bid' trials, the control for it)."""
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder,
                   fmriprep_deriv=fmriprep_deriv)
@@ -114,6 +117,17 @@ def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
 
     # ── paradigm ──────────────────────────────────────────────────────────────
     paradigm  = get_value_paradigm_with_runs(sub, sessions)
+    keep = np.ones(len(paradigm), dtype=bool)
+    if space != 'value':
+        from abstract_values.encoding_models.fit_aprf_cv import get_paradigm
+        pb = get_paradigm(sub, sessions, False,
+                          space='bid' if space == 'bid' else 'value')
+        assert len(pb) == len(paradigm)
+        keep = pb['bid'].notna().to_numpy() & pb['x'].notna().to_numpy()
+        paradigm = pd.DataFrame({'x': pb['x'].to_numpy(np.float32)},
+                                index=paradigm.index)
+        print(f'  space={space}: dropping {int((~keep).sum())} trials without a usable bid')
+    full_index = paradigm.index
     value_min = float(paradigm['x'].min())
     value_max = float(paradigm['x'].max())
     print(f'  {len(paradigm)} trials  value range: {value_min:.1f}–{value_max:.1f} CHF')
@@ -121,8 +135,8 @@ def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
     # ── betas ─────────────────────────────────────────────────────────────────
     betas_img = sub.get_single_trial_estimates(sessions, desc='gabor',
                                                smoothed=smoothed)
-    assert betas_img.shape[3] == len(paradigm), (
-        f'Beta count mismatch: {betas_img.shape[3]} vs {len(paradigm)}')
+    assert betas_img.shape[3] == len(full_index), (
+        f'Beta count mismatch: {betas_img.shape[3]} vs {len(full_index)}')
 
     # ── masker ────────────────────────────────────────────────────────────────
     if mask is None:
@@ -131,7 +145,10 @@ def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
                          target_affine=betas_img.affine,
                          target_shape=betas_img.shape[:3]).fit()
     data = pd.DataFrame(masker.transform(betas_img).astype(np.float32),
-                        index=paradigm.index)
+                        index=full_index)
+    if space != 'value':
+        data = data.loc[keep]
+        paradigm = paradigm.loc[keep]
     print(f'  {data.shape[1]} voxels in mask')
 
     # ── fixed basis parameters (identical across folds) ───────────────────────
@@ -142,6 +159,8 @@ def main(subject, n_basis=8, fwhm=None, alpha=DEFAULT_ALPHA, mask=None,
         # aprf-weighted.cv -> aprf-weighted-shift.cv, matching the
         # vonmises.cv -> vonmises-shift.cv convention.
         out_subdir = out_subdir.replace('.cv', '-shift.cv')
+    if space != 'value':
+        out_subdir = out_subdir.replace('.cv', f'-{space}.cv')
     print(f'  basis fwhm = {eff_fwhm:.2f} CHF  ({basis})'
           f'{"  [per-session weights]" if session_shift else ""}')
 
@@ -248,6 +267,10 @@ if __name__ == '__main__':
     parser.add_argument('--basis', default='loggauss',
                         choices=['loggauss', 'gaussian'],
                         help='Basis pRF family (default: loggauss)')
+    parser.add_argument('--space', default='value',
+                        choices=['value', 'bid', 'bidmatched'],
+                        help="'bid' fits the reported value; 'bidmatched' the "
+                             "objective value on the same trials")
     args = parser.parse_args()
     enforce_default_alpha(args.alpha, args.allow_nondefault_alpha,
                           'fit_aprf_weighted_cv basis weights')
@@ -256,4 +279,4 @@ if __name__ == '__main__':
          session_shift=args.session_shift,
          fwhm=args.fwhm, mask=args.mask, bids_folder=args.bids_folder,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
-         basis=args.basis)
+         basis=args.basis, space=args.space)
