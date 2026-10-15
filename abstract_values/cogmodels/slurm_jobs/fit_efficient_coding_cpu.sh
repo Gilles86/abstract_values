@@ -42,8 +42,8 @@ VALUE_KERNEL="${VALUE_KERNEL:-cell}"   # cell (erf, default) | point (pre-2026-1
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
-PARADIGM=$REPO/notes/data/efficient_coding_paradigm.tsv
-OUTDIR=$BIDS_FOLDER/derivatives/cogmodels
+PARADIGM="${PARADIGM:-$REPO/notes/data/efficient_coding_paradigm.tsv}"
+OUTDIR="${OUTDIR:-$BIDS_FOLDER/derivatives/cogmodels}"
 
 export TMPDIR=/scratch/gdehol
 
