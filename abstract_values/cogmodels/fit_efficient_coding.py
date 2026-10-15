@@ -91,7 +91,7 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                perceptual_prior="long_term", fit_prior_weight=False,
                no_seam_crossing=False, prior_fourier_order=0,
                cardinal_truncation=False, fit_motor_noise=False,
-               param="kappa-sigma", value_kernel="cell"):
+               param="kappa-sigma", value_kernel="cell", cardinal_peak_width=0.0):
     if param != "kappa-sigma" and model_name not in ("sequential", "categorical"):
         raise ValueError(f"--param {param} needs a two-stage model, not {model_name}")
     if model_name == "perception":
@@ -103,7 +103,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                                         prior_fourier_order=prior_fourier_order,
                                         no_seam_crossing=no_seam_crossing,
                                         cardinal_truncation=cardinal_truncation,
-                                        fit_motor_noise=fit_motor_noise)
+                                        fit_motor_noise=fit_motor_noise,
+                                        cardinal_peak_width=cardinal_peak_width)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
@@ -126,7 +127,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    no_seam_crossing=no_seam_crossing,
                    cardinal_truncation=cardinal_truncation,
                    fit_motor_noise=fit_motor_noise,
-                   value_kernel=value_kernel)
+                   value_kernel=value_kernel,
+                   cardinal_peak_width=cardinal_peak_width)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -140,7 +142,7 @@ def subject_parameters(idata, paradigm, model_name):
     fourier = [f"prior_{c}{k}" for k in range(1, 9) for c in "ab"]
     for par in ("kappa_r", "sigma_rep", "total_noise", "perceptual_share",
                 "share_high_prob",
-                "sigma_motor", "prior_weight", *fourier):
+                "sigma_motor", "prior_weight", "cardinal_peak", *fourier):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
             continue
@@ -269,6 +271,12 @@ def main():
                         "pre-2026-10-15 point evaluation, which underflows once "
                         "sigma_rep < grid step and froze chains. Fits made with "
                         "'cell' get '_erf' in the tag; older tags are 'point'.")
+    p.add_argument("--cardinal-peak", type=float, default=0.0,
+                   help="Mix narrow peaks at 0/90 deg (this SD, orientation "
+                        "degrees) into the perceptual prior with a free "
+                        "per-subject weight; combines with --fit-prior-weight or "
+                        "--prior-fourier-order. Needs a grid that resolves it "
+                        "(step 180/N deg well below the width). Tag '_peak<w>'.")
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
@@ -293,7 +301,8 @@ def main():
                        no_seam_crossing=a.no_seam_crossing,
                        cardinal_truncation=a.cardinal_truncation,
                        fit_motor_noise=a.fit_motor_noise,
-                       param=a.param, value_kernel=a.value_kernel)
+                       param=a.param, value_kernel=a.value_kernel,
+                       cardinal_peak_width=a.cardinal_peak)
 
     model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -338,6 +347,8 @@ def main():
         tag += f"_{a.param}"
     if a.value_kernel == "cell" and a.model != "perception":
         tag += "_erf"
+    if a.cardinal_peak > 0:
+        tag += f"_peak{a.cardinal_peak:g}"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     # Stamp the options that change the posterior, so a later rebuild of the
     # model reads them back instead of today's defaults.

@@ -37,6 +37,7 @@ FOURIER="${FOURIER:-}"
 # PARAM=total-share samples total bid noise + perceptual share instead of
 # (kappa_r, sigma_rep); sequential/categorical only. See cogmodels/reparam.py.
 PARAM="${PARAM:-kappa-sigma}"
+PEAK="${PEAK:-}"   # cardinal-peak SD in orientation degrees (empty = off)
 VALUE_KERNEL="${VALUE_KERNEL:-cell}"   # cell (erf, default) | point (pre-2026-10-15)
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
@@ -88,4 +89,5 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer/bin/python -u \
     ${FOURIER:+--prior-fourier-order "$FOURIER"} \
     --param "$PARAM" \
     --value-kernel "$VALUE_KERNEL" \
+    ${PEAK:+--cardinal-peak "$PEAK"} \
     --out-dir "$OUTDIR"
