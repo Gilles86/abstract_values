@@ -91,7 +91,7 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                perceptual_prior="long_term", fit_prior_weight=False,
                no_seam_crossing=False, prior_fourier_order=0,
                cardinal_truncation=False, fit_motor_noise=False,
-               param="kappa-sigma"):
+               param="kappa-sigma", value_kernel="cell"):
     if param != "kappa-sigma" and model_name not in ("sequential", "categorical"):
         raise ValueError(f"--param {param} needs a two-stage model, not {model_name}")
     if model_name == "perception":
@@ -107,7 +107,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
-                                       lapse_rate=lapse_rate)
+                                       lapse_rate=lapse_rate,
+                                       value_kernel=value_kernel)
     if model_name in ("sequential", "categorical"):
         if model_name == "sequential":
             from bauer.efficient_coding import SequentialEfficientCodingModel as cls
@@ -124,7 +125,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    prior_fourier_order=prior_fourier_order,
                    no_seam_crossing=no_seam_crossing,
                    cardinal_truncation=cardinal_truncation,
-                   fit_motor_noise=fit_motor_noise)
+                   fit_motor_noise=fit_motor_noise,
+                   value_kernel=value_kernel)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -261,6 +263,12 @@ def main():
                         "share a two-component population (value-noise vs "
                         "perceptual-dominated subjects). Default keeps old "
                         "results reproducible.")
+    p.add_argument("--value-kernel", default="cell", choices=["cell", "point"],
+                   help="Value-noise kernel on the grid: 'cell' integrates the "
+                        "Gaussian over each grid cell (erf); 'point' is the "
+                        "pre-2026-10-15 point evaluation, which underflows once "
+                        "sigma_rep < grid step and froze chains. Fits made with "
+                        "'cell' get '_erf' in the tag; older tags are 'point'.")
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
@@ -285,7 +293,7 @@ def main():
                        no_seam_crossing=a.no_seam_crossing,
                        cardinal_truncation=a.cardinal_truncation,
                        fit_motor_noise=a.fit_motor_noise,
-                       param=a.param)
+                       param=a.param, value_kernel=a.value_kernel)
 
     model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -328,6 +336,8 @@ def main():
         tag += f"_lapse{a.lapse_rate:g}"
     if a.param != "kappa-sigma":
         tag += f"_{a.param}"
+    if a.value_kernel == "cell" and a.model != "perception":
+        tag += "_erf"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     # Stamp the options that change the posterior, so a later rebuild of the
     # model reads them back instead of today's defaults.
