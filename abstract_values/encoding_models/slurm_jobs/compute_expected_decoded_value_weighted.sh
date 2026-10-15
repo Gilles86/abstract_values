@@ -45,6 +45,7 @@ N_SIMULATIONS="${N_SIMULATIONS:-1000}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-1}"
 PER_SESSION="${PER_SESSION:-0}"
+DECODE_PRIOR="${DECODE_PRIOR:-presented}"   # presented | flat | mapping
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -61,6 +62,7 @@ ARGS=(
 [ -n "$BASIS_FWHM" ] && ARGS+=(--basis-fwhm "$BASIS_FWHM")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$PER_SESSION" = "1" ] && ARGS+=(--per-session-weights)
+[ "$DECODE_PRIOR" != "presented" ] && ARGS+=(--decode-prior "$DECODE_PRIOR")
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
 
 echo "eu_value_weighted: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  n_basis=${N_BASIS}  spherical=${SPHERICAL}"

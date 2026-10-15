@@ -85,8 +85,13 @@ def aggregate_per_stimulus(true_arr, decoded_arr, stim_grid):
 
 
 def simulate_decode_session(model, basis_pars, weights_sel, omega, dof,
-                            stim_grid, n_simulations, batch_stimuli=25):
-    """Simulate noisy responses per stimulus and decode them back."""
+                            stim_grid, n_simulations, batch_stimuli=25,
+                            decode_grid=None):
+    """Simulate noisy responses per stimulus and decode them back.
+
+    ``decode_grid`` is the support of the decoder's (uniform) prior; it
+    defaults to ``stim_grid``."""
+    decode_grid = stim_grid if decode_grid is None else decode_grid
     stim_df_full = pd.DataFrame({"x": stim_grid.astype(np.float32)})
     stim_df_full.index.name = "stimulus"
     true_all, decoded_all = [], []
@@ -98,8 +103,8 @@ def simulate_decode_session(model, basis_pars, weights_sel, omega, dof,
                                   n_repeats=n_simulations)
         pdf = model.get_stimulus_pdf(sim_data, parameters=basis_pars,
                                      weights=weights_sel, omega=omega, dof=dof,
-                                     stimulus_range=stim_grid, normalize=True)
-        dec, _ = posterior_mean_sd(pdf.values, stim_grid)
+                                     stimulus_range=decode_grid, normalize=True)
+        dec, _ = posterior_mean_sd(pdf.values, decode_grid)
 
         idx = sim_data.index
         if isinstance(idx, pd.MultiIndex):
@@ -121,7 +126,14 @@ def main(subject, sessions=None, roi="NPCr", hemi="None", n_voxels=100,
          n_basis=8, basis_fwhm=None, weight_alpha=DEFAULT_RIDGE_ALPHA,
          n_simulations=1000, n_noise_iterations=1000, batch_stimuli=25,
          bids_folder=BIDS_FOLDER, fmriprep_deriv="fmriprep",
-         smoothed=False, spherical_noise=True, per_session_weights=False):
+         smoothed=False, spherical_noise=True, per_session_weights=False,
+         decode_prior="presented"):
+    """``decode_prior`` sets what the decoder assumes about which values occur:
+    'presented' (default, the union of values presented in either mapping),
+    'flat' (a dense uniform grid over the value range -- no knowledge of the
+    stimulus distribution) or 'mapping' (exactly the values presented in THIS
+    session's mapping -- the experiment's true prior). With 'flat' and
+    'mapping' only the session's own values are simulated."""
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
     sessions = sorted(sessions or sub.get_sessions())
@@ -206,16 +218,26 @@ def main(subject, sessions=None, roi="NPCr", hemi="None", n_voxels=100,
 
         print(f"  simulating {n_simulations} repeats × {len(stim_grid)} values"
               f" ({n_simulations * len(stim_grid)} trials)…", flush=True)
+        sim_grid, dec_grid = stim_grid, stim_grid
+        if decode_prior != "presented":
+            sim_grid = np.asarray(sorted(set(np.round(ses_paradigm["x"].values, 5))),
+                                  dtype=np.float32)
+            dec_grid = (np.linspace(value_min, value_max, 161).astype(np.float32)
+                        if decode_prior == "flat" else sim_grid)
+            print(f"  decode prior '{decode_prior}': {len(sim_grid)} simulated values, "
+                  f"{len(dec_grid)}-point decoding grid")
         true_arr, decoded_arr = simulate_decode_session(
-            model, basis_pars, ses_weights, omega, dof, stim_grid,
-            n_simulations, batch_stimuli=batch_stimuli)
-        agg = aggregate_per_stimulus(true_arr, decoded_arr, stim_grid)
+            model, basis_pars, ses_weights, omega, dof, sim_grid,
+            n_simulations, batch_stimuli=batch_stimuli, decode_grid=dec_grid)
+        agg = aggregate_per_stimulus(true_arr, decoded_arr, sim_grid)
 
         out_dir = (bids_folder / "derivatives" / "encoding_models"
                    / "aprf-weighted" / f"sub-{subject}" / f"ses-{ses_i}" / "func")
         out_dir.mkdir(parents=True, exist_ok=True)
         noise_tag = "_noise-spherical" if spherical_noise else ""
         ses_tag = "_perses" if per_session_weights else ""
+        if decode_prior != "presented":
+            ses_tag += f"_decprior-{decode_prior}"
         out_fn = (out_dir /
                   f"sub-{subject}_ses-{ses_i}_task-abstractvalue"
                   f"_mask-{mask_desc}_{sel_tag}_nsims-{n_simulations}"
@@ -259,6 +281,10 @@ if __name__ == "__main__":
                      action="store_true", default=True)
     sph.add_argument("--no-spherical-noise", dest="spherical_noise",
                      action="store_false")
+    p.add_argument("--decode-prior", default="presented",
+                   choices=["presented", "flat", "mapping"],
+                   help="Decoder's prior over values: union of presented values "
+                        "(default), flat over the range, or this mapping's values")
     args = p.parse_args()
     enforce_default_alpha(args.weight_alpha, args.allow_nondefault_alpha,
                           "weighted-basis value EU")
@@ -270,4 +296,5 @@ if __name__ == "__main__":
          batch_stimuli=args.batch_stimuli, bids_folder=args.bids_folder,
          per_session_weights=args.per_session_weights,
          fmriprep_deriv=args.fmriprep_deriv, smoothed=args.smoothed,
-         spherical_noise=args.spherical_noise)
+         spherical_noise=args.spherical_noise,
+         decode_prior=args.decode_prior)
