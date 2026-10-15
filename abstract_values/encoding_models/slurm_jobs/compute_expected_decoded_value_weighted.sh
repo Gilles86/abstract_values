@@ -25,6 +25,8 @@ export KERAS_BACKEND=tensorflow
 #   N_SIMULATIONS   noisy repeats per stimulus (default: 1000)
 #   SMOOTHED        set to "1" for smoothed betas (default: off)
 #   SPHERICAL       set to "0" for full-covariance noise (default: on)
+#   PER_SESSION     set to "1" to refit the basis weights per session, so the
+#                   two mappings can have different codes (default: shared)
 #
 # The ridge penalty is not an override: it is the project default (see
 # ridge_alpha.py) and the script refuses another value without an explicit
@@ -42,6 +44,7 @@ BASIS_FWHM="${BASIS_FWHM:-}"
 N_SIMULATIONS="${N_SIMULATIONS:-1000}"
 SMOOTHED="${SMOOTHED:-0}"
 SPHERICAL="${SPHERICAL:-1}"
+PER_SESSION="${PER_SESSION:-0}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -57,6 +60,7 @@ ARGS=(
 )
 [ -n "$BASIS_FWHM" ] && ARGS+=(--basis-fwhm "$BASIS_FWHM")
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
+[ "$PER_SESSION" = "1" ] && ARGS+=(--per-session-weights)
 [ "$SPHERICAL" = "1" ] && ARGS+=(--spherical-noise) || ARGS+=(--no-spherical-noise)
 
 echo "eu_value_weighted: sub-${PARTICIPANT_LABEL}  roi=${ROI}  n_voxels=${N_VOXELS}  n_basis=${N_BASIS}  spherical=${SPHERICAL}"
