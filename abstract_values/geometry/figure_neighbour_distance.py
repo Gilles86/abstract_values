@@ -27,7 +27,8 @@ from abstract_values.geometry.analyze_crossnobis import load
 
 REPO = Path(__file__).resolve().parents[2]
 MAP_COL = {"cdf": "#5B4A9E", "inverse_cdf": "#B23A6E"}
-REGIONS = [("V1", ["V1"]), ("IPS0", ["IPS0"]), ("IPS1–2", ["IPS1–2"]), ("IPS3–5", ["IPS3–5"])]
+REGIONS = [("V1", ["V1"]), ("Parietal (IPS0–5)", ["IPS0", "IPS1–2", "IPS3–5"]),
+           ("IPS0", ["IPS0"]), ("IPS1–2", ["IPS1–2"]), ("IPS3–5", ["IPS3–5"])]
 
 
 def neighbours(d, rois):
@@ -46,7 +47,8 @@ def main():
     plt.rcParams.update({"font.family": "Helvetica", "font.size": 7, "axes.labelsize": 7.5,
                          "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "pdf.fonttype": 42,
                          "axes.spines.top": False, "axes.spines.right": False})
-    fig, axes = plt.subplots(2, 2, figsize=(7.25, 4.6), constrained_layout=True)
+    fig, axes = plt.subplots(3, 2, figsize=(7.25, 6.9), constrained_layout=True)
+    axes.ravel()[-1].axis("off")
     for ax, (name, rois) in zip(axes.ravel(), REGIONS):
         per = neighbours(d, rois)
         ax2 = ax.twinx()
@@ -77,7 +79,7 @@ def main():
         for m in ("cdf", "inverse_cdf"):
             q = per[(per.mapping == m) & (per.mid < 180)].groupby("mid")[["d", "dv"]].mean()
             r[m] = np.corrcoef(q.d, q.dv)[0, 1]
-        ax.text(0.99, 1.02, f"r(neural, |Δv|), seam excluded: CDF {r['cdf']:+.2f}, inverse {r['inverse_cdf']:+.2f}",
+        ax.text(0.99, 1.09, f"r(neural, |Δv|), seam excluded: CDF {r['cdf']:+.2f}, inverse {r['inverse_cdf']:+.2f}",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=5.8, color="0.35")
         sns.despine(ax=ax, offset=3, trim=True)
     axes[0, 0].text(0.02, 0.97, "CDF sessions", color=MAP_COL["cdf"], transform=axes[0, 0].transAxes,
