@@ -190,9 +190,13 @@ def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed, compare=None):
     """
     # 'A+B+C' = union of masks (e.g. the Wang IPS maps IPS0+IPS12+IPS345)
     masks = [sub.get_roi_mask(r, hemi=None) for r in roi.split('+')]
-    mask = masks[0] if len(masks) == 1 else image.math_img(
-        'np.max(img, -1) > 0', img=image.concat_imgs(
-            [image.resample_to_img(m, masks[0], interpolation='nearest') for m in masks]))
+    if len(masks) == 1:
+        mask = masks[0]
+    else:                       # some masks are stored 4-D (x, y, z, 1): squeeze, then OR
+        arr = [np.asarray(image.resample_to_img(m, masks[0], interpolation='nearest')
+                          .dataobj).squeeze() > 0 for m in masks]
+        ref = image.index_img(masks[0], 0) if len(masks[0].shape) == 4 else masks[0]
+        mask = image.new_img_like(ref, np.any(arr, 0).astype(np.uint8))
     masker = NiftiMasker(mask_img=mask).fit()
     y = masker.transform(betas).astype(np.float64)
     ok = np.isfinite(y).all(0) & (y.std(0) > 0)
