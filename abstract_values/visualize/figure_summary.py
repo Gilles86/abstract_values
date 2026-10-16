@@ -362,41 +362,50 @@ EXAMPLES = [(27, "Precise bidder"), (4, "Mostly perceptual noise"), (26, "Mostly
 EX_MARK = {27: "s", 4: "^", 26: "D"}
 
 
-def panel_example(axb, axs, df, sub, title, par, show_y):
-    """One participant's bid error and bid SD per orientation, both mappings."""
+def panel_example(axes, df, sub, title, par, show_y):
+    """One participant: axes[(stat, mapping)] -> bid error / bid SD per orientation,
+    one mapping per column so each panel holds one curve and its predictive band."""
     g = df[df.subject == sub].dropna(subset=["response"])
     for m in ("cdf", "inverse_cdf"):
         h = g[g.mapping == m]
         st = h.assign(err=h.response - h.value).groupby("orientation").agg(
             bias=("err", "mean"), sd=("response", "std"))
-        ppc = SUBJ_PPC
-        for ax, col in ((axb, "bias"), (axs, "sd")):
-            if ppc is not None:
-                q = ppc[(ppc.subject == sub) & (ppc.mapping == m)].sort_values("orientation")
+        for col in ("bias", "sd"):
+            ax = axes[(col, m)]
+            if SUBJ_PPC is not None:
+                q = SUBJ_PPC[(SUBJ_PPC.subject == sub) & (SUBJ_PPC.mapping == m)] \
+                    .sort_values("orientation")
                 ax.fill_between(q.orientation, q[f"{col}_0.1"], q[f"{col}_0.9"],
-                                color=MAP_COL[m], alpha=0.12, lw=0)
+                                color=MAP_COL[m], alpha=0.14, lw=0)
                 ax.fill_between(q.orientation, q[f"{col}_0.25"], q[f"{col}_0.75"],
-                                color=MAP_COL[m], alpha=0.25, lw=0)
-            ax.plot(st.index, st[col], "o-", color=MAP_COL[m], ms=2.4, lw=0.7)
+                                color=MAP_COL[m], alpha=0.3, lw=0)
+            ax.plot(st.index, st[col], "o", color=MAP_COL[m], ms=2.2, mec="white", mew=0.3)
+            if col == "bias":
+                ax.axhline(0, color="0.75", lw=0.6, ls=(0, (3, 2)))
+            ax.set_ylim((-4.2, 4.2) if col == "bias" else (0, 4.6))
+            ax.set_yticks([-4, 0, 4] if col == "bias" else [0, 2, 4])
+            ax.set_xticks([0, 90, 180])
+            sns.despine(ax=ax, offset=2, trim=True)
+            if col == "bias":
+                ax.set_xticklabels([])
+                ax.set_title("CDF" if m == "cdf" else "Inverse CDF", fontsize=5.8,
+                             color=MAP_COL[m], pad=1)
+            if m == "inverse_cdf":
+                ax.set_yticklabels([])
     r = par.set_index("subject").loc[sub]
     perc = r.total_noise * np.sqrt(r.perceptual_share)
-    axb.set_title(f"{title} (sub-{sub:02d})", loc="left", fontsize=6.4, fontweight="bold",
-                  color="0.2")
-    axb.text(0.99, 1.0, f"perceptual {perc:.2f}, value σ_rep {r.sigma_rep:.2f} CHF",
-             transform=axb.transAxes, fontsize=5.5, va="bottom", ha="right", color="0.4")
-    axb.plot(0.97, 0.12, EX_MARK[sub], transform=axb.transAxes, ms=4.5, mfc="white",
-             mec="0.2", mew=0.9)
-    axb.axhline(0, color="0.75", lw=0.6, ls=(0, (3, 2)))
-    axb.set_ylim(-4, 4)
-    axs.set_ylim(0, 4.5)
-    for ax in (axb, axs):
-        ax.set_xticks([0, 90, 180])
-        sns.despine(ax=ax, offset=2, trim=True)
-    axb.set_xticklabels([])
-    axs.set_xlabel("Orientation (°)")
+    a0 = axes[("bias", "cdf")]
+    a0.text(0.0, 1.42, f"{title} (sub-{sub:02d})", transform=a0.transAxes, fontsize=6.4,
+            fontweight="bold", color="0.2")
+    a0.text(0.0, 1.27, f"perceptual {perc:.2f}, value σ_rep {r.sigma_rep:.2f} CHF",
+            transform=a0.transAxes, fontsize=5.5, color="0.4")
+    a0.plot(-0.12, 1.47, EX_MARK[sub], transform=a0.transAxes, ms=4.5, mfc="white",
+            mec="0.2", mew=0.9, clip_on=False)
+    for m in ("cdf", "inverse_cdf"):
+        axes[("sd", m)].set_xlabel("Orientation (°)", fontsize=6)
     if show_y:
-        axb.set_ylabel("Bid − value\n(CHF)")
-        axs.set_ylabel("Bid SD\n(CHF)")
+        a0.set_ylabel("Bid − value\n(CHF)")
+        axes[("sd", "cdf")].set_ylabel("Bid SD\n(CHF)")
 
 
 def panel_noise(ax):
@@ -625,7 +634,7 @@ def main():
     maps = dm.mapping_table()
     # inserted bands: (insert after this inch on the original grid, height)
     BANDS = [(2.8, 3.0),        # preferred orientation / value maps
-             (5.95, 2.75),      # example participants
+             (5.95, 2.95),      # example participants
              (9.55, 2.85),      # retuning (encoding-model comparison)
              (10.5, 3.0)]       # how the connectivity analysis works
     H = 16.1 + sum(b[1] for b in BANDS) + 1.35     # + caveats box at the bottom
@@ -733,9 +742,12 @@ def main():
              fontsize=6.3, color="0.3", va="top")
     for k, (sub, title) in enumerate(EXAMPLES):
         t0 = band_top(1)
-        axb = fig.add_axes([0.09 + 0.31 * k, 1 - (t0 + 0.75 + 0.75) / H, 0.25, 0.75 / H])
-        axs = fig.add_axes([0.09 + 0.31 * k, 1 - (t0 + 1.6 + 0.75) / H, 0.25, 0.75 / H])
-        panel_example(axb, axs, beh, sub, title, cpar, k == 0)
+        axes = {}
+        for j, m in enumerate(("cdf", "inverse_cdf")):
+            x0 = 0.09 + 0.31 * k + 0.135 * j
+            axes[("bias", m)] = fig.add_axes([x0, 1 - (t0 + 0.9 + 0.7) / H, 0.115, 0.7 / H])
+            axes[("sd", m)] = fig.add_axes([x0, 1 - (t0 + 1.72 + 0.7) / H, 0.115, 0.7 / H])
+        panel_example(axes, beh, sub, title, cpar, k == 0)
 
     # ── row 2: geometry ───────────────────────────────────────────────────
     headline(fig, Y(6.35), "2  Fixed codes: V1 represents orientation as a circle, parietal "
@@ -766,8 +778,10 @@ def main():
         panel_mds(ax_(0.39 + 0.17 * k, 7.45, 0.155, 1.3), R, oris, col,
                   name.replace(" (IPS0–5)", ""))
     cap(0.39, 9.05, "2-D MDS: each dot is one orientation, placed so that\ndistances between "
-        "dots match the neural distances.\nDashed: the step from 172.5° back to 7.5°. V1 closes "
-        "\ninto a loop, parietal stays an open arc. 90° is an\noutlier in both regions.")
+        "dots match the neural distances. Dashed:\nthe step from 172.5° back to 7.5°. "
+        "Bootstrap over\nparticipants: the seam is 2.8× a typical step in V1\n"
+        "[1.8, 3.2] but 7.3× in parietal [3.5, 7.3]; the V1 layout\nis stable, the parietal "
+        "layout is not (noisier data).")
     L(0.74, 7.2, "j")
     panel_stability(ax_(0.81, 7.3, 0.17, 1.25))
     cap(0.75, 9.05, "Does the geometry change between\nmappings the way the values do? "
