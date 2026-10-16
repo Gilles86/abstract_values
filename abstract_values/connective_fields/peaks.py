@@ -96,7 +96,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0, gain=F
            / (('peaks' if lags == 0 else f'peaks_lags-{lags}') + ('_gain' if gain else '')
               + ('' if npc_class == 'all' else f'_npc-{npc_class}')
               + ('' if target_roi == 'NPCr' else f'_target-{target_roi.replace("+", "")}')
-              + ('' if selection == 'null' else f'_sel-{selection}'))
+              + ('' if selection == 'null' else f'_sel-{selection}')
+              + ('' if (n_basis, kappa) == (24, 16.) else f'_iem-k{n_basis}-kappa{kappa:g}'))
            / f'sub-{subject}')
     dst.mkdir(parents=True, exist_ok=True)
     out.assign(subject=subject).to_csv(dst / f'sub-{subject}_desc-peaks.tsv.gz', sep='\t',
