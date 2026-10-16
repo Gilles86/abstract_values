@@ -7,9 +7,10 @@ the n = 35 results (2026-10-16):
 
   PRIMARY    target Wang IPS0-5 (IPS0+IPS12+IPS345), V1 channels from the
              inverted von Mises encoding model (24 basis functions, kappa 16),
-             neighbouring trials' orientations removed up to +-2
-  secondary  same with lags 0 / 1, the df-matched sham (+-1 real, +-2
-             permuted), and the earlier NPCr target (continuity with n = 30)
+             the neighbouring trials' orientations (+-1) removed. Changed from
+             +-2 on 2026-10-16: gabors are ~13.5 s apart, so only the adjacent
+             trials' responses can overlap; +-2 only spends degrees of freedom.
+  secondary  lag 0, +-2, IPS3-5 alone, and the earlier NPCr target
 
 Individual differences (primary first):
   1. behavioural mapping fidelity: r(bid, value under THIS session's mapping)
@@ -43,12 +44,11 @@ REPO = Path(__file__).resolve().parents[2]
 CF = Path(BIDS_FOLDER) / "derivatives" / "connective_fields"
 PIL = {"pil01": "01", "pil02": "02"}
 SPECS = {
-    "IPS0–5, ±2 lags (primary)": "coupling_lags-2_iem-k24-kappa16_target-IPS0IPS12IPS345",
+    "IPS0–5, ±1 lag (primary)": "coupling_lags-1_iem-k24-kappa16_target-IPS0IPS12IPS345",
     "IPS0–5, lag 0": "coupling_iem-k24-kappa16_target-IPS0IPS12IPS345",
-    "IPS0–5, ±1 lag": "coupling_lags-1_iem-k24-kappa16_target-IPS0IPS12IPS345",
-    "IPS0–5, ±2 sham": "coupling_lags-2-sham_iem-k24-kappa16_target-IPS0IPS12IPS345",
+    "IPS0–5, ±2 lags": "coupling_lags-2_iem-k24-kappa16_target-IPS0IPS12IPS345",
+    "IPS3–5, ±1 lag": "coupling_lags-1_iem-k24-kappa16_target-IPS345",
     "NPC R, lag 0": "coupling_iem-k24-kappa16",
-    "NPC R, ±2 lags": "coupling_lags-2_iem-k24-kappa16",
 }
 PARAMS = Path("/data/ds-abstractvalue/derivatives/cogmodels_n35/"
               "efficient_coding_sequential_grid161_hn_total-share_erf_subject_params.tsv")

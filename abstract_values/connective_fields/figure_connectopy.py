@@ -10,10 +10,10 @@
   c  Every voxel's coupling profile re-centred on the orientation worth its
      preferred value under the mapping in force, or under the other one.
   d  Mapping score (observed - label-shuffled) per IPS map, with the
-     neighbouring trials' stimuli removed (+-2) or not (lag 0).
+     neighbouring trials' stimuli removed (+-1) or not (lag 0).
   e  Which mapping was in force, read out from each session's coupling map.
   f  Individual differences: the mapping score (IPS0-5, +-2 lags) against
-     value precision from the model and against how far the mean bids sit
+     value precision from the model (+-1 lag) and against how far the mean bids sit
      from the actual mapping.
 
     python -m abstract_values.connective_fields.figure_connectopy
@@ -138,14 +138,14 @@ def panel_aligned(ax, d, maps):
 def panel_maps(ax):
     rows = []
     for lab, tag in MAPS + [UNION]:
-        for lag, pre in (("Lag 0", ""), ("±2 lags", "lags-2_")):
+        for lag, pre in (("Lag 0", ""), ("±1 lag", "lags-1_")):
             x = idf.scores(f"coupling_{pre}iem-k24-kappa16_target-{tag}").dropna()
             t, p = stats.ttest_1samp(x, 0)
             rows.append(dict(roi=lab, lag=lag, m=x.mean(), se=x.sem(), p=p, n=len(x)))
     r = pd.DataFrame(rows)
     pos = {lab: i for i, (lab, _) in enumerate(MAPS)}
     pos[UNION[0]] = len(MAPS) + 0.8
-    for lag, dx, fill in (("Lag 0", -0.12, ACC), ("±2 lags", 0.12, "white")):
+    for lag, dx, fill in (("Lag 0", -0.12, ACC), ("±1 lag", 0.12, "white")):
         g = r[r.lag == lag]
         x = np.array([pos[q] for q in g.roi]) + dx
         ax.vlines(x, g.m - g.se, g.m + g.se, color=ACC, lw=1.1)
@@ -160,7 +160,7 @@ def panel_maps(ax):
     ax.set_ylim(-0.006, 0.03)
     ax.set_ylabel("Mapping score\n(observed − shuffled)")
     # key, drawn as glyphs
-    for i, (lab, fill) in enumerate((("Lag 0", ACC), ("Neighbours ±2 removed", "white"))):
+    for i, (lab, fill) in enumerate((("Lag 0", ACC), ("Neighbouring trials removed", "white"))):
         y = 0.97 - 0.09 * i
         ax.plot(0.04, y, "o", transform=ax.transAxes, color=ACC, mfc=fill, mec=ACC, ms=4,
                 mew=1.1, clip_on=False)
@@ -206,7 +206,7 @@ def panel_scatter(ax, x, y, xlab, show_y):
                 scatter_kws=dict(s=13, edgecolor="white", linewidths=0.5),
                 line_kws=dict(lw=1.3))
     ax.set_xlabel(xlab)
-    ax.set_ylabel("Mapping score\n(IPS0–5, ±2 lags)" if show_y else "")
+    ax.set_ylabel("Mapping score\n(IPS0–5, ±1 lag)" if show_y else "")
     ax.set_title(f"ρ = {rho:+.2f}, p = {p:.3f}   (r = {r:+.2f}, n = {len(j)})",
                  loc="left", fontsize=6.5, color="0.25")
     ax.axhline(0, color="0.8", lw=0.6, ls=(0, (3, 2)), zorder=0)
@@ -216,7 +216,7 @@ def panel_scatter(ax, x, y, xlab, show_y):
 def main():
     maps = dm.mapping_table()
     d = pd.concat(pd.read_csv(f, sep="\t", dtype={"subject": str}) for f in
-                  (CF / f"peaks_target-{UNION[1]}").glob("sub-*/sub-*_desc-maps.tsv"))
+                  (CF / f"peaks_lags-1_target-{UNION[1]}").glob("sub-*/sub-*_desc-maps.tsv"))
     fig = plt.figure(figsize=(7.25, 7.8))
 
     # row 1
@@ -248,7 +248,7 @@ def main():
     r_dec = panel_decoder(fig.add_axes([0.82, 0.38, 0.16, 0.21]))
 
     # row 3
-    S = idf.scores(idf.SPECS["IPS0–5, ±2 lags (primary)"])
+    S = idf.scores(idf.SPECS["IPS0–5, ±1 lag (primary)"])
     b = idf.behaviour(list(S.index))
     letter(fig, 0.01, 0.29, "f")
     panel_scatter(fig.add_axes([0.095, 0.085, 0.26, 0.16]), b.value_precision, S,
@@ -257,9 +257,12 @@ def main():
                   "Mapping error (CHF)\nmean bid vs actual mapping", False)
     ax = fig.add_axes([0.74, 0.085, 0.24, 0.16])
     ax.axis("off")
+    j = pd.concat([S.rename("cf"), b], axis=1).dropna(subset=["cf"])
+    rp = stats.spearmanr(j.cf, j.perceptual_precision, nan_policy="omit")
     ax.text(0, 1, "Participants whose parietal cortex follows\nthe mapping in force more "
-            "closely have\nless value noise and bid closer to the\nactual mapping. "
-            "Perceptual precision\nis unrelated (ρ = +0.25, p = .16).",
+            "closely have\nless value noise. The link with how far\nthe mean bids sit from "
+            f"the mapping is\nweaker; perceptual precision is unrelated\n"
+            f"(ρ = {rp[0]:+.2f}, p = {rp[1]:.2f}).",
             fontsize=6.5, color="0.3", va="top", linespacing=1.4)
 
     out = REPO / "notes/figures/fig_connectopy.pdf"
