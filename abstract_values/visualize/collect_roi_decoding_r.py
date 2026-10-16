@@ -34,7 +34,10 @@ def main(bids, out):
             roi = fn.name.split("_mask-")[1].split("_")[0]
             if roi not in ROIS:
                 continue
-            df = pd.read_csv(fn, sep="\t", index_col=[0, 1, 2, 3])
+            df = pd.read_csv(fn, sep="\t")
+            idx = [c for c in df.columns
+                   if c in ("session", "mapping", "run", "trial_nr")]
+            df = df.set_index(idx)
             rows.append(dict(subject=subject, roi=roi, decoder=dec,
                              r=_decode_metric(df, "uniform"), n_trials=len(df)))
     df = pd.DataFrame(rows)
