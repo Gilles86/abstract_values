@@ -62,7 +62,7 @@ Your budget for each trial is 42 CHF. You will keep the rest of the budget after
 Figure 5: Example of one phase 3 trial (final phase) in which you have to input the value of the gabor without feedback.
 
 
-To submit your bid, click the mouse button to confirm the slider’s position. If you do not confirm your bid by clicking, your input will not be registered, and you will not receive any payout for that trial. You have 4.5 seconds to make your decision, so always submit a bid within the time limit to maximize your earnings.
+To submit your bid, click the mouse button to confirm the slider’s position. If you do not confirm your bid by clicking, your input will not be registered, and you will not receive any of the payout for that trial. You have 3 seconds to make your decision, so always submit a bid within the time limit to maximize your earnings.
 In every auction there is a rule that determines the price at which the items are sold. This auction is no different. 
 
 The rule for our auction is a bit unusual, but its implications are straightforward: There is no way of gaming the auction, the BEST thing that you can do in every trial is to ask yourself how much you would be willing to pay to get THAT gabor and then bid the number closest to that value. 
@@ -89,6 +89,6 @@ You should treat each decision as if it were the only one.
 Your best strategy is to always bid the number closest to your true value for getting that gabor at the end of the experiment.  
 If you follow the best strategy, on average the price that you pay for a gabor will be half of the value you bid.
 In the end, you will get 1/184 of the total money you accumulated during the trials you participated in during this phase as real money.
-Your average payout or a session 57 CHF. 
+Your average payout or a session 75 CHF. 
 
 

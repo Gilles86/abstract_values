@@ -124,7 +124,8 @@ def main(bids, out):
             rbetas = np.asarray(sub.get_single_trial_estimates(sessions, desc="response").dataobj)
         except FileNotFoundError:
             rbetas = None
-        r2 = np.asarray(sub.get_single_trial_estimates(sessions, desc="R2").dataobj)
+        r2 = nib.load(str(bids / "derivatives" / "glmsingle" / f"sub-{s}" / "func"
+                         / f"sub-{s}_task-abstractvalue_space-T1w_desc-R2_pe.nii.gz")).get_fdata()
         tt = trial_table(sub)
         assert len(tt) == betas.shape[-1], (len(tt), betas.shape)
         if rbetas is not None and rbetas.shape[-1] != len(tt):
