@@ -321,6 +321,9 @@ debugging conversation, so load them explicitly):
   `log_likelihood`, JAX static-shape failures in hierarchical fits).
 - **scientific-figures** — before writing any plotting code, including a PPC
   panel. `notes/figures/*.pdf` is the house output format.
+- **sciencecluster** — before submitting any SLURM job and before diagnosing a
+  held/failed/pending one. Submit with `--export=VAR=...` only, never
+  `--export=ALL` (that is what causes `user env retrieval failed requeued held`).
 
 ## Cluster
 
