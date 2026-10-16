@@ -34,7 +34,7 @@ CF = Path("/data/ds-abstractvalue/derivatives/connective_fields")
 KAPPA = 4.0
 CONDS = ("cdf", "inverse_cdf")
 COL = {"cdf": "#3B5BA5", "inverse_cdf": "#B8860B"}
-LAB = {"cdf": "CDF mapping", "inverse_cdf": "Inverse-CDF mapping"}
+LAB = {"cdf": "CDF mapping", "inverse_cdf": "inverse-CDF mapping"}
 
 
 def mapping_table():
@@ -81,7 +81,7 @@ def main(folder):
         rows.append(dict(subject=s, condition=c, r_this=r[c], r_other=r[other],
                          score=r[c] - r[other]))
     res = pd.DataFrame(rows)
-    res.to_csv(REPO / "notes/data/cf_decode_mapping.tsv", sep="\t", index=False)
+    res.to_csv(REPO / f"notes/data/cf_decode_mapping_{folder}.tsv", sep="\t", index=False)
     subj = res.groupby("subject").score.mean()
     t, p = stats.ttest_1samp(subj, 0)
     acc = (res.score > 0).mean()
@@ -92,47 +92,121 @@ def main(folder):
     print(f"  sessions decoded correctly: {acc:.0%} (binomial p = {pb:.3g}); "
           f"both sessions right: {both:.0%} of participants (chance 25%)")
 
+    figure(d, maps, values, oris, subj, t, p, acc, folder)
+    return res
+
+
+def aligned(d, maps, oris, ref):
+    """Per participant: coupling profile re-centred on the orientation worth each
+    value bin's value under the mapping in force (ref='this') or the other one."""
+    step = oris[1] - oris[0]
+    rel = (np.arange(len(oris)) - len(oris) // 2) * step
+    out = {}
+    for s, gs in d.groupby("subject"):
+        acc, wsum = np.zeros(len(oris)), 0.0
+        for (c, v), g in gs.groupby(["condition", "value_bin"]):
+            m = c if ref == "this" else [x for x in CONDS if x != c][0]
+            prof = g.set_index("orientation").cf.reindex(oris).to_numpy()
+            n = g.n.iloc[0]
+            if not np.isfinite(prof).all() or n == 0:
+                continue
+            k = int(np.round(theta_of_value(maps[m], v) / step)) % len(oris)
+            acc += n * np.roll(prof, len(oris) // 2 - k)
+            wsum += n
+        out[s] = acc / wsum
+    return rel, pd.DataFrame(out).T
+
+
+def smooth_rows(G, sv=1.0, so=2.0):
+    """Display only: Gaussian smoothing over value bins and (circularly) orientation."""
+    from scipy.ndimage import gaussian_filter
+    X = np.nan_to_num(G.to_numpy())
+    return gaussian_filter(X, (sv, so), mode=("nearest", "wrap"))
+
+
+def figure(d, maps, values, oris, subj, t, p, acc, folder):
     plt.rcParams.update({"font.family": "Helvetica", "font.size": 7, "axes.labelsize": 7.5,
                          "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "pdf.fonttype": 42,
                          "axes.spines.top": False, "axes.spines.right": False})
-    fig = plt.figure(figsize=(7.25, 2.9))
+    roi = {"": "NPC R"}.get("target" in folder and "x" or "", None) or (
+        folder.split("target-")[1].split("_")[0].replace("IPS0IPS12IPS345", "IPS0–5")
+        if "target" in folder else "NPC R")
+    fig = plt.figure(figsize=(7.25, 4.6))
     grp = {c: d[d.condition == c].groupby(["value_bin", "orientation"]).cf.mean().unstack()
            .reindex(index=values, columns=oris) for c in CONDS}
-    lim = np.nanpercentile(np.abs(np.r_[grp["cdf"].values.ravel(),
-                                        grp["inverse_cdf"].values.ravel()]), 98)
-    panels = [("cdf", grp["cdf"]), ("inverse_cdf", grp["inverse_cdf"]),
-              ("diff", grp["cdf"] - grp["inverse_cdf"])]
-    for k, (name, G) in enumerate(panels):
-        ax = fig.add_axes([0.06 + 0.24 * k, 0.17, 0.2, 0.68])
-        L = lim if name != "diff" else np.nanpercentile(np.abs(G.values), 98)
-        ax.pcolormesh(oris, values, G.values, cmap="RdBu_r", vmin=-L, vmax=L,
-                      shading="nearest", rasterized=True)
-        for m in CONDS:
-            vv = np.linspace(2, 42, 200)
-            ls = "-" if (name == m or name == "diff") else (0, (2, 1.5))
-            ax.plot(theta_of_value(maps[m], vv), vv, color=COL[m], lw=1.4, ls=ls)
+    S = {c: smooth_rows(grp[c]) for c in CONDS}
+    S = {c: (X - X.mean(1, keepdims=True)) / X.std(1, keepdims=True) for c, X in S.items()}
+    cmap = sns.color_palette("rocket", as_cmap=True)
+    vv = np.linspace(2, 42, 200)
+    for k, c in enumerate(CONDS):
+        ax = fig.add_axes([0.07 + 0.31 * k, 0.56, 0.25, 0.36])
+        ax.pcolormesh(oris, values, S[c], cmap=cmap, vmin=-2, vmax=2.2, shading="gouraud",
+                      rasterized=True)
+        other = [m for m in CONDS if m != c][0]
+        ax.plot(theta_of_value(maps[other], vv), vv, color="#BBBBBB", lw=1.0, ls=(0, (2, 1.5)))
+        ax.plot(theta_of_value(maps[c], vv), vv, color="#7FDBFF", lw=1.6)
         ax.set_xticks([0, 45, 90, 135, 180])
-        ax.set_xlabel("V1 orientation (°)")
-        ax.set_ylabel("Preferred value of parietal voxels (CHF)" if k == 0 else "")
-        title = {"cdf": "Sessions with CDF mapping", "inverse_cdf":
-                 "Sessions with inverse-CDF mapping", "diff": "Difference (CDF − inverse)"}[name]
-        ax.set_title(title, loc="left", fontsize=7, color=COL.get(name, "0.2"))
+        ax.set_xlim(0, 180)
+        ax.set_xlabel("V1 orientation channel (°)")
+        ax.set_ylabel("Preferred value of\nparietal voxels (CHF)" if k == 0 else "")
+        ax.set_title(f"Sessions with the {LAB[c]}", loc="left", fontsize=7.5,
+                     color="0.15")
         sns.despine(ax=ax, offset=3, trim=True)
-    roi = "NPC R" if "target" not in folder else "IPS0–5"
-    fig.text(0.06, 0.95, f"Coupling of parietal ({roi}) voxels to V1 orientation channels, "
-             f"mean over {subj.size} participants; lines: the two mappings "
-             "(solid = in force)", fontsize=6.5, color="0.35")
-    ax = fig.add_axes([0.86, 0.17, 0.12, 0.68])
-    sns.swarmplot(y=subj.values, ax=ax, color="0.4", size=3)
-    ax.hlines(subj.mean(), -0.3, 0.3, color="k", lw=1.6)
-    ax.vlines(0, subj.mean() - subj.sem(), subj.mean() + subj.sem(), color="k", lw=1.1)
+    fig.text(0.07, 0.965, "a", fontsize=8, fontweight="bold")
+    fig.text(0.38, 0.965, "b", fontsize=8, fontweight="bold")
+    # key for the overlays
+    kx = fig.add_axes([0.70, 0.62, 0.28, 0.25])
+    kx.axis("off")
+    kx.plot([0, 0.12], [0.85, 0.85], color="#7FDBFF", lw=1.6)
+    kx.text(0.16, 0.85, "Mapping in force", va="center", fontsize=6.5)
+    kx.plot([0, 0.12], [0.68, 0.68], color="#BBBBBB", lw=1.0, ls=(0, (2, 1.5)))
+    kx.text(0.16, 0.68, "The other session's mapping", va="center", fontsize=6.5)
+    kx.text(0, 0.45, f"Coupling of {roi} voxels' trial-to-trial\nfluctuations to V1 orientation "
+            f"channels,\nstimulus means removed; mean of {subj.size}\nparticipants, each row "
+            "z-scored (display only)", fontsize=6, color="0.35", va="top")
+    kx.set_xlim(0, 1)
+    kx.set_ylim(0, 1)
+    cax = fig.add_axes([0.70, 0.57, 0.15, 0.015])
+    cb = plt.colorbar(plt.cm.ScalarMappable(norm=plt.Normalize(-2, 2.2), cmap=cmap), cax=cax,
+                      orientation="horizontal")
+    cb.set_ticks([-2, 0, 2])
+    cb.outline.set_visible(False)
+    cb.ax.tick_params(labelsize=6, length=1.5)
+    cb.set_label("Coupling (z within row)", fontsize=6)
+    # c: aligned profiles
+    ax = fig.add_axes([0.115, 0.09, 0.40, 0.33])
+    for ref, col, lab in (("this", "#D9730D", "Centred on the mapping\nin force"),
+                          ("other", "0.55", "Centred on the\nother mapping")):
+        rel, P = aligned(d, maps, oris, ref)
+        m, se = P.mean(0).to_numpy(), P.sem(0).to_numpy()
+        ax.fill_between(rel, m - se, m + se, color=col, alpha=0.2, lw=0)
+        ax.plot(rel, m, color=col, lw=1.6)
+        i = int(np.argmax(m))
+        if ref == "this":
+            ax.text(rel[i] + 14, m[i], lab, color=col, fontsize=6.5, va="center")
+        else:
+            ax.text(-86, 0.6 * m[i], lab, color=col, fontsize=6.5, va="center")
+    ax.axvline(0, color="0.75", lw=0.6, ls=(0, (3, 2)))
+    ax.axhline(0, color="0.75", lw=0.6)
+    ax.set_xticks([-90, -45, 0, 45, 90])
+    ax.set_xlim(-90, 90)
+    ax.set_xlabel("V1 orientation relative to the orientation worth the voxel's preferred value (°)")
+    ax.set_ylabel("Coupling\n(voxel-specific CF)")
+    sns.despine(ax=ax, offset=3, trim=True)
+    fig.text(0.01, 0.45, "c", fontsize=8, fontweight="bold")
+    # d: decoder
+    ax = fig.add_axes([0.66, 0.09, 0.12, 0.33])
+    sns.swarmplot(y=subj.values, ax=ax, color="0.45", size=2.8)
+    ax.hlines(subj.mean(), -0.3, 0.3, color="#D9730D", lw=2)
+    ax.vlines(0, subj.mean() - subj.sem(), subj.mean() + subj.sem(), color="#D9730D", lw=1.2)
     ax.axhline(0, color="0.7", lw=0.6, ls=(0, (3, 2)))
     ax.set_xticks([])
-    ax.set_ylabel("Mapping decoded from coupling\nr(this) − r(other)")
-    ax.set_title(f"{acc:.0%} of sessions correct\nt = {t:.2f}, p = {p:.3g}",
-                 fontsize=6.5, loc="left")
+    ax.set_ylabel("Mapping read out from coupling\nr(in force) − r(other)")
     sns.despine(ax=ax, offset=3, trim=True, bottom=True)
-    out = REPO / "notes/figures" / f"fig_cf_decode_mapping{'' if folder.endswith('IPS345') and 'lags' not in folder else '_' + folder}.pdf"
+    fig.text(0.80, 0.30, f"{acc:.0%} of sessions\nclassified correctly\n\n"
+             f"t{subj.size - 1} = {t:.2f}\np = {p:.3g}", fontsize=6.5, color="0.25", va="top")
+    fig.text(0.58, 0.45, "d", fontsize=8, fontweight="bold")
+    out = REPO / "notes/figures" / f"fig_cf_decode_mapping_{folder}.pdf"
     fig.savefig(out, dpi=300)
     fig.savefig(out.with_suffix(".png"), dpi=200)
     print(f"Wrote {out}")
