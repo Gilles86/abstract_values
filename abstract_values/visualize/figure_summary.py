@@ -522,6 +522,71 @@ def explain_schematic(fig, top, height, maps):
     sns.despine(ax=ax, left=True, offset=2, trim=True)
 
 
+def tuning_maps(fig, top_in, H, verts):
+    """Group preferred orientation (von Mises basis, circular mean) and preferred value
+    (aPRF mode, median), smoothed fits, opacity = share of participants with signal."""
+    from abstract_values.utils.data import BIDS_FOLDER
+    from abstract_values.visualize import qc_tuning_maps as qt
+    from abstract_values.visualize import qc_flatmaps as qf
+    from abstract_values.visualize.group_surface_maps import discover_subjects
+    deriv = Path(BIDS_FOLDER) / "derivatives"
+    d = qt.collect(deriv, discover_subjects(deriv), True)
+    n = len(d["subjects"])
+    theta, prev_o, _ = qt.preferred_orientation(d)
+    med, prev_v = qt.preferred_value(d)
+    import cortex
+
+    def light(vals, alpha, vmin, vmax, cmap):
+        v = cortex.Vertex(np.nan_to_num(vals).astype(np.float32), "fsaverage", vmin=vmin,
+                          vmax=vmax, cmap=cmap)
+        return v.blend_curvature(np.clip(np.nan_to_num(alpha), 0, 1).astype(np.float32),
+                                 brightness=0.82, contrast=0.12)
+    vo = light(theta, qt.ramp(prev_o, 0.25, 0.55), 0, 180, qt.ORI_CMAP)
+    vv = light(med, qt.ramp(prev_v, 0.25, 0.55), qt.VALUE_MIN, qt.VALUE_MAX, qt.VALUE_CMAP)
+    fig.text(0.01, 1 - (top_in + 0.05) / H, "Where voxels prefer which orientation and "
+             "which value: group maps of the fitted tuning (smoothed fits, n = "
+             f"{n}). Opacity: share of participants whose\nmodel beats the null at that vertex "
+             "(fades in from 25% to 55%).", fontsize=6.3, color="0.3", va="top")
+    for k, (vtx, title) in enumerate(((vo, "Preferred orientation (von Mises basis)"),
+                                      (vv, "Preferred value (aPRF)"))):
+        ax = fig.add_axes([0.01 + 0.5 * k, 1 - (top_in + 0.45 + 1.5) / H, 0.4, 1.5 / H])
+        _flat(ax, vtx)
+        ax.set_title(title, fontsize=6.8, loc="left", fontweight="bold", color="0.2", pad=1)
+    qf.orientation_key(fig, [0.41, 1 - (top_in + 1.35) / H, 0.08, 0.7 / H], qt.ORI_CMAP, "")
+    cb = qf.colorbar(fig, [0.6, 1 - (top_in + 2.05) / H, 0.2, 0.006], qt.VALUE_CMAP,
+                     qt.VALUE_MIN, qt.VALUE_MAX, "Preferred value (CHF)",
+                     ticks=[2, 12, 22, 32, 42])
+    cb.ax.tick_params(labelsize=5.5)
+    cb.set_label("Preferred value (CHF)", fontsize=6)
+    fig.text(0.01, 1 - (top_in + 2.5) / H,
+             "Orientation preference varies smoothly over early visual cortex (partly a radial "
+             "bias that is right-hemisphere-heavy and tracks gaze drift along the bar). "
+             "Preferred values\nare spread over the whole range in both early visual and "
+             "parietal cortex, without one smooth value map (top left: left M1).",
+             fontsize=5.7, color="0.42", va="top", linespacing=1.3)
+
+
+def caveats(fig, top, height):
+    ax = fig.add_axes([0.01, top - height, 0.98, height])
+    ax.axis("off")
+    ax.add_patch(plt.Rectangle((0, 0), 1, 1, fc="#F4F1EC", ec="none", transform=ax.transAxes))
+    ax.text(0.012, 0.92, "Caveats and open questions", fontsize=7, fontweight="bold",
+            va="top", color="0.15")
+    txt = ("• Several choices were made after looking at the data: the ±1 lag control, the "
+           "IPS3–5 emphasis, decoding accuracy as the measure in n, and the mapping-error\n"
+           "   measure. Effects with pre-specified choices: coupling IPS0–5 at lag 0 / ±1 "
+           "(p < .001); routing–value-noise link ρ = .35 (p = .04) is modest at n = 35.\n"
+           "• The 90° (vertical) gabor is an outlier in both V1 and parietal geometry — also "
+           "the one orientation worth 22 CHF in both mappings and the categorical boundary.\n"
+           "• The flexible value model (wPRF) gains slightly from retuning in IPS1–2 "
+           "(+0.74 ± 0.34 points, uncorrected); 'no retuning' is strongest for the aPRF.\n"
+           "• Left M1 carries value signal (right-hand bids), so it is a motor control region "
+           "rather than a null region. Rows 1 and 4 use different model fits (categorical\n"
+           "   n = 34 vs sequential n = 35); the categorical n = 35 fit, with a free prior "
+           "steepness, is running.")
+    ax.text(0.012, 0.74, txt, fontsize=5.9, va="top", color="0.3", linespacing=1.4)
+
+
 def explain_connectivity(fig, top, height):
     """Four numbered steps of the coupling analysis, as a strip of boxes."""
     steps = [("1  Remove the stimulus",
@@ -559,10 +624,11 @@ def main():
     verts = exclusive_rois(roi_verts())
     maps = dm.mapping_table()
     # inserted bands: (insert after this inch on the original grid, height)
-    BANDS = [(5.95, 2.75),      # example participants
-             (9.55, 2.4),       # retuning (encoding-model comparison)
+    BANDS = [(2.8, 3.0),        # preferred orientation / value maps
+             (5.95, 2.75),      # example participants
+             (9.55, 2.85),      # retuning (encoding-model comparison)
              (10.5, 3.0)]       # how the connectivity analysis works
-    H = 16.1 + sum(b[1] for b in BANDS)
+    H = 16.1 + sum(b[1] for b in BANDS) + 1.35     # + caveats box at the bottom
     fig = plt.figure(figsize=(7.25, H))
 
     def Y(inch):
@@ -625,13 +691,18 @@ def main():
         "Mises\ntuning over orientation; right, log-Gaussian tuning over value (CHF). Shown "
         "for the\ntop quarter of cortex. Value signal in motor cortex is left-lateralised (left M1\n0.47%, right M1 −0.23%): participants moved the bid slider with the right hand.")
 
+    # ── tuning maps band ─────────────────────────────────────────────────
+    tm = band_top(0)
+    tuning_maps(fig, tm, H, verts)
+
     # ── row 1: behaviour + model ──────────────────────────────────────────
     headline(fig, Y(3.0), "1  A two-stage model splits bid noise into perceptual noise "
              "and value noise")
     body(fig, Y(3.22), "Efficient coding in orientation space (perceptual noise, cardinal "
          "prior) followed by efficient coding in value space (value noise σ_rep), with the "
-         "categorical gate at\n90° / 22 CHF (best model by LOO); fitted hierarchically to all bids "
-         "(NumPyro, 4 chains × 1500 draws, r̂ ≤ 1.01).")
+         "categorical gate at\n90° / 22 CHF; it beats the same model without the gate by "
+         "ΔELPD ≈ 270 (LOO). Fitted hierarchically to all bids (NumPyro, 4 chains × 1500 draws, "
+         "r̂ ≤ 1.01).")
     L(0.01, 3.7, "e")
     panel_ppc(ax_(0.09, 3.8, 0.24, 1.3), "bias", "Bid − value (CHF)")
     cap(0.05, 5.55, "Mean bid error per orientation (dots: data; CDF violet,\ninverse CDF "
@@ -653,7 +724,7 @@ def main():
     beh["response"] = pd.to_numeric(beh.response, errors="coerce")
     beh = beh.reset_index()
     cpar = pd.read_csv(CAT_PARAMS, sep="\t")
-    fig.text(0.01, 1 - (band_top(0) + 0.2) / H,
+    fig.text(0.01, 1 - (band_top(1) + 0.2) / H,
              "Three example participants: bid error (top) and bid spread (bottom) per "
              "orientation, both mappings. Dots: data (8 bids each); bands: 50% and 80% of datasets\n"
              "simulated from that participant's posterior (categorical model). Perceptual noise "
@@ -661,7 +732,7 @@ def main():
              "noise adds spread everywhere. Symbols mark the three participants in g.",
              fontsize=6.3, color="0.3", va="top")
     for k, (sub, title) in enumerate(EXAMPLES):
-        t0 = band_top(0)
+        t0 = band_top(1)
         axb = fig.add_axes([0.09 + 0.31 * k, 1 - (t0 + 0.75 + 0.75) / H, 0.25, 0.75 / H])
         axs = fig.add_axes([0.09 + 0.31 * k, 1 - (t0 + 1.6 + 0.75) / H, 0.25, 0.75 / H])
         panel_example(axb, axs, beh, sub, title, cpar, k == 0)
@@ -704,17 +775,22 @@ def main():
         "real data) would be detected.")
 
     # ── retuning band ──────────────────────────────────────────────────────
-    t1 = band_top(1)
+    t1 = band_top(2)
     fig.text(0.01, 1 - (t1 + 0.15) / H, "Tuning does not follow the mapping either: "
              "encoding models with one tuning for both sessions vs a twin whose preferred\n"
              "value / orientation may change between sessions (leave-one-run-out cvR², vertices "
-             "where the fixed model beats the null; positive = retuning helps).",
-             fontsize=6.3, color="0.3", va="top")
+             "where the fixed model beats the null; positive = retuning helps).\n"
+             "aPRF: one log-Gaussian tuning curve over value per voxel (preferred value, width, "
+             "amplitude, baseline). wPRF: a weighted sum of 8 fixed log-Gaussian basis\n"
+             "functions over value, so any tuning shape. von Mises: a weighted sum of 8 von "
+             "Mises basis functions over orientation (180° circle). All fitted to single-trial\n"
+             "betas of both sessions; the shift twins refit the preferred value / the weights "
+             "per session.", fontsize=6.3, color="0.3", va="top")
     L(0.01, t1 + 0.45 - sum(h for t, h in BANDS[:1]), "")
-    axr = fig.add_axes([0.09, 1 - (t1 + 0.7 + 1.2) / H, 0.5, 1.2 / H])
+    axr = fig.add_axes([0.09, 1 - (t1 + 1.15 + 1.2) / H, 0.5, 1.2 / H])
     rt = panel_retuning(axr)
-    letter(fig, 0.01, 1 - (t1 + 0.65) / H, "k")
-    fig.text(0.79, 1 - (t1 + 0.7) / H, rt, fontsize=5.8, color="0.42", va="top",
+    letter(fig, 0.01, 1 - (t1 + 1.1) / H, "k")
+    fig.text(0.79, 1 - (t1 + 1.15) / H, rt, fontsize=5.8, color="0.42", va="top",
              linespacing=1.35)
 
     # ── row 3: routing ────────────────────────────────────────────────────
@@ -725,7 +801,7 @@ def main():
          "each\nstimulus and the neighbouring trials' orientations (±1). Score: how well the "
          "coupling matches the in-force mapping minus the other mapping, minus\nthe same with "
          "tuning labels shuffled across voxels.")
-    t2 = band_top(2)
+    t2 = band_top(3)
     explain_schematic(fig, 1 - (t2 + 0.05) / H, 1.65 / H, maps)
     explain_connectivity(fig, 1 - (t2 + 1.85) / H, 1.0 / H)
     d = pd.concat(pd.read_csv(f, sep="\t", dtype={"subject": str}) for f in
@@ -766,6 +842,7 @@ def main():
     cap(0.74, 15.85, "Routing score (IPS0–5, ±1 lag) vs the\nmodel's value precision; "
         "line ± 68% CI.")
 
+    caveats(fig, 1 - (H - 1.3) / H, 1.2 / H)
     out = REPO / "notes/figures/fig_summary.pdf"
     fig.savefig(out, dpi=300)
     fig.savefig(out.with_suffix(".png"), dpi=200)
