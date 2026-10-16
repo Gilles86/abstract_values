@@ -56,6 +56,9 @@ def main():
             ax.plot([Y[-1, 0], Y[0, 0]], [Y[-1, 1], Y[0, 1]], color="0.3", lw=1.0,
                     ls=(0, (2, 1.5)), zorder=1)
             span = np.ptp(Y, 0).max()
+            tw = plt.get_cmap("twilight")
+            ax.scatter(Y[:, 0], Y[:, 1], c=[tw(o / 180) for o in oris], s=210,
+                       edgecolor="none", zorder=2)        # orientation colour as a disc
             for (x, y), o, v in zip(Y, oris, val):
                 ax.add_artist(AnnotationBbox(OffsetImage(gabor_image(o), zoom=0.26), (x, y),
                                              frameon=False, zorder=3))
@@ -66,7 +69,7 @@ def main():
             ax.axis("off")
             ax.set_title(f"{name}, {'CDF' if m == 'cdf' else 'inverse-CDF'} sessions",
                          loc="left", fontsize=7.5, color=col, fontweight="bold")
-    fig.text(0.01, 0.005, "Gabors: the 23 orientations; numbers: their value (CHF) under "
+    fig.text(0.01, 0.005, "Gabors on discs coloured by orientation (circular colour scale): the 23 orientations; numbers: their value (CHF) under "
              "that session's mapping; dashed: the step from 172.5° back to 7.5°. Each map is "
              "aligned to the region's pooled solution.", fontsize=6, color="0.4")
     out = REPO / "notes/figures/fig_mds_by_mapping.pdf"

@@ -123,7 +123,8 @@ def gabor_image(theta, n=61, sf=1.6, sigma=0.36):
     g = np.cos(2 * np.pi * sf * u) * np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
     img = np.ones((n, n, 4))
     img[..., :3] = (0.5 + 0.5 * g)[..., None]
-    img[..., 3] = np.clip(np.exp(-(x ** 2 + y ** 2) / (2 * (sigma * 1.4) ** 2)) * 1.6, 0, 1)
+    r2 = x ** 2 + y ** 2
+    img[..., 3] = np.clip(np.exp(-r2 / (2 * sigma ** 2)) * 1.4, 0, 1) * (r2 < 0.9)
     return img
 
 
@@ -136,7 +137,7 @@ def panel_mds(ax, R, oris, col, title):
     ax.plot([Y[-1, 0], Y[0, 0]], [Y[-1, 1], Y[0, 1]], color="0.25", lw=1.0,
             ls=(0, (2, 1.5)), zorder=1)
     from matplotlib.offsetbox import AnnotationBbox, OffsetImage
-    ax.scatter(Y[:, 0], Y[:, 1], c=[tw(o / 180) for o in oris], s=80, edgecolor="none",
+    ax.scatter(Y[:, 0], Y[:, 1], c=[tw(o / 180) for o in oris], s=105, edgecolor="none",
                zorder=2)                                  # orientation colour as a ring
     for (x, y), o in zip(Y, oris):
         ab = AnnotationBbox(OffsetImage(gabor_image(o), zoom=0.2), (x, y), frameon=False,
@@ -466,6 +467,37 @@ ORI_CMAP = sns.blend_palette(["#CFE8E4", "#4FA89F", "#1B8A80", "#0B4A44"], n_col
                              as_cmap=True)
 
 
+def group_params(fig, top_in, H):
+    """Group-level posterior of the categorical model, plus what was fixed."""
+    # written from the trace in the bauer env (no arviz in pycortex2):
+    # notes/data/categorical_group_params.tsv
+    gp = pd.read_csv(REPO / "notes/data/categorical_group_params.tsv", sep="\t").set_index("param")
+    q = lambda v: gp.loc[v, ["median", "lo", "hi"]].to_numpy()  # noqa: E731
+    sub = pd.read_csv(REPO / "notes/data/categorical_noise_intervals.tsv", sep="\t")
+    rows = [
+        ("Total noise, group mean", *q("total_noise_mu"), "CHF"),
+        ("Perceptual share, group mean", *q("perceptual_share_mu"), ""),
+        ("Total noise, group SD (softplus scale)", *q("total_noise_sd"), ""),
+        ("Perceptual share, group SD (logit scale)", *q("perceptual_share_sd"), ""),
+    ]
+    fig.text(0.01, 1 - (top_in + 0.05) / H, "Group-level parameters of the categorical "
+             "model (posterior median [95% CrI], n = 34)", fontsize=6.6, fontweight="bold",
+             color="0.2", va="top")
+    for i, (lab, m, lo, hi, unit) in enumerate(rows):
+        x0 = 0.01 + 0.49 * (i % 2)
+        y0 = top_in + 0.3 + 0.17 * (i // 2)
+        fig.text(x0, 1 - y0 / H, f"{lab}:", fontsize=6.2, color="0.3", va="top")
+        fig.text(x0 + 0.3, 1 - y0 / H, f"{m:.2f} [{lo:.2f}, {hi:.2f}] {unit}", fontsize=6.2,
+                 color="0.15", va="top")
+    fig.text(0.01, 1 - (top_in + 0.68) / H,
+             f"Across participants: perceptual noise median {sub.perc_med.median():.2f} CHF "
+             f"(range {sub.perc_med.min():.2f}–{sub.perc_med.max():.2f}); value noise σ_rep "
+             f"median {sub.srep_med.median():.2f} CHF (range {sub.srep_med.min():.2f}–"
+             f"{sub.srep_med.max():.2f}). Fixed: lapse rate 1%, long-term cardinal "
+             "orientation prior (shape not fitted), category gate at 90° / 22 CHF, "
+             "161-point grids.", fontsize=5.9, color="0.4", va="top", wrap=True)
+
+
 def panel_noise(ax):
     """Each participant's perceptual vs value noise: posterior median and 95% CrI
     (categorical model, total-share fit)."""
@@ -699,7 +731,7 @@ def main():
     maps = dm.mapping_table()
     # inserted bands: (insert after this inch on the original grid, height)
     BANDS = [(2.8, 3.4),        # preferred orientation / value maps
-             (5.95, 2.95),      # example participants
+             (5.95, 3.75),      # group parameters + example participants
              (9.55, 3.0),       # retuning (encoding-model comparison)
              (10.5, 3.0)]       # how the connectivity analysis works
     H = 16.1 + sum(b[1] for b in BANDS) + 1.35     # + caveats box at the bottom
@@ -801,7 +833,8 @@ def main():
     beh["response"] = pd.to_numeric(beh.response, errors="coerce")
     beh = beh.reset_index()
     cpar = pd.read_csv(CAT_PARAMS, sep="\t")
-    fig.text(0.01, 1 - (band_top(1) + 0.2) / H,
+    group_params(fig, band_top(1), H)
+    fig.text(0.01, 1 - (band_top(1) + 1.0) / H,
              "Three example participants: bid error (top) and bid spread (bottom) per "
              "orientation, both mappings. Dots: data (8 bids each); bands: 50% and 80% of datasets\n"
              "simulated from that participant's posterior (categorical model). Perceptual noise "
@@ -809,7 +842,7 @@ def main():
              "noise adds spread everywhere. Symbols mark the three participants in g.",
              fontsize=6.3, color="0.3", va="top")
     for k, (sub, title) in enumerate(EXAMPLES):
-        t0 = band_top(1)
+        t0 = band_top(1) + 0.8
         axes = {}
         for j, m in enumerate(("cdf", "inverse_cdf")):
             x0 = 0.09 + 0.31 * k + 0.135 * j
