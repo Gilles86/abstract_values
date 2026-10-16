@@ -43,7 +43,8 @@ PARAMS = Path("/data/ds-abstractvalue/derivatives/cogmodels/"
 PIL = {"pil01": "01", "pil02": "02"}
 CX_ROI = {"V1": ["V1"], "V2": ["V2"], "V3": ["V3"], "hV4": ["hV4"], "LO": ["LO"],
           "TO": ["TO1", "TO2"], "V3a/b": ["V3a"], "IPS0": ["IPS0"],
-          "IPS1–2": ["IPS1", "IPS2"], "IPS3–5": ["IPS3", "IPS4", "IPS5"]}
+          "IPS1–2": ["IPS1", "IPS2"], "IPS3–5": ["IPS3", "IPS4", "IPS5"],
+          "M1 L": ["M1_lh"]}
 DORSAL = ["V1", "V2", "V3", "V3a/b", "IPS0", "IPS1–2", "IPS3–5"]
 # IPS3-5 come straight from the Wang-15 labels (the pycortex overlay has no
 # IPS4/5); the numerosity map (NPC) is left out: it is a functional localiser
@@ -55,9 +56,10 @@ WANG_ONLY = ["IPS3", "IPS4", "IPS5"]
 def roi_verts():
     """fsaverage vertex indices (lh then rh) for every name in CX_ROI."""
     import nibabel as nib
-    names = [n for n in sum(CX_ROI.values(), []) if n not in WANG_ONLY]
-    verts = cortex.get_roi_verts("fsaverage", names)
+    names = [n for n in sum(CX_ROI.values(), []) if n not in WANG_ONLY and n != "M1_lh"]
+    verts = cortex.get_roi_verts("fsaverage", names + ["M1"])
     n_lh = cortex.db.get_surf("fsaverage", "flat", "lh")[0].shape[0]
+    verts["M1_lh"] = verts["M1"][verts["M1"] < n_lh]       # control: left motor cortex
     for n in WANG_ONLY:
         idx = []
         for h, hh, off in (("L", "lh", 0), ("R", "rh", n_lh)):

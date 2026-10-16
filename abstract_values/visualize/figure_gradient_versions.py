@@ -52,10 +52,18 @@ REPO = Path(__file__).resolve().parents[2]
 FIG = REPO / "notes" / "figures"
 PER_C, REP_C = "#1B8A80", "#D9730D"
 EARLY, LATE = ["V1", "V2", "V3"], ["IPS0", "IPS1–2", "IPS3–5"]
+# Control region, drawn apart from the hierarchy (never part of any test)
+CONTROL = ["M1 L"]
+CTRL_LAB = {"M1 L": "Left M1"}
+ALL = None                     # set after DORSAL is imported
+
+
+def xpos(r):
+    return DORSAL.index(r) if r in DORSAL else len(DORSAL) + 1.3
 N_BOOT = int(__import__("os").environ.get("N_BOOT", 3000))
 EU_DIR = Path("/data/ds-abstractvalue/derivatives/encoding_models/aprf-weighted")
 EU_ROI = {"BensonV1": "V1", "BensonV2": "V2", "BensonV3": "V3", "V3ab": "V3a/b",
-          "IPS0": "IPS0", "IPS12": "IPS1–2", "IPS345": "IPS3–5"}
+          "IPS0": "IPS0", "IPS12": "IPS1–2", "IPS345": "IPS3–5", "M1l": "M1 L"}
 
 
 def zs(x):
@@ -127,7 +135,7 @@ def eu_error():
 
 DEC_DIR = Path("/data/ds-abstractvalue/derivatives/decoding/value")
 DEC_ROI = {"BensonV1": "V1", "BensonV2": "V2", "BensonV3": "V3", "V3ab": "V3a/b",
-           "IPS0": "IPS0", "IPS12": "IPS1–2", "IPS345": "IPS3–5"}
+           "IPS0": "IPS0", "IPS12": "IPS1–2", "IPS345": "IPS3–5", "M1l": "M1 L"}
 
 
 def decode_r():
@@ -169,7 +177,7 @@ def profile(meas, tab, regs, idx=None):
         subs = [subs[i] for i in idx]
     X = tab.loc[subs, regs + ["fd"]].to_numpy()
     return {r: (betas(meas.loc[subs, r].to_numpy(float), X)[:len(regs)] if r in meas
-                else np.full(len(regs), np.nan)) for r in DORSAL}
+                else np.full(len(regs), np.nan)) for r in DORSAL + CONTROL}
 
 
 def boot(fn, n_subj):
@@ -293,10 +301,12 @@ def hierarchy_axis(ax, x):
     base = ax.get_xaxis_transform()
     tr_line = offset_copy(base, fig=ax.figure, y=-21, units="points")
     tr_text = offset_copy(base, fig=ax.figure, y=-23, units="points")
-    for lo, hi, lab in ((0, 2, "Early visual"), (4, 6, "Parietal")):
-        ax.plot([x[lo] - 0.2, x[hi] + 0.2], [0, 0], color="0.55", lw=0.8,
+    xc = len(DORSAL) + 1.3
+    for lo, hi, lab in ((x[0], x[2], "Early visual"), (x[4], x[6], "Parietal"),
+                        (xc, xc, "Control")):
+        ax.plot([lo - 0.2, hi + 0.2], [0, 0], color="0.55", lw=0.8,
                 transform=tr_line, clip_on=False)
-        ax.text((x[lo] + x[hi]) / 2, 0, lab, ha="center", va="top", fontsize=6.5,
+        ax.text((lo + hi) / 2, 0, lab, ha="center", va="top", fontsize=6.5,
                 color="0.4", transform=tr_text)
 
 
@@ -308,12 +318,20 @@ def line_panel(ax, est, B, labels, cols, ylab):
         ax.fill_between(x, y - se, y + se, color=col, alpha=0.16, lw=0)
         ax.plot(x, y, "-", color=col, lw=1.8, solid_capstyle="round", zorder=3)
         ax.plot(x, y, "o", color=col, ms=4.5, mec="white", mew=0.8, zorder=4)
-        last = np.flatnonzero(np.isfinite(y))[-1]
-        ax.text(x[last] + 0.18, y[last], lab, color=col, fontsize=7, fontweight="bold",
-                va="center")
+        ax.text(0.01, 0.98 - 0.1 * k, lab, color=col, fontsize=7, fontweight="bold",
+                va="top", transform=ax.transAxes)
+        # control region: its own point, no line joining it to the hierarchy
+        for r in CONTROL:
+            if r in est and np.isfinite(est[r][k]):
+                xc = xpos(r) + (k - 0.5) * 0.2
+                s_ = np.std([b[r][k] for b in B])
+                ax.vlines(xc, est[r][k] - s_, est[r][k] + s_, color=col, lw=1.1)
+                ax.plot(xc, est[r][k], "s", color=col, ms=4.2, mec="white", mew=0.8,
+                        zorder=4)
+    ax.axvline(len(DORSAL) + 0.15, color="0.8", lw=0.8, ls=(0, (1, 2)))
     ax.axhline(0, color="0.7", lw=0.6, ls=(0, (3, 2)), zorder=0)
     ax.set_xticks([])
-    ax.set_xlim(-0.3, len(DORSAL) - 0.6 + 1.6)
+    ax.set_xlim(-0.3, len(DORSAL) + 2.0)
     ax.set_ylabel(ylab)
     sns.despine(ax=ax, offset=4, trim=True, bottom=True)
 
@@ -321,16 +339,17 @@ def line_panel(ax, est, B, labels, cols, ylab):
 def signal_strip(ax, df, xlim, label, scale=1.0, chance=None, fmt="{:.1g}", points=False):
     """Per-region group mean ± 1 SE of a signal measure, aligned under panel c;
     with points=True every participant is a dot (swarm) behind the mean."""
-    x = np.arange(len(DORSAL))
-    m = np.array([df[r].mean() if r in df else np.nan for r in DORSAL]) * scale
+    rois = DORSAL + CONTROL
+    x = np.array([xpos(r) for r in rois])
+    m = np.array([df[r].mean() if r in df else np.nan for r in rois]) * scale
     se = np.array([df[r].std() / np.sqrt(df[r].notna().sum()) if r in df else np.nan
-                   for r in DORSAL]) * scale
+                   for r in rois]) * scale
     if points:
-        long = (df.reindex(columns=DORSAL) * scale).melt(var_name="roi", value_name="v")
+        long = (df.reindex(columns=rois) * scale).melt(var_name="roi", value_name="v")
         long = long.dropna()
-        long["x"] = long.roi.map({r: i for i, r in enumerate(DORSAL)})
-        sns.swarmplot(data=long, x="x", y="v", order=list(range(len(DORSAL))),
-                      native_scale=True, color="0.72", size=1.8, ax=ax, zorder=1)
+        long["x"] = long.roi.map(xpos)
+        sns.swarmplot(data=long, x="x", y="v", native_scale=True, color="0.72", size=1.8,
+                      ax=ax, zorder=1)
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.hlines(m, x - 0.25, x + 0.25, color="0.15", lw=1.4, zorder=3)
@@ -346,18 +365,18 @@ def signal_strip(ax, df, xlim, label, scale=1.0, chance=None, fmt="{:.1g}", poin
         ax.axhline(chance, color="0.45", lw=0.7, ls=(0, (3, 2)), zorder=0)
         ax.text(len(DORSAL) - 0.6, chance, "Chance", fontsize=6, color="0.45",
                 va="bottom")
+    ax.axvline(len(DORSAL) + 0.15, color="0.8", lw=0.8, ls=(0, (1, 2)))
     ax.set_xlim(xlim)
     ax.set_xticks(x)
-    ax.set_xticklabels(DORSAL)
+    ax.set_xticklabels([CTRL_LAB.get(r, r) for r in rois])
     ax.set_ylim(lo - 0.05 * (top - lo), top * 1.05)
     tick = float(fmt.format(top))
     ax.set_yticks([0, tick])
     ax.set_yticklabels(["0", f"{tick:g}"])
-    ax.text(len(DORSAL) - 0.6, lo + (top - lo) * (0.35 if chance else 0.62),
-            label, fontsize=6.5, color="0.4", va="center")
+    ax.set_ylabel(label, fontsize=6.5, color="0.3")
     ax.tick_params(axis="y", labelsize=6)
     sns.despine(ax=ax, offset=4, trim=True)
-    hierarchy_axis(ax, x)
+    hierarchy_axis(ax, np.arange(len(DORSAL)))
 
 
 def contrast_panel(ax, est, B, cols, g, Bg):
@@ -407,7 +426,7 @@ def version_beta(meas, tab, measure, fname, verts, strip, bg=None):
                              ticklabels=[f"{lo * 100:.1f}%", f"{hi * 100:.1f}%"])
             tcol = "#B2301F"
         else:
-            brain_panel(a, {r: est[r][k] if r in est else np.nan for r in verts}, verts,
+            brain_panel(a, {r: est[r][k] if r in est and r not in CONTROL else np.nan for r in verts}, verts,
                         col, bg=bg, labels=(k == 0))
             title, sub = labs[k], f"Weight on {measure}"
             cb = qf.colorbar(fig, [x0 + 0.09, 0.565, 0.15, 0.01], stage_cmap(col), 0, 0.5,
@@ -443,7 +462,8 @@ def version_unique(meas, tab, fname, strip, test):
     def ur2(idx=None):
         ss = subs if idx is None else [subs[i] for i in idx]
         X = tab.loc[ss, regs + ["fd"]].to_numpy()
-        return np.array([unique_r2(meas.loc[ss, r].to_numpy(float), X) for r in DORSAL])
+        return np.array([unique_r2(meas.loc[ss, r].to_numpy(float), X)
+                         if r in meas else (np.nan, np.nan) for r in DORSAL + CONTROL])
     est = ur2()
     # Jackknife SE: the bootstrap of an R² is biased upward (resampling
     # duplicates participants and inflates fit), which puts the whole whisker
@@ -453,8 +473,9 @@ def version_unique(meas, tab, fname, strip, test):
     se = np.sqrt((n - 1) / n * ((J - J.mean(0)) ** 2).sum(0))
     fig = plt.figure(figsize=(5.2, 3.0))
     ax = fig.add_axes([0.12, 0.38, 0.62, 0.54])
-    x = np.arange(len(DORSAL))
+    x = np.array([xpos(r) for r in DORSAL + CONTROL])
     up, uv = est[:, 0], est[:, 1]
+    ax.axvline(len(DORSAL) + 0.15, color="0.8", lw=0.8, ls=(0, (1, 2)))
     ax.bar(x, up, color=PER_C, width=0.6, lw=0)
     ax.bar(x, uv, bottom=up, color=REP_C, width=0.6, lw=0)
     # ±1 jackknife SE at the top of each segment, floored at the segment base
@@ -464,11 +485,12 @@ def version_unique(meas, tab, fname, strip, test):
               color=DARK[REP_C], lw=0.9)
     ax.set_xticks([])
     ax.set_ylabel("Unique R² in\nvalue-code strength")
-    ax.text(x[-1] + 0.45, up[-1] / 2, "Perceptual\nprecision", color=PER_C, fontsize=7,
+    j = len(DORSAL) - 1
+    ax.text(x[j] + 0.45, up[j] / 2, "Perceptual\nprecision", color=PER_C, fontsize=7,
             fontweight="bold", va="center")
-    ax.text(x[-1] + 0.45, up[-1] + uv[-1] / 2, "Value\nprecision", color=REP_C,
+    ax.text(x[j] + 0.45, up[j] + uv[j] / 2, "Value\nprecision", color=REP_C,
             fontsize=7, fontweight="bold", va="center")
-    ax.set_xlim(-0.5, len(DORSAL) + 0.9)
+    ax.set_xlim(-0.5, len(DORSAL) + 2.0)
     sns.despine(ax=ax, offset=4, trim=True, bottom=True)
     g, gse, p = test
     ax.text(0.02, 0.98, f"Interaction (std. β): {g:+.2f} ± {gse:.2f}, P = {p:.3f}",
@@ -479,7 +501,7 @@ def version_unique(meas, tab, fname, strip, test):
     fig.savefig((FIG / fname).with_suffix(".png"), dpi=200)
     plt.close(fig)
     print("v4 unique R² (perc, value) ± SE:")
-    for r, e, s_ in zip(DORSAL, est, se):
+    for r, e, s_ in zip(DORSAL + CONTROL, est, se):
         print(f"  {r:7s} {e[0]:.3f}±{s_[0]:.3f}  {e[1]:.3f}±{s_[1]:.3f}")
     return est, se
 
@@ -495,7 +517,7 @@ def main(params=PARAMS):
     s_val = dict(df=val, label="Value signal\n(cvR² over null, %)", scale=100)
     s_ori = dict(df=ori, label="Orientation signal\n(cvR² over null, %)", scale=100)
     dr = decode_r()
-    if dr.shape[1] == len(DORSAL):
+    if set(DORSAL) <= set(dr.columns):
         s_dec = dict(df=dr, label="Value decoding\n(r, decoded vs true)", chance=0,
                      fmt="{:.1f}", points=True)
     else:                                   # per-ROI decoding not in yet
