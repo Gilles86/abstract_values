@@ -40,10 +40,16 @@ from abstract_values.utils.data import BIDS_FOLDER, Subject
 ROIS = [("vmPFCOFCaparc", None, "vmPFC/OFC"),
         ("vmPFCOFC", None, "vmPFC/OFC (legacy)"),
         ("BensonV1", "LR", "V1"), ("IPS0", None, "IPS0"),
-        ("IPS12", None, "IPS1-2"), ("IPS345", None, "IPS3-5")]
+        ("IPS12", None, "IPS1-2"), ("IPS345", None, "IPS3-5"),
+        ("WM", None, "White matter")]
+N_WM = 1500   # random eroded white-matter voxels: the noise floor
 MODELS = {"linear": "aprf-linear.cv", "aprf": "aprf.cv",
           "wprf": "aprf-weighted.cv", "orientation": "vonmises-prf.cv",
-          "orientation_basis": "vonmises.cv", "aprf_bid": "aprf-bid.cv"}
+          "orientation_basis": "vonmises.cv", "aprf_bid": "aprf-bid.cv",
+          "aprf_bidmatched": "aprf-bidmatched.cv"}
+# aprf-bid.cv and aprf-bidmatched.cv are fitted on the valid-bid trials only,
+# so their cvR2 is not on the same footing as the all-trial null; compare them
+# with each other (bid - bidmatched: same trials, same model, bid vs value).
 NULL = "aprf-null.cv"
 TOPN = 100
 
@@ -96,7 +102,25 @@ def std_coef(y, x, covs, groups):
     return float(b[0]), float(b[0] / se[0])
 
 
+def wm_mask(bids, s, ref):
+    """Eroded cerebral white matter (aparcaseg 2/41), N_WM random voxels."""
+    from scipy.ndimage import binary_erosion
+    root = Path(bids) / "derivatives" / "fmriprep" / f"sub-{s}"
+    seg = sorted(p for p in root.glob("**/anat/*desc-aparcaseg_dseg.nii.gz")
+                 if "space-" not in p.name)[0]
+    seg = nimage.resample_to_img(str(seg), ref, interpolation="nearest",
+                                 force_resample=True, copy_header=True)
+    wm = binary_erosion(np.isin(np.asarray(seg.dataobj), [2, 41]), iterations=1)
+    idx = np.flatnonzero(wm)
+    keep = np.random.default_rng(0).choice(idx, min(N_WM, len(idx)), replace=False)
+    out = np.zeros(wm.size, bool)
+    out[keep] = True
+    return out.reshape(wm.shape)
+
+
 def roi_mask(sub, roi, hemi, ref):
+    if roi == "WM":
+        return wm_mask(sub.bids_folder, sub.subject_id, ref)
     try:
         m = sub.get_roi_mask(roi, hemi=hemi)
     except FileNotFoundError:
@@ -157,6 +181,11 @@ def main(bids, out, subjects=None):
             if same_grid:
                 ts = np.asarray(bold.dataobj)[m].astype(np.float32)
                 row["tsnr"] = float(np.nanmedian(ts.mean(1) / np.maximum(ts.std(1), 1e-6)))
+            if "aprf_bid" in cv and "aprf_bidmatched" in cv:
+                d = (cv["aprf_bid"] - cv["aprf_bidmatched"])[m]
+                d = d[np.isfinite(d)]
+                row["bid_vs_value_dmean"] = float(np.mean(d))
+                row["bid_vs_value_frac"] = float(np.mean(d > 0))
             for k, c in cv.items():
                 d = (c - null)[m]
                 d = d[np.isfinite(d)]
