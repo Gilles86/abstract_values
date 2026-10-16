@@ -38,7 +38,7 @@ from abstract_values.visualize.qc_tuning_maps import collect
 
 REPO = Path(__file__).resolve().parents[2]
 OUT = REPO / "notes" / "figures" / "fig_gradient.pdf"
-PARAMS = Path("/data/ds-abstractvalue/derivatives/cogmodels/"
+PARAMS = Path("/data/ds-abstractvalue/derivatives/cogmodels_n35/"
               "efficient_coding_sequential_grid161_hn_total-share_erf_subject_params.tsv")
 PIL = {"pil01": "01", "pil02": "02"}
 CX_ROI = {"V1": ["V1"], "V2": ["V2"], "V3": ["V3"], "hV4": ["hV4"], "LO": ["LO"],

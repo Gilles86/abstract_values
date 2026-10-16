@@ -50,7 +50,7 @@ SPECS = {
     "NPC R, lag 0": "coupling_iem-k24-kappa16",
     "NPC R, ±2 lags": "coupling_lags-2_iem-k24-kappa16",
 }
-PARAMS = Path("/data/ds-abstractvalue/derivatives/cogmodels/"
+PARAMS = Path("/data/ds-abstractvalue/derivatives/cogmodels_n35/"
               "efficient_coding_sequential_grid161_hn_total-share_erf_subject_params.tsv")
 
 
