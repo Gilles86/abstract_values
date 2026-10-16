@@ -188,7 +188,11 @@ def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed, compare=None):
     With ``compare``, also returns cvR2(model_cv) - cvR2(compare) per voxel
     (e.g. value aPRF vs its orientation-space twin, vonmises-prf.cv).
     """
-    mask = sub.get_roi_mask(roi, hemi=None)
+    # 'A+B+C' = union of masks (e.g. the Wang IPS maps IPS0+IPS12+IPS345)
+    masks = [sub.get_roi_mask(r, hemi=None) for r in roi.split('+')]
+    mask = masks[0] if len(masks) == 1 else image.math_img(
+        'np.max(np.stack(imgs, -1), -1) > 0', imgs=image.concat_imgs(
+            [image.resample_to_img(m, masks[0], interpolation='nearest') for m in masks]))
     masker = NiftiMasker(mask_img=mask).fit()
     y = masker.transform(betas).astype(np.float64)
     ok = np.isfinite(y).all(0) & (y.std(0) > 0)

@@ -23,9 +23,11 @@ Two checks added after the first look (2026-10-16), both reported:
     rise monotonically with orientation), so only the between-session change
     separates "value" from "an ordered orientation axis";
   * mapping-change test: (d_cdf - d_inverse_cdf) regressed on
-    (|dv|_cdf - |dv|_inverse_cdf) per participant and region. Any fixed
-    orientation geometry cancels; only re-scaling to the session's CHF values
-    survives.
+    (|dv|_cdf - |dv|_inverse_cdf) per participant and region, with linear and
+    circular orientation distance as covariates (a session-wise gain change
+    times the fixed geometry would otherwise masquerade as a mapping change;
+    see power_mapping_change.change_slope). Only re-scaling to the session's
+    CHF values survives.
 
     python -m abstract_values.geometry.analyze_crossnobis
     -> notes/figures/fig_crossnobis_geometry.pdf, notes/data/crossnobis_weights.tsv
@@ -39,6 +41,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from scipy import stats
+
+from abstract_values.geometry.power_mapping_change import change_slope
 
 REPO = Path(__file__).resolve().parents[2]
 DIR = Path("/data/ds-abstractvalue/derivatives/geometry/crossnobis")
@@ -105,7 +109,9 @@ def main():
          .join(d[d.mapping == "inverse_cdf"].set_index(k)[["d", "val_dist"]],
                lsuffix="_c", rsuffix="_i").dropna().reset_index())
     mc = (j.groupby(["subject", "roi"])
-          .apply(lambda g: np.polyfit(g.val_dist_c - g.val_dist_i, g.d_c - g.d_i, 1)[0],
+          .apply(lambda g: change_slope((g.d_c - g.d_i).to_numpy(),
+                                        (g.val_dist_c - g.val_dist_i).to_numpy(),
+                                        g.ori_i.to_numpy(), g.ori_j.to_numpy()),
                  include_groups=False).rename("slope").reset_index())
     for r in DORSAL:
         g, h = w3[w3.roi == r], mc[mc.roi == r].slope
