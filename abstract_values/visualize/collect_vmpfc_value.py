@@ -106,9 +106,9 @@ def roi_mask(sub, roi, hemi, ref):
     return np.asarray(m.dataobj) > 0
 
 
-def main(bids, out):
+def main(bids, out, subjects=None):
     bids = Path(bids)
-    subjects = sorted(d.name[4:] for d in (bids / "derivatives" / "glmsingle").glob("sub-*"))
+    subjects = subjects or sorted(d.name[4:] for d in (bids / "derivatives" / "glmsingle").glob("sub-*"))
     rows = []
     for s in subjects:
         sub = Subject(s, bids_folder=bids)
@@ -189,5 +189,6 @@ if __name__ == "__main__":
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--bids-folder", default=str(BIDS_FOLDER))
     p.add_argument("--out", default="notes/data/vmpfc_value_summary.tsv")
+    p.add_argument("--subjects", nargs="*")
     a = p.parse_args()
-    main(a.bids_folder, a.out)
+    main(a.bids_folder, a.out, a.subjects)
