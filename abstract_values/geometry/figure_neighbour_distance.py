@@ -1,15 +1,13 @@
-"""How distinct is each orientation from its neighbour, per mapping? (no MDS)
+"""Distinctness of each orientation from its two neighbours, per mapping (no MDS).
 
-For every pair of neighbouring orientations (7.5° apart, plus the seam pair
-172.5° / 7.5°), the crossnobis distance between their voxel patterns,
+For every orientation, the mean crossnobis distance to its previous and next
+orientation (7.5° steps; circular, so 7.5° and 172.5° neighbour each other),
 separately for the CDF and inverse-CDF sessions. Each participant's distances
 in a region are divided by that participant's mean distance (both sessions),
-then averaged; bands ±1 SE across participants.
-
-Reference (thin lines, right axis): how far apart the two neighbours are in
-value under each mapping, |Δv|. A code that followed value would make the
-neural neighbour distance track |Δv| and differ between mappings; a fixed
-orientation code would give the same curve for both mappings.
+then averaged; bands ±1 SE across participants. Thin lines (right axis): mean
+|Δ value| to the same two neighbours under each mapping. A value code would
+make the curves differ between mappings and track |Δv|; a fixed orientation
+code gives one curve for both.
 
     python -m abstract_values.geometry.figure_neighbour_distance     # pycortex2 env
     -> notes/figures/fig_neighbour_distance.pdf
@@ -32,14 +30,17 @@ REGIONS = [("V1", ["V1"]), ("Parietal (IPS0–5)", ["IPS0", "IPS1–2", "IPS3–
 
 
 def neighbours(d, rois):
+    """Per orientation: mean distance to its previous AND next orientation (7.5° steps,
+    circular: 7.5° and 172.5° are each other's neighbours). Also the mean |Δ value| to
+    those two neighbours under the session's mapping."""
     g = d[d.roi.isin(rois)].copy()
     g["d"] = g.d / g.groupby(["subject", "roi"]).d.transform("mean")
     step = (g.ori_j - g.ori_i).round(1)
     nb = g[(step == 7.5) | ((g.ori_i == 7.5) & (g.ori_j == 172.5))].copy()
-    nb["mid"] = np.where((nb.ori_j - nb.ori_i).round(1) == 7.5, (nb.ori_i + nb.ori_j) / 2, 180.0)
     nb["dv"] = (nb.val_i - nb.val_j).abs()
-    per = nb.groupby(["subject", "mapping", "mid"]).agg(d=("d", "mean"), dv=("dv", "mean"))
-    return per.reset_index()
+    both = pd.concat([nb.assign(ori=nb.ori_i), nb.assign(ori=nb.ori_j)])
+    per = both.groupby(["subject", "mapping", "ori"]).agg(d=("d", "mean"), dv=("dv", "mean"))
+    return per.reset_index().rename(columns={"ori": "mid"})
 
 
 def main():
@@ -59,27 +60,24 @@ def main():
             ax.fill_between(x, mu - se, mu + se, color=MAP_COL[m], alpha=0.2, lw=0)
             ax.plot(x, mu, "-o", color=MAP_COL[m], ms=2.5, lw=1.4)
             dv = g.dv.mean()
-            dv = dv[dv.index < 180]                       # the seam (40 CHF) is off-scale
+            dv = dv[(dv.index > 8) & (dv.index < 172)]   # ends include the 40-CHF seam
             ax2.plot(dv.index, dv.values, color=MAP_COL[m], lw=0.8, ls=(0, (2, 1.5)),
                      alpha=0.8)
         ax2.set_ylim(0, 12)
-        ax.axvline(180, color="0.8", lw=0.6)
-        ax.text(180, ax.get_ylim()[0], "Seam\n(172.5° to 7.5°,\n|Δv| = 40)", fontsize=5,
-                color="0.5", ha="right", va="bottom")
         ax.set_xticks([0, 45, 90, 135, 180])
-        ax.set_xlim(0, 185)
-        ax.set_xlabel("Orientation between the two neighbours (°)")
-        ax.set_ylabel("Neural distance\n(crossnobis, relative)")
-        ax2.set_ylabel("|Δ value| between neighbours (CHF)", color="0.5")
+        ax.set_xlim(0, 180)
+        ax.set_xlabel("Orientation (°)")
+        ax.set_ylabel("Distance to both\nneighbours (relative)")
+        ax2.set_ylabel("|Δ value| to neighbours (CHF)", color="0.5")
         ax2.tick_params(axis="y", colors="0.5")
         ax2.spines["right"].set_visible(True)
         ax2.spines["right"].set_color("0.7")
-        ax.set_title(name, loc="left", fontweight="bold")
+        ax.set_title(name, loc="left", fontweight="bold", pad=12)
         r = {}
         for m in ("cdf", "inverse_cdf"):
-            q = per[(per.mapping == m) & (per.mid < 180)].groupby("mid")[["d", "dv"]].mean()
+            q = per[(per.mapping == m) & (per.mid > 8) & (per.mid < 172)].groupby("mid")[["d", "dv"]].mean()
             r[m] = np.corrcoef(q.d, q.dv)[0, 1]
-        ax.text(0.99, 1.09, f"r(neural, |Δv|), seam excluded: CDF {r['cdf']:+.2f}, inverse {r['inverse_cdf']:+.2f}",
+        ax.text(0.99, 1.02, f"r(neural, |Δv|), ends excluded: CDF {r['cdf']:+.2f}, inverse {r['inverse_cdf']:+.2f}",
                 transform=ax.transAxes, ha="right", va="bottom", fontsize=5.8, color="0.35")
         sns.despine(ax=ax, offset=3, trim=True)
     axes[0, 0].text(0.02, 0.97, "CDF sessions", color=MAP_COL["cdf"], transform=axes[0, 0].transAxes,
