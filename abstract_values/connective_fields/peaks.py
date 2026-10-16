@@ -45,14 +45,15 @@ VALUE_BINS = np.arange(2, 44, 2.)
 
 
 def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0, gain=False,
-         npc_class='all', target_roi='NPCr'):
+         npc_class='all', target_roi='NPCr', selection='null'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
     par = get_paradigm(sub, sessions)
     betas = sub.get_single_trial_estimates(sessions, desc='gabor')
     if npc_class == 'all':
-        y_npc, sel_npc = load_roi(sub, betas, target_roi, 'aprf.cv', bids_folder, False)
+        y_npc, sel_npc = load_roi(sub, betas, target_roi, 'aprf.cv', bids_folder, False,
+                                  selection=selection)
     else:
         # As in test_coupling.py: value aPRF vs its orientation-space twin.
         y_npc, sel_npc, delta = load_roi(sub, betas, target_roi, 'aprf.cv', bids_folder, False,
@@ -94,7 +95,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_basis=24, kappa=16., lags=0, gain=F
     dst = (bids_folder / 'derivatives' / 'connective_fields'
            / (('peaks' if lags == 0 else f'peaks_lags-{lags}') + ('_gain' if gain else '')
               + ('' if npc_class == 'all' else f'_npc-{npc_class}')
-              + ('' if target_roi == 'NPCr' else f'_target-{target_roi.replace("+", "")}'))
+              + ('' if target_roi == 'NPCr' else f'_target-{target_roi.replace("+", "")}')
+              + ('' if selection == 'null' else f'_sel-{selection}'))
            / f'sub-{subject}')
     dst.mkdir(parents=True, exist_ok=True)
     out.assign(subject=subject).to_csv(dst / f'sub-{subject}_desc-peaks.tsv.gz', sep='\t',
@@ -117,6 +119,7 @@ if __name__ == '__main__':
                    help='Only NPCr voxels where aprf.cv beats / loses to vonmises-prf.cv')
     p.add_argument('--target-roi', default='NPCr',
                    help="Value-side ROI; 'A+B' = union, e.g. IPS0+IPS12+IPS345")
+    p.add_argument('--selection', default='null', choices=['null', 'all', 'top50', 'top25'])
     a = p.parse_args()
     main(a.subject, a.bids_folder, a.n_basis, a.kappa, a.lags, a.gain, a.npc_class,
-         a.target_roi)
+         a.target_roi, a.selection)

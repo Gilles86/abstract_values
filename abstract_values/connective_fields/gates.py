@@ -182,8 +182,13 @@ def residualise(y, par, lags=0, sham_outer=False):
 
 # ── data ─────────────────────────────────────────────────────────────────────
 
-def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed, compare=None):
+def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed, compare=None,
+             selection='null'):
     """ROI betas (trials x voxels) and a 'model beats null cvR2' selection.
+
+    ``selection``: 'null' (cvR2 > null cvR2, default), 'all' (no selection),
+    'top50' / 'top25' (the best half / quarter of the null-beating voxels by
+    cvR2 gain over the null).
 
     With ``compare``, also returns cvR2(model_cv) - cvR2(compare) per voxel
     (e.g. value aPRF vs its orientation-space twin, vonmises-prf.cv).
@@ -215,7 +220,12 @@ def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed, compare=None):
         return masker.transform(image.load_img(str(fn))).ravel()
     m, n = cvr2(model_cv), cvr2('aprf-null.cv')
     sel = ok.copy() if m is None or n is None else ok & np.isfinite(m - n) & (m - n > 0)
-    print(f'  {roi}: {ok.sum()} usable voxels, {sel.sum()} beat the null ({model_cv})')
+    if selection == 'all':
+        sel = ok.copy()
+    elif selection in ('top50', 'top25') and m is not None and n is not None:
+        q = {'top50': 50, 'top25': 75}[selection]
+        sel = sel & (m - n >= np.percentile((m - n)[sel], q))
+    print(f'  {roi}: {ok.sum()} usable voxels, {sel.sum()} selected ({selection}, {model_cv})')
     if compare is None:
         return y[:, ok], sel[ok]
     c = cvr2(compare)
