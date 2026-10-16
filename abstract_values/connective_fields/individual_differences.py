@@ -17,6 +17,11 @@ Individual differences (primary first):
      over sessions -- the behavioural twin of the coupling score
   2. value precision (-log sigma_rep) and perceptual precision from the
      two-stage model
+  3. (added after the first look, at Gilles's suggestion, 2026-10-16) mapping
+     error: RMS distance between the mean bid per orientation and the
+     session's actual orientation -> CHF mapping, averaged over sessions.
+     Correlates rho = -0.82 with value precision: it is mostly the same
+     individual difference seen through the bias rather than the noise.
 Correlations are Pearson across participants with a participant bootstrap.
 
     python -m abstract_values.connective_fields.individual_differences
@@ -70,11 +75,14 @@ def mapping_fidelity_all():
     df = df[df["event_type"] == "feedback"].copy()
     df["response"] = pd.to_numeric(df["response"], errors="coerce")
     df = df.reset_index()
-    out = {}
+    out, err = {}, {}
     for s, g in df.groupby("subject"):
         maps = {ses: h.groupby("orientation").value.first() for ses, h in g.groupby("session")}
         if len(maps) != 2:
             continue
+        err[f"{int(s):02d}"] = float(np.mean([
+            np.sqrt(np.mean((h.groupby("orientation").response.mean()
+                             - maps[ses]).dropna() ** 2)) for ses, h in g.groupby("session")]))
         rs = []
         for ses, h in g.groupby("session"):
             other = maps[[x for x in maps if x != ses][0]]
@@ -82,13 +90,13 @@ def mapping_fidelity_all():
             rs.append(np.corrcoef(h.response, h.value)[0, 1]
                       - np.corrcoef(h.response, h.orientation.map(other))[0, 1])
         out[f"{int(s):02d}"] = float(np.mean(rs))
-    return pd.Series(out, name="fidelity")
+    return pd.DataFrame({"fidelity": pd.Series(out), "mapping_error": pd.Series(err)})
 
 
 def behaviour(subjects):
     par = pd.read_csv(PARAMS, sep="\t")
     par.index = par.subject.map(lambda s: f"{int(s):02d}")
-    b = mapping_fidelity_all().reindex(subjects).to_frame()
+    b = mapping_fidelity_all().reindex(subjects)
     b["value_precision"] = -np.log(par.sigma_rep)
     b["perceptual_precision"] = -np.log(par.total_noise * np.sqrt(par.perceptual_share))
     return b
@@ -114,7 +122,7 @@ def main():
     b = behaviour(list(S.index))
     rows = []
     for k in S:
-        for m in ("fidelity", "value_precision", "perceptual_precision"):
+        for m in ("fidelity", "mapping_error", "value_precision", "perceptual_precision"):
             j = pd.concat([S[k], b[m]], axis=1).dropna()
             r, p = stats.pearsonr(j.iloc[:, 0], j.iloc[:, 1])
             lo, hi = boot_r(j.iloc[:, 0].to_numpy(), j.iloc[:, 1].to_numpy())
@@ -127,9 +135,11 @@ def main():
     print(res.round(3).to_string(index=False))
 
     prim = list(SPECS)[0]
-    fig, axes = plt.subplots(1, 3, figsize=(7.25, 2.4), constrained_layout=True)
-    for ax, m, lab in zip(axes, ("fidelity", "value_precision", "perceptual_precision"),
+    fig, axes = plt.subplots(1, 4, figsize=(7.25, 2.2), constrained_layout=True)
+    for ax, m, lab in zip(axes, ("fidelity", "mapping_error", "value_precision",
+                                 "perceptual_precision"),
                           ("Behavioural mapping fidelity\n(r this − r other mapping)",
+                           "Mapping error (CHF)\nmean bid vs actual mapping",
                            "Value precision (−log σ_rep)",
                            "Perceptual precision")):
         j = pd.concat([S[prim], b[m]], axis=1).dropna()
