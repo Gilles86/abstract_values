@@ -82,6 +82,51 @@ def panel_ends(ax, rd, regions=(("V1", None), ("Parietal (IPS0–5)", None))):
     sns.despine(ax=ax, offset=3, trim=True)
 
 
+# seam length / median neighbour step, participant bootstrap (300 resamples);
+# geometry/mds_bootstrap.py, 2026-10-16
+SEAM = {"V1": (2.79, 1.84, 3.16), "Parietal": (7.31, 3.46, 7.34)}
+
+
+def panel_mappings(ax, maps):
+    """The two orientation -> value mappings, labelled at their ends; one value (16 CHF)
+    traced down to the two orientations it is worth."""
+    vv = np.linspace(2, 42, 300)
+    for m, lab, dy in (("cdf", "CDF", -2.5), ("inverse_cdf", "Inverse CDF", 2.5)):
+        th = dm.theta_of_value(maps[m], vv)
+        ax.plot(th, vv, color=MAP_COL[m], lw=1.8)
+    ax.text(178, 34, "CDF", color=MAP_COL["cdf"], fontsize=6.5, fontweight="bold",
+            ha="right", va="center")
+    ax.text(118, 40, "Inverse\nCDF", color=MAP_COL["inverse_cdf"], fontsize=6.5,
+            fontweight="bold", ha="right", va="center")
+    v0 = 16.0
+    th0 = {m: float(dm.theta_of_value(maps[m], v0)) for m in maps}
+    ax.plot([0, max(th0.values())], [v0, v0], color="0.55", lw=0.7, ls=(0, (3, 2)))
+    for m in maps:
+        ax.plot([th0[m]] * 2, [2, v0], color=MAP_COL[m], lw=0.8, ls=(0, (1.5, 1.5)))
+        ax.plot(th0[m], v0, "o", color=MAP_COL[m], ms=4, mec="white", mew=0.7, zorder=4)
+    ax.text(2, v0 + 1.2, "16 CHF", fontsize=5.8, color="0.35")
+    ax.set_xlim(0, 180)
+    ax.set_ylim(2, 42)
+    ax.set_xticks([0, 45, 90, 135, 180])
+    ax.set_yticks([2, 22, 42])
+    ax.set_xlabel("Orientation (°)")
+    ax.set_ylabel("Value (CHF)")
+    sns.despine(ax=ax, offset=3, trim=True)
+
+
+def gabor_image(theta, n=61, sf=1.6, sigma=0.36):
+    """Greyscale gabor patch (RGBA) as PsychoPy draws it: theta in degrees clockwise,
+    0 = vertical stripes. Few cycles, so it survives being drawn tiny (no aliasing)."""
+    y, x = np.mgrid[-1:1:n * 1j, -1:1:n * 1j]
+    t = np.deg2rad(theta)
+    u = x * np.cos(t) + y * np.sin(t)   # rows run downward: clockwise like PsychoPy
+    g = np.cos(2 * np.pi * sf * u) * np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
+    img = np.ones((n, n, 4))
+    img[..., :3] = (0.5 + 0.5 * g)[..., None]
+    img[..., 3] = np.clip(np.exp(-(x ** 2 + y ** 2) / (2 * (sigma * 1.4) ** 2)) * 1.6, 0, 1)
+    return img
+
+
 def panel_mds(ax, R, oris, col, title):
     tw = plt.get_cmap("twilight")
     Y = MDS(n_components=2, dissimilarity="precomputed", random_state=0,
@@ -90,14 +135,23 @@ def panel_mds(ax, R, oris, col, title):
     ax.plot(Y[:, 0], Y[:, 1], "-", color="0.65", lw=0.8, zorder=1)
     ax.plot([Y[-1, 0], Y[0, 0]], [Y[-1, 1], Y[0, 1]], color="0.25", lw=1.0,
             ls=(0, (2, 1.5)), zorder=1)
-    ax.scatter(Y[:, 0], Y[:, 1], c=[tw(o / 180) for o in oris], s=16, edgecolor="white",
-               lw=0.4, zorder=2)
+    from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+    ax.scatter(Y[:, 0], Y[:, 1], c=[tw(o / 180) for o in oris], s=80, edgecolor="none",
+               zorder=2)                                  # orientation colour as a ring
+    for (x, y), o in zip(Y, oris):
+        ab = AnnotationBbox(OffsetImage(gabor_image(o), zoom=0.2), (x, y), frameon=False,
+                            zorder=3)
+        ax.add_artist(ab)
     for i in (0, len(oris) - 1):
         ax.text(Y[i, 0], Y[i, 1] + 0.07 * np.ptp(Y[:, 1]), f"{oris[i]:g}°", fontsize=5.8,
                 ha="center", color="0.3")
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_title(title, loc="left", color=col, fontweight="bold", fontsize=7)
+    if title in SEAM:
+        m, lo, hi = SEAM[title]
+        ax.text(0.0, -0.08, f"Seam = {m:.1f}× a typical step\n[{lo:.1f}, {hi:.1f}], 95% bootstrap",
+                transform=ax.transAxes, fontsize=5.8, color="0.25", va="top")
 
 
 def panel_stability(ax):
@@ -408,33 +462,33 @@ def panel_example(axes, df, sub, title, par, show_y):
         axes[("sd", "cdf")].set_ylabel("Bid SD\n(CHF)")
 
 
-def panel_noise(ax):
-    par = pd.read_csv(CAT_PARAMS, sep="\t")
-    perc = par.total_noise * np.sqrt(par.perceptual_share)
-    ax.scatter(perc, par.sigma_rep, s=12, color="0.25", edgecolor="white", linewidths=0.4)
-    for sub, _ in EXAMPLES:
-        i = par.index[par.subject == sub][0]
-        ax.plot(perc[i], max(par.sigma_rep[i], 0.012), EX_MARK[sub], ms=6, mfc="white",
-                mec="0.1", mew=1.0, zorder=5)
-    lim = [0.01, 5]
-    ax.plot(lim, lim, color="0.75", lw=0.7, ls=(0, (3, 2)))
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlim(0.15, 4)
-    ax.set_ylim(0.01, 5)
-    from matplotlib.ticker import FuncFormatter
-    fmt = FuncFormatter(lambda v, _: f"{v:g}")
-    ax.xaxis.set_major_formatter(fmt)
-    ax.yaxis.set_major_formatter(fmt)
-    ax.set_xlabel("Perceptual noise (CHF)")
-    ax.set_ylabel("Value noise σ_rep (CHF)")
-    ax.text(0.22, 3.6, "More value noise", fontsize=5.8, color="0.5", va="top")
-    ax.text(3.6, 0.015, "More perceptual\nnoise", fontsize=5.8, color="0.5", ha="right")
-    sns.despine(ax=ax, offset=3)
-
-
 ORI_CMAP = sns.blend_palette(["#CFE8E4", "#4FA89F", "#1B8A80", "#0B4A44"], n_colors=256,
                              as_cmap=True)
+
+
+def panel_noise(ax):
+    """Each participant's perceptual vs value noise: posterior median and 95% CrI
+    (categorical model, total-share fit)."""
+    q = pd.read_csv(REPO / "notes/data/categorical_noise_intervals.tsv", sep="\t")
+    ax.errorbar(q.perc_med, q.srep_med,
+                xerr=[q.perc_med - q.perc_lo, q.perc_hi - q.perc_med],
+                yerr=[q.srep_med - q.srep_lo, q.srep_hi - q.srep_med],
+                fmt="o", ms=2.8, color="0.25", ecolor="0.72", elinewidth=0.6, capsize=0,
+                mec="white", mew=0.3, zorder=2)
+    for sub, _ in EXAMPLES:
+        r = q.set_index("subject").loc[sub]
+        ax.plot(r.perc_med, r.srep_med, EX_MARK[sub], ms=6, mfc="white", mec="0.1",
+                mew=1.0, zorder=5, clip_on=False)
+    ax.plot([0, 3.2], [0, 3.2], color="0.8", lw=0.7, ls=(0, (3, 2)), zorder=0)
+    ax.set_xlim(-0.08, 2.6)
+    ax.set_ylim(-0.12, 3.2)
+    ax.set_xticks([0, 1, 2])
+    ax.set_yticks([0, 1, 2, 3])
+    ax.set_xlabel("Perceptual noise (CHF)")
+    ax.set_ylabel("Value noise σ_rep (CHF)")
+    ax.text(0.04, 3.15, "More value noise", fontsize=5.8, color="0.5", va="top")
+    ax.text(2.55, 0.1, "More perceptual\nnoise", fontsize=5.8, color="0.5", ha="right")
+    sns.despine(ax=ax, offset=3, trim=True)
 
 
 def panel_retuning(ax):
@@ -450,7 +504,7 @@ def panel_retuning(ax):
         dx = (k - 1) * 0.2
         ax.vlines(x + dx, m - se, m + se, color=col, lw=1.1)
         ax.plot(x + dx, m, "o", color=col, ms=4, mec="white", mew=0.6)
-        ax.text(1.02, 0.88 - 0.16 * k, lab, transform=ax.transAxes, color=col, fontsize=6.2,
+        ax.text(1.03, 0.88 - 0.16 * k, lab, transform=ax.transAxes, color=col, fontsize=6.0,
                 va="center", fontweight="bold")
         n = d[d.family == f].subject.nunique()
         lines.append(f"{lab}: {np.nanmin(m):+.2f} to {np.nanmax(m):+.2f}% (n = {n})")
@@ -558,16 +612,27 @@ def tuning_maps(fig, top_in, H, verts):
              "(fades in from 25% to 55%).", fontsize=6.3, color="0.3", va="top")
     for k, (vtx, title) in enumerate(((vo, "Preferred orientation (von Mises basis)"),
                                       (vv, "Preferred value (aPRF)"))):
-        ax = fig.add_axes([0.01 + 0.5 * k, 1 - (top_in + 0.45 + 1.5) / H, 0.4, 1.5 / H])
+        ax = fig.add_axes([0.01 + 0.5 * k, 1 - (top_in + 0.45 + 1.5) / H, 0.46, 1.5 / H])
         _flat(ax, vtx)
         ax.set_title(title, fontsize=6.8, loc="left", fontweight="bold", color="0.2", pad=1)
-    qf.orientation_key(fig, [0.41, 1 - (top_in + 1.35) / H, 0.08, 0.7 / H], qt.ORI_CMAP, "")
-    cb = qf.colorbar(fig, [0.6, 1 - (top_in + 2.05) / H, 0.2, 0.006], qt.VALUE_CMAP,
+    kax = qf.orientation_key(fig, [0.17, 1 - (top_in + 2.55) / H, 0.085, 0.55 / H],
+                             qt.ORI_CMAP, "")
+    from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+    for t in list(kax.texts):
+        t.remove()
+    for deg in (0, 45, 90, 135, 180):            # the stimulus each hue stands for
+        kax.add_artist(AnnotationBbox(OffsetImage(gabor_image(deg % 180), zoom=0.26),
+                                      (np.deg2rad(deg), 2.05), frameon=False,
+                                      annotation_clip=False))
+        kax.text(np.deg2rad(deg), 3.0, f"{deg}°", ha="center", va="center", fontsize=5.3,
+                 color="0.35", clip_on=False)
+    cb = qf.colorbar(fig, [0.62, 1 - (top_in + 2.25) / H, 0.2, 0.006], qt.VALUE_CMAP,
                      qt.VALUE_MIN, qt.VALUE_MAX, "Preferred value (CHF)",
                      ticks=[2, 12, 22, 32, 42])
     cb.ax.tick_params(labelsize=5.5)
     cb.set_label("Preferred value (CHF)", fontsize=6)
-    fig.text(0.01, 1 - (top_in + 2.5) / H,
+    tuning_maps.data = d
+    fig.text(0.01, 1 - (top_in + 2.95) / H,
              "Orientation preference varies smoothly over early visual cortex (partly a radial "
              "bias that is right-hemisphere-heavy and tracks gaze drift along the bar). "
              "Preferred values\nare spread over the whole range in both early visual and "
@@ -633,9 +698,9 @@ def main():
     verts = exclusive_rois(roi_verts())
     maps = dm.mapping_table()
     # inserted bands: (insert after this inch on the original grid, height)
-    BANDS = [(2.8, 3.0),        # preferred orientation / value maps
+    BANDS = [(2.8, 3.4),        # preferred orientation / value maps
              (5.95, 2.95),      # example participants
-             (9.55, 2.85),      # retuning (encoding-model comparison)
+             (9.55, 3.0),       # retuning (encoding-model comparison)
              (10.5, 3.0)]       # how the connectivity analysis works
     H = 16.1 + sum(b[1] for b in BANDS) + 1.35     # + caveats box at the bottom
     fig = plt.figure(figsize=(7.25, H))
@@ -677,9 +742,9 @@ def main():
         "inset: the same regions on the\ninflated left hemisphere). V1–V3a/b from Benson,\n"
         "IPS0, IPS1–2, IPS3–5 from Wang.")
     L(0.29, 0.8, "b")
-    panel_idea(ax_(0.34, 0.9, 0.16, 1.15), maps)
-    cap(0.30, 2.45, "The two mappings. A voxel preferring\n16 CHF should read V1 at 52° "
-        "in one\nsession and at 75° in the other.")
+    panel_mappings(ax_(0.36, 0.9, 0.15, 1.15), maps)
+    cap(0.30, 2.45, "The two mappings (one per session).\n16 CHF is worth 52° under the "
+        "inverse\nCDF and 75° under the CDF.")
     _, _, _, gmaps = fv.strength_measures()
     for k, (key, cm_, title, col) in enumerate((("ori", ORI_CMAP, "Orientation coded", V1_C),
                                                 ("val", fv.SIG_CMAP, "Value coded", "#B2301F"))):
@@ -689,6 +754,9 @@ def main():
         axk = ax_(x0 + 0.01, 0.85, 0.22, 1.2)
         _flat(axk, vtx)
         axk.set_title(title, fontsize=6.8, loc="left", pad=1, color=col, fontweight="bold")
+        ins = fig.add_axes([x0 + 0.155, Y(0.98), 0.07, 0.36 / H])
+        ins.imshow(plt.imread(REPO / f"notes/figures/brain3d_{key}_r2_back_inflated.png"))
+        ins.axis("off")
         if key == "val":
             axk.annotate("Left M1\n(right-hand bid)", xy=(-172, 52), xytext=(-150, -78),
                          fontsize=5.5, color="0.2", ha="left",
@@ -723,8 +791,8 @@ def main():
         "steepest, as predicted\nwhen perceptual noise passes through it.")
     L(0.70, 3.7, "g")
     panel_noise(ax_(0.78, 3.8, 0.20, 1.3))
-    cap(0.72, 5.55, "Each participant's noise split by the model\n(categorical; posterior means, n = 34). "
-        "Points far below\nthe diagonal: σ_rep at the model's floor.")
+    cap(0.72, 5.55, "Each participant's noise split by the model\n(categorical; median and 95% CrI, n = 34). "
+        "Wide intervals\nwhere one noise source is near zero.")
 
     # ── example participants (inserted band, 6.0 .. 6.0 + DELTA) ─────────
     from abstract_values.behavior.data import get_all_behavioral_data
@@ -778,10 +846,9 @@ def main():
         panel_mds(ax_(0.39 + 0.17 * k, 7.45, 0.155, 1.3), R, oris, col,
                   name.replace(" (IPS0–5)", ""))
     cap(0.39, 9.05, "2-D MDS: each dot is one orientation, placed so that\ndistances between "
-        "dots match the neural distances. Dashed:\nthe step from 172.5° back to 7.5°. "
-        "Bootstrap over\nparticipants: the seam is 2.8× a typical step in V1\n"
-        "[1.8, 3.2] but 7.3× in parietal [3.5, 7.3]; the V1 layout\nis stable, the parietal "
-        "layout is not (noisier data).")
+        "dots match the neural distances. Dashed:\nthe seam from 172.5° back to 7.5°. The "
+        "seam's length\n(vs the median step) is robust; the parietal layout\nitself varies "
+        "across bootstraps (noisier data).")
     L(0.74, 7.2, "j")
     panel_stability(ax_(0.81, 7.3, 0.17, 1.25))
     cap(0.75, 9.05, "Does the geometry change between\nmappings the way the values do? "
@@ -801,11 +868,33 @@ def main():
              "betas of both sessions; the shift twins refit the preferred value / the weights "
              "per session.", fontsize=6.3, color="0.3", va="top")
     L(0.01, t1 + 0.45 - sum(h for t, h in BANDS[:1]), "")
-    axr = fig.add_axes([0.09, 1 - (t1 + 1.15 + 1.2) / H, 0.5, 1.2 / H])
+    axr = fig.add_axes([0.09, 1 - (t1 + 1.15 + 1.2) / H, 0.4, 1.2 / H])
     rt = panel_retuning(axr)
     letter(fig, 0.01, 1 - (t1 + 1.1) / H, "k")
-    fig.text(0.79, 1 - (t1 + 1.15) / H, rt, fontsize=5.8, color="0.42", va="top",
-             linespacing=1.35)
+    fig.text(0.09, 1 - (t1 + 2.75) / H, rt.replace("\n", " ").replace("Mean ± SE over "
+             "participants. ", ""), fontsize=5.7, color="0.42", va="top", wrap=True)
+    # the same comparison as a flatmap: session-shift aPRF minus fixed aPRF
+    from abstract_values.visualize import qc_tuning_maps as qt
+    dd = tuning_maps.data
+    x = dd["shift:aprf-shift.cv"]
+    ok = ~np.all(np.isnan(x), axis=1)
+    mm, tt = qt.tstat(x[ok])
+    lim = 0.004
+    import cortex
+    v = cortex.Vertex(np.nan_to_num(mm).astype(np.float32), "fsaverage", vmin=-lim,
+                      vmax=lim, cmap="RdBu_r")
+    _, prev_v = qt.preferred_value(dd)          # share of participants with value signal
+    alpha = qt.ramp(np.abs(tt), 1.5, 3.5) * qt.ramp(prev_v, 0.25, 0.55)
+    vtx = v.blend_curvature(alpha.astype(np.float32), brightness=0.82, contrast=0.12)
+    axm = fig.add_axes([0.66, 1 - (t1 + 1.0 + 1.25) / H, 0.33, 1.25 / H])
+    _flat(axm, vtx)
+    axm.set_title("aPRF: session-shift − fixed (cvR²), where value is coded", fontsize=6.3,
+                  loc="left", pad=1,
+                  color="0.2")
+    small_cbar(fig, [0.74, 1 - (t1 + 2.42) / H, 0.16, 0.005], plt.get_cmap("RdBu_r"), 1,
+               "Blue: fixed tuning predicts better")
+    fig.axes[-1].set_xticks([0, 0.5, 1])
+    fig.axes[-1].set_xticklabels([f"−{lim * 100:.1f}%", "0", f"+{lim * 100:.1f}%"])
 
     # ── row 3: routing ────────────────────────────────────────────────────
     headline(fig, Y(9.75), "3  Flexible routing: parietal cortex reads V1 through the "
