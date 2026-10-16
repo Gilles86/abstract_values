@@ -52,6 +52,8 @@ def main():
                 if ok.sum() < 10:
                     continue
                 rows.append(dict(subject=s, family=fam, roi=r, n_vertices=int(ok.sum()),
+                                 fixed=float(np.mean(a[vx][ok] - null[vx][ok])),
+                                 shift=float(np.mean(b[vx][ok] - null[vx][ok])),
                                  delta=float(np.mean(b[vx][ok] - a[vx][ok]))))
     d = pd.DataFrame(rows)
     d.to_csv(REPO / "notes/data/retuning_summary.tsv", sep="\t", index=False)

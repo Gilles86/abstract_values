@@ -147,6 +147,7 @@ def panel_mds(ax, R, oris, col, title):
         ax.text(Y[i, 0], Y[i, 1] + 0.07 * np.ptp(Y[:, 1]), f"{oris[i]:g}°", fontsize=5.8,
                 ha="center", color="0.3")
     ax.set_aspect("equal")
+    ax.margins(0.16)                         # room for the gabor discs at the edges
     ax.axis("off")
     ax.set_title(title, loc="left", color=col, fontweight="bold", fontsize=7)
     if title in SEAM:
@@ -468,34 +469,69 @@ ORI_CMAP = sns.blend_palette(["#CFE8E4", "#4FA89F", "#1B8A80", "#0B4A44"], n_col
 
 
 def group_params(fig, top_in, H):
-    """Group-level posterior of the categorical model, plus what was fixed."""
-    # written from the trace in the bauer env (no arviz in pycortex2):
-    # notes/data/categorical_group_params.tsv
-    gp = pd.read_csv(REPO / "notes/data/categorical_group_params.tsv", sep="\t").set_index("param")
-    q = lambda v: gp.loc[v, ["median", "lo", "hi"]].to_numpy()  # noqa: E731
+    """Group level of the categorical model, as plots: posteriors of the two group means,
+    and the population each implies (draws: notes/data/categorical_group_draws.npz,
+    written from the trace in the bauer env)."""
+    g = np.load(REPO / "notes/data/categorical_group_draws.npz")
     sub = pd.read_csv(REPO / "notes/data/categorical_noise_intervals.tsv", sep="\t")
-    rows = [
-        ("Total noise, group mean", *q("total_noise_mu"), "CHF"),
-        ("Perceptual share, group mean", *q("perceptual_share_mu"), ""),
-        ("Total noise, group SD (softplus scale)", *q("total_noise_sd"), ""),
-        ("Perceptual share, group SD (logit scale)", *q("perceptual_share_sd"), ""),
-    ]
-    fig.text(0.01, 1 - (top_in + 0.05) / H, "Group-level parameters of the categorical "
-             "model (posterior median [95% CrI], n = 34)", fontsize=6.6, fontweight="bold",
-             color="0.2", va="top")
-    for i, (lab, m, lo, hi, unit) in enumerate(rows):
-        x0 = 0.01 + 0.49 * (i % 2)
-        y0 = top_in + 0.3 + 0.17 * (i // 2)
-        fig.text(x0, 1 - y0 / H, f"{lab}:", fontsize=6.2, color="0.3", va="top")
-        fig.text(x0 + 0.3, 1 - y0 / H, f"{m:.2f} [{lo:.2f}, {hi:.2f}] {unit}", fontsize=6.2,
-                 color="0.15", va="top")
-    fig.text(0.01, 1 - (top_in + 0.68) / H,
-             f"Across participants: perceptual noise median {sub.perc_med.median():.2f} CHF "
-             f"(range {sub.perc_med.min():.2f}–{sub.perc_med.max():.2f}); value noise σ_rep "
-             f"median {sub.srep_med.median():.2f} CHF (range {sub.srep_med.min():.2f}–"
-             f"{sub.srep_med.max():.2f}). Fixed: lapse rate 1%, long-term cardinal "
-             "orientation prior (shape not fitted), category gate at 90° / 22 CHF, "
-             "161-point grids.", fontsize=5.9, color="0.4", va="top", wrap=True)
+    fig.text(0.01, 1 - (top_in + 0.05) / H, "Group level of the categorical model (n = 34)",
+             fontsize=6.8, fontweight="bold", color="0.2", va="top")
+    h = 0.95
+    y0 = 1 - (top_in + 0.35 + h) / H
+
+    def dens(ax, x, col, lab=None, fill=True, bw=None):
+        from scipy.stats import gaussian_kde
+        x = x[np.isfinite(x)]
+        k = gaussian_kde(x, bw_method=bw)
+        xs = np.linspace(np.quantile(x, 0.001), np.quantile(x, 0.999), 300)
+        ys = k(xs)
+        if fill:
+            ax.fill_between(xs, ys, color=col, alpha=0.25, lw=0)
+        ax.plot(xs, ys, color=col, lw=1.3)
+        return xs, ys
+
+    def finish(ax, xlab, title):
+        ax.set_yticks([])
+        ax.set_xlabel(xlab, fontsize=6.3)
+        ax.set_title(title, fontsize=6.3, loc="left", color="0.25", pad=2)
+        sns.despine(ax=ax, left=True, offset=2, trim=True)
+
+    # 1: group-mean total noise
+    ax = fig.add_axes([0.04, y0, 0.18, h / H])
+    dens(ax, g["total_noise_mu"], "0.35")
+    m = np.median(g["total_noise_mu"])
+    ax.axvline(m, color="0.2", lw=0.8)
+    ax.text(m, ax.get_ylim()[1] * 0.95, f" {m:.2f} CHF", fontsize=5.8, color="0.2", va="top")
+    finish(ax, "Total noise, group mean (CHF)", "Posterior of the group mean")
+    # 2: group-mean perceptual share
+    ax = fig.add_axes([0.27, y0, 0.18, h / H])
+    dens(ax, g["perceptual_share_mu"], "0.35")
+    m = np.median(g["perceptual_share_mu"])
+    ax.axvline(m, color="0.2", lw=0.8)
+    ax.text(m, ax.get_ylim()[1] * 0.95, f" {m:.2f}", fontsize=5.8, color="0.2", va="top")
+    ax.set_xlim(0, 1)
+    finish(ax, "Perceptual share, group mean", "Posterior of the group mean")
+    # 3: population of total noise, participants as ticks
+    ax = fig.add_axes([0.51, y0, 0.2, h / H])
+    xs, ys = dens(ax, g["pop_total"][g["pop_total"] < 6], "0.35", bw=0.15)
+    tot = np.sqrt(sub.perc_med ** 2 + sub.srep_med ** 2)
+    ax.plot(tot, np.full(len(tot), -0.05 * ys.max()), "|", color="0.15", ms=4, mew=0.8,
+            clip_on=False)
+    ax.set_xlim(0, 4.5)
+    finish(ax, "Total noise (CHF)", "Population; ticks: participants")
+    # 4: population of perceptual share
+    ax = fig.add_axes([0.77, y0, 0.2, h / H])
+    ax.hist(g["pop_share"], bins=np.linspace(0, 1, 41), density=True, color="0.6",
+            alpha=0.6, lw=0)
+    sh = sub.perc_med ** 2 / (sub.perc_med ** 2 + sub.srep_med ** 2)
+    ax.plot(sh, np.full(len(sh), -0.2), "|", color="0.15", ms=4, mew=0.8, clip_on=False)
+    ax.set_xlim(0, 1)
+    finish(ax, "Perceptual share of the noise", "Population; ticks: participants")
+    fig.text(0.01, 1 - (top_in + 1.75) / H,
+             f"Group SDs: total noise {np.median(g['total_noise_sd']):.2f} (softplus scale), "
+             f"perceptual share {np.median(g['perceptual_share_sd']):.2f} (logit scale). "
+             "Fixed, not fitted: lapse rate 1%, long-term cardinal orientation prior, category "
+             "gate at 90° / 22 CHF, 161-point grids.", fontsize=5.8, color="0.42", va="top")
 
 
 def panel_noise(ax):
@@ -523,32 +559,50 @@ def panel_noise(ax):
     sns.despine(ax=ax, offset=3, trim=True)
 
 
-def panel_retuning(ax):
+def panel_retuning(fig, rect):
+    """Absolute cvR² over the null for fixed vs session-shift twins, three families side by
+    side: the main effect next to the (tiny) gain from letting tuning move."""
     d = pd.read_csv(REPO / "notes/data/retuning_summary.tsv", sep="\t", dtype={"subject": str})
-    fams = [("aPRF", "#B35A00", "aPRF (value)"), ("wPRF", "#E8A060", "wPRF (value)"),
+    fams = [("aPRF", "#B35A00", "aPRF (value)"), ("wPRF", "#E08A2E", "wPRF (value)"),
             ("von Mises", V1_C, "von Mises (orientation)")]
+    x0, y0, w, h = rect
     x = np.arange(len(fv.DORSAL))
-    lines = []
+    axes = []
     for k, (f, col, lab) in enumerate(fams):
-        g = d[d.family == f].groupby("roi").delta
-        m, se = (g.mean().reindex(fv.DORSAL) * 100).to_numpy(), \
-            (g.sem().reindex(fv.DORSAL) * 100).to_numpy()
-        dx = (k - 1) * 0.2
-        ax.vlines(x + dx, m - se, m + se, color=col, lw=1.1)
-        ax.plot(x + dx, m, "o", color=col, ms=4, mec="white", mew=0.6)
-        ax.text(1.03, 0.88 - 0.16 * k, lab, transform=ax.transAxes, color=col, fontsize=6.0,
-                va="center", fontweight="bold")
-        n = d[d.family == f].subject.nunique()
-        lines.append(f"{lab}: {np.nanmin(m):+.2f} to {np.nanmax(m):+.2f}% (n = {n})")
-    ax.axhline(0, color="0.6", lw=0.7, ls=(0, (3, 2)))
-    ax.set_xticks(x)
-    ax.set_xticklabels(fv.DORSAL)
-    ax.set_ylabel("cvR², shift − fixed\n(percentage points)")
-    sns.despine(ax=ax, offset=3, trim=True)
-    return ("Mean ± SE over participants.\n"
-            "aPRF: retuning hurts in every region\n(−0.5 to −0.8 points).\n"
-            "wPRF and von Mises: small gains\n(≤ 0.75 points), mostly within 1 SE;\n"
-            "largest in IPS1–2 (wPRF +0.74 ± 0.34).\nn = 29–32 with both model variants.")
+        ax = plt.gcf().add_axes([x0 + k * w / 3 + 0.01, y0, w / 3 - 0.035, h])
+        g = d[d.family == f]
+        for key, ls, mfc, name in (("fixed", "-", col, "Same tuning both sessions"),
+                                   ("shift", (0, (2, 1.5)), "white", "Tuning may shift")):
+            gg = g.groupby("roi")[key]
+            m = (gg.mean().reindex(fv.DORSAL) * 100).to_numpy()
+            se = (gg.sem().reindex(fv.DORSAL) * 100).to_numpy()
+            ax.fill_between(x, m - se, m + se, color=col, alpha=0.12, lw=0)
+            ax.plot(x, m, ls=ls, color=col, lw=1.3, marker="o", ms=3.2, mfc=mfc, mec=col,
+                    mew=0.9)
+        ax.set_title(f"{lab}, n = {g.subject.nunique()}", fontsize=6.4, color=col,
+                     fontweight="bold", loc="left", pad=2)
+        ax.set_ylim(0, None)
+        if k == 0:
+            ax.set_ylabel("cvR² over null (%)")
+        sns.despine(ax=ax, offset=2, trim=True)
+        ax.set_xticks(x)
+        ax.set_xticklabels(fv.DORSAL, rotation=40, ha="right", rotation_mode="anchor",
+                           fontsize=5.8)
+        axes.append(ax)
+    a0 = axes[0]
+    for i, (ls, mfc, txt) in enumerate((("-", "0.3", "Same tuning in both sessions"),
+                                        ((0, (2, 1.5)), "white",
+                                         "Tuning may shift between sessions"))):
+        xx = 0.0 + 1.6 * i
+        a0.plot([xx, xx + 0.14], [1.2, 1.2], transform=a0.transAxes, color="0.3", lw=1.3,
+                ls=ls, clip_on=False)
+        a0.plot(xx + 0.07, 1.2, "o", transform=a0.transAxes, ms=3.2, mfc=mfc, mec="0.3",
+                mew=0.9, clip_on=False)
+        a0.text(xx + 0.18, 1.2, txt, transform=a0.transAxes, fontsize=5.8, va="center",
+                color="0.3")
+    return ("Vertices where the fixed model beats the null; mean ± SE over participants. "
+            "aPRF: retuning lowers cvR² everywhere (−0.5 to −0.8 points). wPRF and von Mises: "
+            "gains ≤ 0.75 points, mostly within 1 SE, against 1.5–2.5 points of signal.")
 
 
 def gabor_icon(ax, x, y, theta, r, col):
@@ -731,10 +785,10 @@ def main():
     maps = dm.mapping_table()
     # inserted bands: (insert after this inch on the original grid, height)
     BANDS = [(2.8, 3.4),        # preferred orientation / value maps
-             (5.95, 3.75),      # group parameters + example participants
+             (5.95, 4.95),      # group parameters + example participants
              (9.55, 3.0),       # retuning (encoding-model comparison)
              (10.5, 3.0)]       # how the connectivity analysis works
-    H = 16.1 + sum(b[1] for b in BANDS) + 1.35     # + caveats box at the bottom
+    H = 16.1 + sum(b[1] for b in BANDS)
     fig = plt.figure(figsize=(7.25, H))
 
     def Y(inch):
@@ -834,7 +888,7 @@ def main():
     beh = beh.reset_index()
     cpar = pd.read_csv(CAT_PARAMS, sep="\t")
     group_params(fig, band_top(1), H)
-    fig.text(0.01, 1 - (band_top(1) + 1.0) / H,
+    fig.text(0.01, 1 - (band_top(1) + 2.2) / H,
              "Three example participants: bid error (top) and bid spread (bottom) per "
              "orientation, both mappings. Dots: data (8 bids each); bands: 50% and 80% of datasets\n"
              "simulated from that participant's posterior (categorical model). Perceptual noise "
@@ -842,7 +896,7 @@ def main():
              "noise adds spread everywhere. Symbols mark the three participants in g.",
              fontsize=6.3, color="0.3", va="top")
     for k, (sub, title) in enumerate(EXAMPLES):
-        t0 = band_top(1) + 0.8
+        t0 = band_top(1) + 2.0
         axes = {}
         for j, m in enumerate(("cdf", "inverse_cdf")):
             x0 = 0.09 + 0.31 * k + 0.135 * j
@@ -901,8 +955,7 @@ def main():
              "betas of both sessions; the shift twins refit the preferred value / the weights "
              "per session.", fontsize=6.3, color="0.3", va="top")
     L(0.01, t1 + 0.45 - sum(h for t, h in BANDS[:1]), "")
-    axr = fig.add_axes([0.09, 1 - (t1 + 1.15 + 1.2) / H, 0.4, 1.2 / H])
-    rt = panel_retuning(axr)
+    rt = panel_retuning(fig, [0.06, 1 - (t1 + 1.15 + 1.2) / H, 0.6, 1.2 / H])
     letter(fig, 0.01, 1 - (t1 + 1.1) / H, "k")
     fig.text(0.09, 1 - (t1 + 2.75) / H, rt.replace("\n", " ").replace("Mean ± SE over "
              "participants. ", ""), fontsize=5.7, color="0.42", va="top", wrap=True)
@@ -978,7 +1031,6 @@ def main():
     cap(0.74, 15.85, "Routing score (IPS0–5, ±1 lag) vs the\nmodel's value precision; "
         "line ± 68% CI.")
 
-    caveats(fig, 1 - (H - 1.3) / H, 1.2 / H)
     out = REPO / "notes/figures/fig_summary.pdf"
     fig.savefig(out, dpi=300)
     fig.savefig(out.with_suffix(".png"), dpi=200)
