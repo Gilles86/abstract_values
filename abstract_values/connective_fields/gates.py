@@ -197,6 +197,9 @@ def load_roi(sub, betas, roi, model_cv, bids_folder, smoothed, compare=None):
                           .dataobj).squeeze() > 0 for m in masks]
         ref = image.index_img(masks[0], 0) if len(masks[0].shape) == 4 else masks[0]
         mask = image.new_img_like(ref, np.any(arr, 0).astype(np.uint8))
+    # Masks on the anatomical grid (e.g. the Wang IPS maps) go to the BOLD grid;
+    # otherwise NiftiMasker resamples every beta volume up to the mask instead.
+    mask = image.resample_to_img(mask, image.index_img(betas, 0), interpolation='nearest')
     masker = NiftiMasker(mask_img=mask).fit()
     y = masker.transform(betas).astype(np.float64)
     ok = np.isfinite(y).all(0) & (y.std(0) > 0)
