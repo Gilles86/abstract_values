@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[2]
 CF = Path("/data/ds-abstractvalue/derivatives/connective_fields")
 KAPPA = 4.0
 CONDS = ("cdf", "inverse_cdf")
-COL = {"cdf": "#3B5BA5", "inverse_cdf": "#B8860B"}
+COL = {"cdf": "#5B4A9E", "inverse_cdf": "#B23A6E"}
 LAB = {"cdf": "CDF mapping", "inverse_cdf": "inverse-CDF mapping"}
 
 

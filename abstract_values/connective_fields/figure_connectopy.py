@@ -37,7 +37,7 @@ CF = dm.CF
 ACC = "#D9730D"
 MAPS = [("IPS0", "IPS0"), ("IPS1–2", "IPS12"), ("IPS3–5", "IPS345")]
 UNION = ("IPS0–5", "IPS0IPS12IPS345")
-MAP_COL = {"cdf": "#3B5BA5", "inverse_cdf": "#B8860B"}
+MAP_COL = {"cdf": "#5B4A9E", "inverse_cdf": "#B23A6E"}
 
 plt.rcParams.update({
     "font.family": "Helvetica", "font.size": 7, "axes.labelsize": 7.5,

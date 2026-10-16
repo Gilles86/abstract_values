@@ -233,11 +233,11 @@ SIG_CMAP = sns.blend_palette(["#FDD49E", "#FC8D59", "#D7301F", "#7F0000"], n_col
                              as_cmap=True)
 
 
-def signal_vertex(bg):
+def signal_vertex(bg, cmap=None):
     """Group signal map in warm colours, fading in over the top quarter of cortex."""
     lo, hi = np.nanpercentile(bg, [75, 99])
     x = np.nan_to_num(bg).astype(np.float32)
-    v = cortex.Vertex(x, "fsaverage", vmin=lo, vmax=hi, cmap=SIG_CMAP)
+    v = cortex.Vertex(x, "fsaverage", vmin=lo, vmax=hi, cmap=SIG_CMAP if cmap is None else cmap)
     al = np.clip((x - lo) / (np.nanpercentile(bg, 95) - lo), 0, 1).astype(np.float32)
     return v.blend_curvature(al, brightness=0.82, contrast=0.12), lo, hi
 
