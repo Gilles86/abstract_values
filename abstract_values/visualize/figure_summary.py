@@ -75,7 +75,7 @@ def panel_ends(ax, rd, regions=(("V1", None), ("Parietal (IPS0–5)", None))):
     ax.axvline(90, color="0.8", lw=0.6, ls=(0, (3, 2)))
     ax.text(88, 0.05, "Opposite on\nthe circle", fontsize=6, color="0.5", va="bottom",
             ha="right")
-    ax.set_xticks([0, 45, 90, 135, 165])
+    ax.set_xticks([15, 45, 90, 135, 165])
     ax.set_xlim(0, 200)
     ax.set_xlabel("Distance from an end orientation (7.5° or 172.5°)")
     ax.set_ylabel("Neural distance\n(crossnobis, relative)")
