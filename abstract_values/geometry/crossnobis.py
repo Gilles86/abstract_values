@@ -6,7 +6,8 @@ orientation -> CHF mapping differs between sessions. So per (subject, ROI,
 session) we get a 23 x 23 representational distance matrix (RDM) that
 
   * takes the noise covariance into account: patterns are whitened with a
-    Ledoit-Wolf-shrunk voxel covariance estimated from the run-wise residuals
+    Ledoit-Wolf-shrunk voxel covariance estimated, fold by fold, from the
+    TRAINING runs' residuals
     (pattern minus the condition's mean over runs), i.e. the distance is the
     squared Mahalanobis distance = linear Fisher discriminability (LDA d'^2)
     under a shared Gaussian noise model;
