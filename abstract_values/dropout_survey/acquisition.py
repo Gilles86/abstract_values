@@ -51,7 +51,8 @@ def raw_sidecars(raw, s, ent):
     meta, used, bold = {}, [], None
     for lev in levels:
         try:
-            js = sorted(lev.glob("*_bold.json"), key=lambda p: len(entities(p.name)))
+            js = sorted((p for p in lev.glob("*_bold.json") if not p.name.startswith("._")),
+                        key=lambda p: len(entities(p.name)))
         except PermissionError:
             continue
         for j in js:
@@ -60,7 +61,7 @@ def raw_sidecars(raw, s, ent):
                 meta.update(json.loads(j.read_text()))
                 used.append(str(j))
         try:
-            for b in sorted(lev.glob("*_bold.nii*")):
+            for b in sorted(p for p in lev.glob("*_bold.nii*") if not p.name.startswith("._")):
                 eb = entities(b.name)
                 if _subset(eb, ent) and _subset({k: v for k, v in ent.items() if k not in IGNORE}, eb) \
                         and eb.get("part", "mag") == "mag":
@@ -78,9 +79,10 @@ def mni_rotation(xfm):
             g = f["TransformGroup"][k]
             t = g["TransformType"][0]
             t = t.decode() if isinstance(t, bytes) else str(t)
-            if ("Affine" in t or "MatrixOffset" in t) and "TransformParameters" in g \
-                    and len(g["TransformParameters"]) == 12:
-                return np.asarray(g["TransformParameters"][:9], float).reshape(3, 3)
+            # ITK < 4.12 wrote the key as "TranformParameters"
+            key = next((k for k in ("TransformParameters", "TranformParameters") if k in g), None)
+            if ("Affine" in t or "MatrixOffset" in t) and key and len(g[key]) == 12:
+                return np.asarray(g[key][:9], float).reshape(3, 3)
     return None
 
 
@@ -164,6 +166,33 @@ def one(ds, s):
     return row
 
 
+def par_info(ds, n=2):
+    """Philips PAR headers in <raw>/sourcedata/mri (FEEPI runs): TE, thickness/gap, angulation."""
+    import itertools
+    root = Path(ds.raw[0]) / "sourcedata" / "mri"
+    if not root.exists():
+        return {}
+    rows = []
+    for f in itertools.islice((p for p in root.glob("*/*/*.par") if "run" in p.name.lower()), 20):
+        txt = f.read_text(errors="ignore")
+        if "FEEPI" not in txt:
+            continue
+        hdr = dict(re.findall(r"^\.\s+(.+?)\s*:\s*(.*?)\s*$", txt, re.M))
+        img = [l.split() for l in txt.splitlines() if l.strip() and l.strip()[0].isdigit()]
+        # columns of the V4.2 image table: 21/22 = slice thickness/gap, 29 = echo time
+        r = dict(par_file=str(f), par_TE_ms=float(img[0][29]), par_thick=float(img[0][21]),
+                 par_gap=float(img[0][22]),
+                 par_angulation_ap_fh_rl=hdr.get("Angulation midslice(ap,fh,rl)[degr]"),
+                 par_prep_direction=hdr.get("Preparation direction"),
+                 par_wfs_px=hdr.get("Water Fat shift [pixels]"),
+                 par_epi_factor=hdr.get("EPI factor        <0,1=no EPI>"),
+                 par_TR_ms=hdr.get("Repetition time [msec]"))
+        rows.append(r)
+        if len(rows) >= n:
+            break
+    return rows[0] if rows else {}
+
+
 def main(names, max_subjects, out):
     rows = []
     for name in names:
@@ -182,6 +211,9 @@ def main(names, max_subjects, out):
             if sum(g.get("header_source") is not None for g in got) >= max_subjects:
                 break
         got = sorted(got, key=lambda g: g.get("header_source") is None)[:max_subjects]
+        par = par_info(ds)
+        for r in got:
+            r.update(par)
         for r in got:
             print(r, flush=True)
         rows += got

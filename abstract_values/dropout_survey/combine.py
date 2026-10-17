@@ -48,7 +48,9 @@ def acquisition_summary(path):
                   "ParallelReductionFactorInPlane", "PartialFourier", "PhaseEncodingDirection",
                   "SliceEncodingDirection", "TotalReadoutTime", "EffectiveEchoSpacing",
                   "matrix", "n_slices", "fmap_files", "sdc", "SequenceName",
-                  "PulseSequenceDetails", "WaterFatShift", "header_source", "descrip"]:
+                  "PulseSequenceDetails", "WaterFatShift", "header_source", "descrip",
+                  "par_TE_ms", "par_thick", "par_gap", "par_angulation_ap_fh_rl",
+                  "par_prep_direction", "par_wfs_px", "par_epi_factor", "par_file"]:
             if k in g:
                 r[k] = _mode(g[k])
         for k in ["vox_x", "vox_y", "vox_z", "tilt_scanner_deg", "pitch_scanner_deg", "tilt_mni_deg", "pitch_mni_deg"]:
