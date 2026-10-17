@@ -195,9 +195,9 @@ def par_info(ds, n=2):
             continue
         hdr = dict(re.findall(r"^\.\s+(.+?)\s*:\s*(.*?)\s*$", txt, re.M))
         img = [l.split() for l in txt.splitlines() if l.strip() and l.strip()[0].isdigit()]
-        # columns of the V4.2 image table: 21/22 = slice thickness/gap, 29 = echo time
-        r = dict(par_file=str(f), par_TE_ms=float(img[0][29]), par_thick=float(img[0][21]),
-                 par_gap=float(img[0][22]),
+        # columns of the V4.2 image table: 22/23 = slice thickness/gap, 30 = echo time
+        r = dict(par_file=str(f), par_TE_ms=float(img[0][30]), par_thick=float(img[0][22]),
+                 par_gap=float(img[0][23]),
                  par_angulation_ap_fh_rl=hdr.get("Angulation midslice(ap,fh,rl)[degr]"),
                  par_prep_direction=hdr.get("Preparation direction"),
                  par_wfs_px=hdr.get("Water Fat shift [pixels]"),
