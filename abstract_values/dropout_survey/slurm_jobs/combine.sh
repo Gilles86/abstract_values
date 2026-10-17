@@ -12,6 +12,7 @@
 # rsynced back for plotting.
 #   sbatch combine.sh
 #   sbatch --export=SKIP_ACQ=1 combine.sh
+#   sbatch --export=SKIP_ACQ=1,GLM_ONLY=1 combine.sh     # only the GLM detectability tables
 OUT=/scratch/gdehol/dropout_survey
 export TMPDIR=/scratch/gdehol/tmp
 mkdir -p $TMPDIR
@@ -23,4 +24,4 @@ if [ -z "$SKIP_ACQ" ]; then
         --max-subjects 6 --out $OUT/acquisition.tsv || exit 1
 fi
 PYTHONUNBUFFERED=1 python -u -m abstract_values.dropout_survey.combine \
-    --out-dir $HOME/git/abstract_values/notes/data --scratch $OUT
+    --out-dir $HOME/git/abstract_values/notes/data --scratch $OUT ${GLM_ONLY:+--glm-only}

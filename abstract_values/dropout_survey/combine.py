@@ -67,8 +67,29 @@ def ijk(img, xyz):
     return np.round(np.linalg.solve(img.affine, np.r_[xyz, 1])[:3]).astype(int)
 
 
-def main(out_dir, scratch):
+def combine_glm(out_dir, scratch):
+    """GLM detectability rows (glm.py) and their per-subject metadata."""
+    rows, metas = [], []
+    for ds in DATASETS:
+        for f in sorted((scratch / ds).glob(f"sub-*/{ds}_sub-*_glm.tsv")):
+            rows.append(pd.read_csv(f, sep="\t", dtype={"subject": str}))
+        for f in sorted((scratch / ds).glob("sub-*/sub-*_glm_meta.json")):
+            m = json.loads(f.read_text())
+            for e, v in m["events"].items():
+                metas.append(dict(dataset=ds, subject=m["subject"], event=e, glm_dir=m["glm_dir"],
+                                  r2_source=m["r2_source"], note=m["note"],
+                                  grid_mm="x".join(f"{z:.2f}" for z in m["grid_mm"]), **v))
+    pd.concat(rows, ignore_index=True).to_csv(out_dir / "dropout_survey_glm.tsv", sep="\t",
+                                              index=False)
+    pd.DataFrame(metas).to_csv(out_dir / "dropout_survey_glm_meta.tsv", sep="\t", index=False)
+    print(pd.DataFrame(metas).groupby(["dataset", "event"]).size(), flush=True)
+
+
+def main(out_dir, scratch, glm_only=False):
     out_dir, scratch = Path(out_dir), Path(scratch)
+    if glm_only:
+        combine_glm(out_dir, scratch)
+        return
     out_dir.mkdir(parents=True, exist_ok=True)
     (scratch / "group").mkdir(exist_ok=True)
     rois, metas = [], []
@@ -139,5 +160,6 @@ if __name__ == "__main__":
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out-dir", default=str(SCRATCH / "summary"))
     p.add_argument("--scratch", default=str(SCRATCH))
+    p.add_argument("--glm-only", action="store_true")
     a = p.parse_args()
-    main(a.out_dir, a.scratch)
+    main(a.out_dir, a.scratch, a.glm_only)
