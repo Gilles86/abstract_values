@@ -161,6 +161,22 @@ def one(ds, s):
     except PermissionError:
         row["fmap_files"] = "unreadable"
     row["sdc"] = sdc_method(ds, s, run["prefix"])
+    # fill gaps from the NIfTI description (dcm2niix: "TE=33;...;mb=3"; Philips
+    # PAR/REC converted by rec2nifti: "... SENSE") and from the slice timing
+    d = str(row.get("descrip") or "")
+    m = re.search(r"TE=([0-9.]+)", d)
+    if row.get("EchoTime") is None and m:
+        row["EchoTime"], row["EchoTime_source"] = float(m.group(1)) / 1000, "nifti descrip"
+    m = re.search(r"mb=([0-9]+)", d)
+    st = meta.get("SliceTiming", fp.get("SliceTiming"))
+    if row.get("MultibandAccelerationFactor") is None:
+        if m:
+            row["MultibandAccelerationFactor"], row["MB_source"] = int(m.group(1)), "nifti descrip"
+        elif st and row.get("n_slices"):
+            row["MultibandAccelerationFactor"] = int(round(row["n_slices"] / len(np.unique(np.round(st, 3)))))
+            row["MB_source"] = "slice timing"
+    if row.get("Manufacturer") is None and ("SENSE" in d or "rec2nifti" in d):
+        row["Manufacturer"] = "Philips"
     # fmriprep copies key raw metadata into its own json (e.g. TR, SliceTiming)
     row["fmriprep_json_keys"] = ";".join(sorted(fp))
     return row

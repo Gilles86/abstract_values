@@ -47,7 +47,7 @@ def acquisition_summary(path):
                   "SpacingBetweenSlices", "MultibandAccelerationFactor",
                   "ParallelReductionFactorInPlane", "PartialFourier", "PhaseEncodingDirection",
                   "SliceEncodingDirection", "TotalReadoutTime", "EffectiveEchoSpacing",
-                  "matrix", "n_slices", "fmap_files", "sdc", "SequenceName",
+                  "matrix", "n_slices", "fmap_files", "sdc", "SequenceName", "EchoTime_source", "MB_source",
                   "PulseSequenceDetails", "WaterFatShift", "header_source", "descrip",
                   "par_TE_ms", "par_thick", "par_gap", "par_angulation_ap_fh_rl",
                   "par_prep_direction", "par_wfs_px", "par_epi_factor", "par_file"]:
