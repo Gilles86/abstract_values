@@ -125,7 +125,7 @@ def main():
     order = [d for _, grp in GROUPS for d in grp if d in have]
     firsts = {[d for d in grp if d in have][0] for _, grp in GROUPS if any(d in have for d in grp)}
     n = len(order)
-    row_h, top, scat_h, bot = 0.5, 0.45, 2.2, 0.15
+    row_h, top, scat_h, bot = 0.6, 0.45, 2.2, 0.15
     H = top + n * row_h + 0.55 + scat_h + bot
     fig = plt.figure(figsize=(7.25, H))
     y_of = lambda i: 1 - (top + (i + 1) * row_h) / H
@@ -218,8 +218,14 @@ def main():
             ax.set_yticklabels(["0", "2", "5", "10", "20"])
     for k, (grp, c) in enumerate(GCOL.items()):
         fig.text(0.97, yb + hs - k * 0.12 / H, grp, color=c, fontsize=6.5, ha="right", va="top")
-    fig.text(0.97, yb + hs - 3 * 0.12 / H, "Large: dataset median", color="0.4", fontsize=6,
-             ha="right", va="top")
+    kx, ky = 0.97, yb + hs - 3.5 * 0.12 / H
+    fig.add_artist(plt.Line2D([kx - 0.155], [ky], marker="o", ms=4.5, mfc="0.6", mec="k",
+                              mew=0.3, transform=fig.transFigure))
+    fig.text(kx, ky, "Dataset median", color="0.4", fontsize=6, ha="right", va="center")
+    fig.add_artist(plt.Line2D([kx - 0.155], [ky - 0.12 / H], marker="o", ms=4.5, mfc="0.6",
+                              mec="k", mew=0.9, transform=fig.transFigure))
+    fig.text(kx, ky - 0.12 / H, "Abstract values", color="0.4", fontsize=6, ha="right",
+             va="center")
     fig.savefig(FIG / "fig_dropout_survey_glm.pdf")
     fig.savefig(FIG / "fig_dropout_survey_glm.png", dpi=200)
     plt.close(fig)
