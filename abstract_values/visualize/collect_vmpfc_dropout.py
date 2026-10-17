@@ -191,15 +191,17 @@ def main(s, bids, out_dir):
             n_runs += 1
             if (s, ses, run) in BAD_TIMING:
                 continue
-            psc = res / np.where(mu > 0, mu, np.inf) * 100                 # (T, V)
             vol_idx = np.full(bm.shape, -1)
             vol_idx[bm] = np.arange(bm.sum())
             roi_ts = []
             for r in ROIS:
                 ii = vol_idx[masks[r] & bm]
-                roi_ts.append(psc[:, ii].mean(1) if len(ii) else np.full(len(psc), np.nan))
+                # % of the ROI-mean signal; per-voxel scaling would blow up the
+                # near-empty dropout voxels
+                roi_ts.append(res[:, ii].mean(1) / mu[ii].mean() * 100 if len(ii)
+                              else np.full(len(res), np.nan))
             roi_ts = np.stack(roi_ts, 1)                                   # (T, R)
-            t = (np.arange(len(psc)) + 0.5) * tr                           # slice-time ref 0.5
+            t = (np.arange(len(res)) + 0.5) * tr                           # slice-time ref 0.5
             e = ev.loc[run].reset_index()
             g = e[e.event_type == "gabor"].set_index("trial_nr")
             b = e[e.event_type == "response_bar"].set_index("trial_nr")
@@ -218,7 +220,7 @@ def main(s, bids, out_dir):
                                     value=row.value, bid=b.loc[tn, "bid"],
                                     rt=b.loc[tn, "duration"],
                                     bar_delay=on_b - on_g))
-            del Y, res, psc
+            del Y, res
 
     tsnr_map = tsnr_sum / n_runs
     mean_map = mean_sum / n_runs
