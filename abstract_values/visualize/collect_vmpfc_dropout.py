@@ -167,7 +167,7 @@ def main(s, bids, out_dir):
     for ses in sessions:
         runs = sorted(sub.get_runs(ses))
         ev = sub.get_events(ses, runs)
-        func_dir = Path(first).parent.parent / f"ses-{ses}" / "func"
+        func_dir = Path(sub.get_preprocessed_bold(ses, runs)[0]).parent
         for run, path in zip(runs, sub.get_preprocessed_bold(ses, runs)):
             print(f"sub-{s} ses-{ses} run-{run}", flush=True)
             img = nib.load(str(path))
