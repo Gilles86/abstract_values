@@ -108,6 +108,17 @@ def confounds(path, n, tr):
     return X, drift, len(cos)
 
 
+def roi_masks(seg_grid, lab):
+    """Survey ROIs on one grid, from the aparcaseg and the label_volume, both on that grid."""
+    masks = {"mOFC": lab == LABEL_ID["mOFC"], "lOFC": lab == LABEL_ID["lOFC"],
+             "pgACC": lab == LABEL_ID["rACC"], "dmPFC": lab == LABEL_ID["dmPFC"],
+             "dACC": lab == LABEL_ID["dACC"], "PCC": lab == LABEL_ID["PCC"],
+             "WM": binary_erosion(np.isin(seg_grid, [2, 41]), iterations=1)}
+    for k, v in EXTRA_APARC.items():
+        masks[k] = np.isin(seg_grid, v)
+    return masks
+
+
 def run_maps(run, ref3, seg_bold):
     img = nib.load(str(run["bold"]))
     if img.shape[:3] != ref3.shape or not np.allclose(img.affine, ref3.affine, atol=1e-3):
@@ -165,12 +176,7 @@ def main(dataset, s, out_root, n_runs=2):
 
     cortex = np.isin(seg_bold, CORTEX) & np.isfinite(tsnr)
     cortex_med = float(np.median(tsnr[cortex]))
-    masks = {"mOFC": lab == LABEL_ID["mOFC"], "lOFC": lab == LABEL_ID["lOFC"],
-             "pgACC": lab == LABEL_ID["rACC"], "dmPFC": lab == LABEL_ID["dmPFC"],
-             "dACC": lab == LABEL_ID["dACC"], "PCC": lab == LABEL_ID["PCC"],
-             "WM": binary_erosion(np.isin(seg_bold, [2, 41]), iterations=1)}
-    for k, v in EXTRA_APARC.items():
-        masks[k] = np.isin(seg_bold, v)
+    masks = roi_masks(seg_bold, lab)
 
     rows = []
     for r in ROIS:
