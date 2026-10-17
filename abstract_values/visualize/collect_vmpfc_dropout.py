@@ -82,7 +82,7 @@ def label_volume(seg):
     out = np.zeros(a.shape, np.int8)
     for k, v in APARC.items():
         out[np.isin(a, v)] = LABEL_ID[k]
-    vox = np.abs(np.diag(seg.affine)[:3])
+    vox = np.sqrt((seg.affine[:3, :3] ** 2).sum(0))   # column norms: also right for oblique affines
     sf = {}
     for h, other in ((1028, (a >= 2000) & (a < 2100)), (2028, (a >= 1000) & (a < 1100))):
         d = distance_transform_edt(~other, sampling=vox)
