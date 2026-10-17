@@ -204,6 +204,8 @@ def main():
     (j0, k0), (j1, k1) = ij(-45, -50), ij(80, 55)
     sag_crop = ((min(j0, j1), max(j0, j1)), (min(k0, k1), max(k0, k1)))
     axes_s, axes_v, im = [], [], None
+    ref = {c: rois[(rois.dataset == HILITE) & (rois.roi == "mOFC")][c].median()
+           for c in ("tsnr_norm", "frac_void")}
     for i, ds in enumerate(order):
         y = y_of(i)
         d = rois[rois.dataset == ds]
@@ -226,16 +228,19 @@ def main():
         ax = fig.add_axes([xs["strip"], y, ws["strip"], hh])
         strip(ax, d, ROIS, "tsnr_norm", (0, 1.6))
         ax.axvline(1, color="0.6", lw=0.6, ls=(0, (3, 2)), zorder=0)
+        ax.axvline(ref["tsnr_norm"], color=COL["mOFC"], lw=0.6, ls=(0, (1, 1.5)), zorder=0)
         axes_s.append(ax)
         ax = fig.add_axes([xs["void"], y + hh * 0.22, ws["void"], hh * 0.56])
         strip(ax, d, ["mOFC", "lOFC"], "frac_void", (0, 0.8))
+        ax.axvline(ref["frac_void"], color=COL["mOFC"], lw=0.6, ls=(0, (1, 1.5)), zorder=0)
         axes_v.append(ax)
         if ds in firsts:
             yl = y + hh + 0.045 / H
             grp = [g for g, m in GROUPS if ds in m][0]
             if i > 0:
                 fig.add_artist(plt.Line2D([0, 1], [yl, yl], color="0.75", lw=0.5))
-            fig.text(1.0, yl - 0.012 / H, grp, fontsize=6, color="0.45", ha="right", va="top")
+            fig.text(xs["sag"] - 0.012, y + hh * 0.93, grp, fontsize=6, color="0.45",
+                     ha="right", va="center", style="italic")
     for ax in axes_s[:-1] + axes_v[:-1]:
         ax.spines["bottom"].set_visible(False)
         ax.set_xticks([])
@@ -250,8 +255,10 @@ def main():
         axes_s[0].text(1.62, -k, r, color=COL[r], fontsize=6, va="center", ha="left")
     for k, r in enumerate(["mOFC", "lOFC"]):
         axes_v[0].text(0.82, -k, r, color=COL[r], fontsize=6, va="center", ha="left")
-    axes_s[0].text(1.0, 0.75, "Cortex median", fontsize=5.8, color="0.45", ha="center",
+    axes_s[0].text(1.02, 0.75, "Cortex median", fontsize=5.8, color="0.45", ha="left",
                    va="bottom")
+    axes_s[0].text(ref["tsnr_norm"] - 0.02, 0.75, "Abstract values\nmOFC median",
+                   fontsize=5.8, color=COL["mOFC"], ha="right", va="bottom", linespacing=1.0)
 
     yh = 1 - (top - 0.12) / H
     for ltr, x, t in (("a", xs["text"], "Dataset and acquisition"),
