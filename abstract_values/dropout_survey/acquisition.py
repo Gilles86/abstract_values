@@ -78,7 +78,8 @@ def mni_rotation(xfm):
             g = f["TransformGroup"][k]
             t = g["TransformType"][0]
             t = t.decode() if isinstance(t, bytes) else str(t)
-            if "Affine" in t or "MatrixOffset" in t:
+            if ("Affine" in t or "MatrixOffset" in t) and "TransformParameters" in g \
+                    and len(g["TransformParameters"]) == 12:
                 return np.asarray(g["TransformParameters"][:9], float).reshape(3, 3)
     return None
 
@@ -92,8 +93,10 @@ def tilt(affine, slice_axis, M=None):
         m = M.T @ n_lps                     # plane normals map with the inverse transpose
         m = m / np.linalg.norm(m)
         out["tilt_mni_deg"] = float(np.degrees(np.arccos(min(1, abs(m[2])))))
-        # signed pitch about the left-right axis (+: anterior end of the slab tilted up)
-        out["pitch_mni_deg"] = float(np.degrees(np.arctan2(-m[1] * np.sign(m[2]), abs(m[2]))))
+        # signed pitch about the left-right axis, + = anterior end of the slices higher
+        # than the posterior end (m is LPS: y points posterior)
+        out["pitch_mni_deg"] = float(np.degrees(np.arctan2(m[1] * np.sign(m[2]), abs(m[2]))))
+    out["pitch_scanner_deg"] = float(np.degrees(np.arctan2(-n[1] * np.sign(n[2]), abs(n[2]))))
     return out
 
 
@@ -167,19 +170,21 @@ def main(names, max_subjects, out):
         ds = DATASETS[name]
         lst = SCRATCH / f"subjects_{name}.txt"
         subs = [l.strip() for l in lst.read_text().splitlines() if l.strip()] if lst.exists() else []
-        n = 0
+        got = []
         for s in subs:
             try:
                 r = one(ds, s)
             except Exception as e:      # keep the survey going, record why
                 r = dict(dataset=name, subject=s, error=repr(e))
-            if r is None:
-                continue
-            rows.append(r)
-            print(r, flush=True)
-            n += 1
-            if n >= max_subjects:
+            if r is not None:
+                got.append(r)
+            # prefer subjects whose raw / native-space header is readable
+            if sum(g.get("header_source") is not None for g in got) >= max_subjects:
                 break
+        got = sorted(got, key=lambda g: g.get("header_source") is None)[:max_subjects]
+        for r in got:
+            print(r, flush=True)
+        rows += got
     pd.DataFrame(rows).to_csv(out, sep="\t", index=False)
 
 

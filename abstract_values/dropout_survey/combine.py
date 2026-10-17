@@ -51,7 +51,7 @@ def acquisition_summary(path):
                   "PulseSequenceDetails", "WaterFatShift", "header_source", "descrip"]:
             if k in g:
                 r[k] = _mode(g[k])
-        for k in ["vox_x", "vox_y", "vox_z", "tilt_scanner_deg", "tilt_mni_deg", "pitch_mni_deg"]:
+        for k in ["vox_x", "vox_y", "vox_z", "tilt_scanner_deg", "pitch_scanner_deg", "tilt_mni_deg", "pitch_mni_deg"]:
             if k in g:
                 v = pd.to_numeric(g[k], errors="coerce")
                 r[k] = float(v.median()) if v.notna().any() else np.nan
