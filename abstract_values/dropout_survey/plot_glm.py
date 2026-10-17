@@ -94,6 +94,31 @@ def relations(w):
     return pd.DataFrame(rows)
 
 
+def group_tests(g):
+    """Across participants: is the ROI-mean beta different from 0 (one-sample t), and how
+    many participants have |t across trials| > 2 -- per dataset, event and ROI."""
+    rows = []
+    wm = g[g.roi == "WM"].set_index(["dataset", "event", "subject"]).beta_mean
+    for (ds, e, roi), d in g.groupby(["dataset", "event", "roi"]):
+        v = d.beta_mean.dropna()
+        if len(v) < 3:
+            continue
+        t = stats.ttest_1samp(v, 0)
+        # relative to the same participant's white matter: global / baseline shifts
+        # in the single-trial betas move WM too
+        dv = (d.set_index(["dataset", "event", "subject"]).beta_mean - wm).dropna()
+        tw = stats.ttest_1samp(dv, 0) if roi != "WM" else None
+        rows.append(dict(dataset=ds, event=e, roi=roi, n=len(v), beta_mean=v.mean(),
+                         group_t=t.statistic, group_p=t.pvalue,
+                         beta_minus_wm=dv.mean(),
+                         group_t_vs_wm=tw.statistic if tw else np.nan,
+                         group_p_vs_wm=tw.pvalue if tw else np.nan,
+                         frac_subj_abs_t2=float((d.beta_t.abs() > 2).mean()),
+                         frac_r2_above_wm95=d.frac_r2_above_wm95.median(),
+                         r2_above_floor=d.r2_above_floor.median()))
+    return pd.DataFrame(rows)
+
+
 def strip(ax, d, col, xlim, clip=None):
     for k, r in enumerate(ROIS):
         v = d.loc[d.roi == r, col].dropna().to_numpy()
@@ -120,6 +145,8 @@ def main():
     out = pd.concat([med.assign(table="dataset_medians"), rel.assign(table="relations")])
     out.to_csv(DATA / "dropout_survey_glm_stats.tsv", sep="\t", index=False)
     w.to_csv(DATA / "dropout_survey_glm_subjects.tsv", sep="\t", index=False)
+    gt = group_tests(g)
+    gt.to_csv(DATA / "dropout_survey_glm_group.tsv", sep="\t", index=False)
 
     have = set(g.dataset)
     order = [d for _, grp in GROUPS for d in grp if d in have]
@@ -140,15 +167,19 @@ def main():
         nsub = d.subject.nunique()
         m = meta[(meta.dataset == ds) & (meta.event == prim[ds])]
         nt = int(m.n_trials.median()) if len(m) else 0
-        fig.text(xs["text"], y + hh * 0.8, f"{DATASETS[ds].label} (n = {nsub})", fontsize=7,
+        fig.text(xs["text"], y + hh * 0.86, f"{DATASETS[ds].label} (n = {nsub})", fontsize=7,
                  fontweight="bold" if ds == HILITE else "normal", va="center")
         note = m.note.iloc[0].split(",")[0].split(" (")[0] if len(m) else ""
-        fig.text(xs["text"], y + hh * 0.48, f"{note} · {prim[ds]} ({nt} trials)", fontsize=5.6,
-                 color="0.3", va="center")
         nog = d.loc[d.roi == "mOFC", "frac_vox_no_glm"].median()
-        if nog > 0.02:
-            fig.text(xs["text"], y + hh * 0.2, f"{100 * nog:.0f}% of mOFC outside GLM mask",
-                     fontsize=5.6, color="0.3", va="center")
+        extra = f" · {100 * nog:.0f}% of mOFC unmodelled" if nog > 0.02 else ""
+        fig.text(xs["text"], y + hh * 0.55, f"{note} · {prim[ds]} ({nt} trials){extra}",
+                 fontsize=5.6, color="0.3", va="center")
+        q = gt[(gt.dataset == ds) & (gt.event == prim[ds]) & (gt.roi == "mOFC")]
+        if len(q):
+            q = q.iloc[0]
+            fig.text(xs["text"], y + hh * 0.24, f"mOFC − WM β across participants: "
+                     f"t({int(q.n) - 1}) = {q.group_t_vs_wm:.1f}", fontsize=5.6,
+                     color="0.3", va="center")
         if ds in firsts:
             grp = [k for k, v in GROUPS if ds in v][0]
             fig.text(xs["r2"] - 0.02, y + hh * 0.8, grp, fontsize=6, color="0.45", ha="right",
@@ -157,7 +188,13 @@ def main():
                 yl = y + hh + 0.04 / H
                 fig.add_artist(plt.Line2D([0, 1], [yl, yl], color="0.75", lw=0.5))
         ax = fig.add_axes([xs["r2"], y, wd, hh])
-        strip(ax, d, "r2_above_floor", (-2, 6))
+        n_r2 = d.loc[d.roi == "mOFC", "r2_above_floor"].notna().sum()
+        if n_r2 >= 8:
+            strip(ax, d, "r2_above_floor", (-2, 6))
+        else:     # npy R2 could not be matched to the beta NIfTI for most participants
+            strip(ax, d.assign(r2_above_floor=np.nan), "r2_above_floor", (-2, 6))
+            ax.text(3.0, -2, f"R² verifiable for {n_r2} of {nsub}", fontsize=5.8, color="0.4",
+                    ha="center", va="center")
         ax.axvline(0, color="0.6", lw=0.6, ls=(0, (3, 2)), zorder=0)
         axes_r.append(ax)
         ax = fig.add_axes([xs["t"], y, wd, hh])
@@ -190,11 +227,11 @@ def main():
     p = w[w.primary]
     yb = (bot + 0.3) / H
     hs = (scat_h - 0.45) / H
-    specs = [("d", "tsnr_norm", "abs_t_mOFC", "mOFC tSNR / cortex median", "mOFC |β t|", 0.08),
+    specs = [("d", "tsnr_norm", "abs_t_mOFC", "mOFC tSNR / cortex median", "mOFC |β t|", 0.075),
              ("e", "frac_void", "frac_r2_above_wm95_mOFC", "mOFC signal-void fraction",
-              "mOFC voxels with R² > WM 95th pct", 0.58)]
+              "mOFC voxels with R² > WM 95th pct", 0.53)]
     for ltr, x, y, xl, yl, x0 in specs:
-        ax = fig.add_axes([x0, yb, 0.36, hs])
+        ax = fig.add_axes([x0, yb, 0.33, hs])
         for grp, c in GCOL.items():
             q = p[p.group == grp]
             ax.scatter(q[x], q[y], s=4, color=c, alpha=0.35, lw=0)
@@ -216,16 +253,17 @@ def main():
             ax.set_yscale("symlog", linthresh=2)
             ax.set_yticks([0, 2, 5, 10, 20])
             ax.set_yticklabels(["0", "2", "5", "10", "20"])
+    kx = 0.885
     for k, (grp, c) in enumerate(GCOL.items()):
-        fig.text(0.97, yb + hs - k * 0.12 / H, grp, color=c, fontsize=6.5, ha="right", va="top")
-    kx, ky = 0.97, yb + hs - 3.5 * 0.12 / H
-    fig.add_artist(plt.Line2D([kx - 0.155], [ky], marker="o", ms=4.5, mfc="0.6", mec="k",
-                              mew=0.3, transform=fig.transFigure))
-    fig.text(kx, ky, "Dataset median", color="0.4", fontsize=6, ha="right", va="center")
-    fig.add_artist(plt.Line2D([kx - 0.155], [ky - 0.12 / H], marker="o", ms=4.5, mfc="0.6",
-                              mec="k", mew=0.9, transform=fig.transFigure))
-    fig.text(kx, ky - 0.12 / H, "Abstract values", color="0.4", fontsize=6, ha="right",
-             va="center")
+        fig.text(kx, yb + hs - k * 0.12 / H, grp, color=c, fontsize=6.5, ha="left", va="top")
+    ky = yb + hs - 3.6 * 0.12 / H
+    for k, (lab, mew, ms, a) in enumerate((("Participant", 0, 2.2, 0.5),
+                                           ("Dataset median", 0.3, 4.5, 1),
+                                           ("Abstract values", 0.9, 4.5, 1))):
+        yy = ky - k * 0.12 / H
+        fig.add_artist(plt.Line2D([kx + 0.008], [yy], marker="o", ms=ms, mfc="0.55", mec="k",
+                                  mew=mew, alpha=a, transform=fig.transFigure))
+        fig.text(kx + 0.022, yy, lab, color="0.35", fontsize=6, ha="left", va="center")
     fig.savefig(FIG / "fig_dropout_survey_glm.pdf")
     fig.savefig(FIG / "fig_dropout_survey_glm.png", dpi=200)
     plt.close(fig)
@@ -236,6 +274,9 @@ def main():
             "frac_void"]
     print(med[[c for c in cols if c in med]].round(3).to_string())
     print(rel.round(3).to_string())
+    print(gt[gt.roi.isin(["mOFC", "dmPFC", "WM", "cortex"])].pivot_table(
+        index=["dataset", "event"], columns="roi", values=["group_t", "group_t_vs_wm"]).round(1)
+        .to_string())
 
 
 if __name__ == "__main__":
