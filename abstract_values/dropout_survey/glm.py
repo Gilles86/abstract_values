@@ -90,13 +90,24 @@ def _one(d, pattern):
 
 
 def r2_from_npy(d, ref):
+    """R2 from GLMsingle's typeD npy, only if that npy produced the beta NIfTI we use
+    (same grid, same number of trials, identical first-trial betas)."""
     f = d / "TYPED_FITHRF_GLMDENOISE_RR.npy"
     if not f.exists():
         return None, "missing"
-    r2 = np.asarray(np.load(f, allow_pickle=True).item()["R2"], np.float32)
+    res = np.load(f, allow_pickle=True).item()
+    r2 = np.asarray(res["R2"], np.float32)
     if r2.shape != ref.shape[:3]:
-        return None, f"npy R2 shape {r2.shape} != grid {ref.shape[:3]}"
-    return nib.Nifti1Image(r2, ref.affine), "npy"
+        return None, f"npy R2 shape {r2.shape} != beta grid {ref.shape[:3]}"
+    b = np.asarray(res["betasmd"])
+    pe = np.asarray(ref.dataobj)
+    if b.shape != pe.shape:
+        return None, f"npy betas {b.shape} != beta NIfTI {pe.shape}"
+    v0, p0 = b[..., 0], pe[..., 0]
+    ok = np.isfinite(v0) & np.isfinite(p0)
+    if not np.allclose(v0[ok], p0[ok], atol=1e-3):
+        return None, "npy betas differ from the beta NIfTI"
+    return nib.Nifti1Image(r2, ref.affine), "npy (verified against beta NIfTI)"
 
 
 def main(dataset, s, out_root):
