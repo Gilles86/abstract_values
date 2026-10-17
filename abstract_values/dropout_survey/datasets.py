@@ -74,8 +74,8 @@ DATASETS = {d.name: d for d in [
             [str(SHARES / "gdehol/ds-retsupp")], task="search", session="1",
             note="NORDIC-denoised BOLD (the only fmriprep input)"),
     Dataset("valuecapture", "Value capture 7T", [_fp("gdehol", "ds-valuecapture")],
-            [str(SHARES / "gdehol/ds-valuecapture")], session="1",
-            note="NORDIC-denoised BOLD; pilot n=3"),
+            [str(SHARES / "gdehol/ds-valuecapture")], task="valuecapture",
+            note="NORDIC-denoised BOLD; pilot n=3; main task runs from both sessions"),
 ]}
 
 
