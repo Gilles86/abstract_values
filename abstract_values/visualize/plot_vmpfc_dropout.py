@@ -220,12 +220,11 @@ def figure_dropout(rois, hist, ep, mni, example):
         h = h / h.sum(1, keepdims=True)
         mu = h.mean(0)
         ax.plot(centres, mu, color=COL[r], lw=1.3)
-    lab_at = {"mOFC": 8, "lOFC": 24, "rACC": 64, "dmPFC": 84, "V1": 94, "IPS12": 112, "WM": 44}
-    for r, xv in lab_at.items():
-        h = hist[hist.roi == r][cols].to_numpy(float)
-        mu = (h / h.sum(1, keepdims=True)).mean(0)
-        ax.text(xv, np.interp(xv, centres, mu) + 0.004, SHORT[r], color=COL[r], fontsize=6,
-                ha="center", va="bottom")
+    for r, (xv, yv, ha) in {"mOFC": (7, 0.15, "left"), "lOFC": (13, 0.085, "left"),
+                            "WM": (50, 0.112, "right"), "rACC": (66, 0.112, "left"),
+                            "dmPFC": (84, 0.085, "left"), "V1": (98, 0.038, "left"),
+                            "IPS12": (112, 0.06, "left")}.items():
+        ax.text(xv, yv, SHORT[r], color=COL[r], fontsize=6, ha=ha, va="center")
     ax.set_xlim(0, 160)
     ax.set_xlabel("Voxel tSNR")
     ax.set_ylabel("Fraction of voxels")
@@ -239,7 +238,7 @@ def figure_dropout(rois, hist, ep, mni, example):
             ("beta_resp", "Response-bar β (% signal)", 0))):
         ax = fig.add_axes([0.075 + j * 0.335, 0.07, 0.245, 0.12])
         roi_dots(ax, rois, col, ttl, ref=ref)
-        letter(ax, "efg"[j], dx=-0.25)
+        letter(ax, "efg"[j], dx=-0.3)
     fig.savefig(FIG / "fig_vmpfc_dropout.pdf")
     fig.savefig(FIG / "fig_vmpfc_dropout.png", dpi=200)
     plt.close(fig)
