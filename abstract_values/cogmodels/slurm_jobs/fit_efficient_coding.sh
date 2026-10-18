@@ -52,6 +52,10 @@ PEAK="${PEAK:-}"   # cardinal-peak SD in orientation degrees (empty = off)
 VALUE_KERNEL="${VALUE_KERNEL:-cell}"   # cell (erf, default) | point (pre-2026-10-15)
 # SHRINK=1 fits the per-subject shrinkage of the internal mapping toward a line.
 SHRINK="${SHRINK:-}"
+# OFFSETS=1: per subject x mapping x stimulus offsets on the internal mapping.
+# FREE_LAPSE=1: per-subject lapse rate instead of the fixed LAPSE.
+OFFSETS="${OFFSETS:-}"
+FREE_LAPSE="${FREE_LAPSE:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -117,4 +121,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     --value-kernel "$VALUE_KERNEL" \
     ${PEAK:+--cardinal-peak "$PEAK"} \
     ${SHRINK:+--fit-mapping-shrinkage} \
+    ${OFFSETS:+--fit-mapping-offsets} \
+    ${FREE_LAPSE:+--fit-lapse} \
     --out-dir "$OUTDIR"

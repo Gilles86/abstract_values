@@ -155,8 +155,16 @@ def posterior_subject_draws(idata, subjects, params, n_draws, seed=1):
             aligned[par] = v.values
     for flat in picks:
         c, d = divmod(int(flat), n_draw)
-        yield pd.DataFrame({par: aligned[par][c, d, :] for par in params},
+        vec = [par for par in params if aligned[par].ndim == 3]
+        out = pd.DataFrame({par: aligned[par][c, d, :] for par in vec},
                            index=pd.Index(subjects, name="subject"))
+        arrays = {par: aligned[par][c, d] for par in params if par not in vec}
+        if arrays:
+            # Parameters with extra axes beyond the subject (e.g. mapping_offset,
+            # subject x mapping x stimulus) cannot live in a DataFrame column; hand
+            # back a dict, which bauer's simulate/predict accept as well.
+            out = {**{k: out[k].to_numpy() for k in out}, **arrays}
+        yield out
 
 
 def run_ppc(model, paradigm, idata, params, n_draws, seed=1):

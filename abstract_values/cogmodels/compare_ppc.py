@@ -15,7 +15,8 @@ pointwise log-likelihood on ``--n-loo`` posterior draws. Writes, into --out-dir:
 
 Flags after the colon: ``prior_weight`` (fit had --fit-prior-weight), ``trunc``
 (--cardinal-truncation), ``noseam``, ``fourierK``, ``shrink``
-(--fit-mapping-shrinkage).
+(--fit-mapping-shrinkage), ``offsets`` (--fit-mapping-offsets), ``freelapse``
+(--fit-lapse).
 
     python -m abstract_values.cogmodels.compare_ppc \\
         --paradigm-tsv notes/data/efficient_coding_paradigm_n35.tsv \\
@@ -51,9 +52,12 @@ def parse_fit(s):
     kw = dict(model_name="categorical" if "categorical" in Path(path).name else "sequential",
               cardinal_truncation="trunc" in flags, fit_prior_weight="prior_weight" in flags,
               no_seam_crossing="noseam" in flags, prior_fourier_order=K, value_kernel="cell",
-              fit_mapping_shrinkage="shrink" in flags)
+              fit_mapping_shrinkage="shrink" in flags,
+              fit_mapping_offsets="offsets" in flags, fit_lapse="freelapse" in flags)
     params = (["kappa_r", "sigma_rep"] + (["prior_weight"] if "prior_weight" in flags else [])
               + (["mapping_shrinkage"] if "shrink" in flags else [])
+              + (["lapse"] if "freelapse" in flags else [])
+              + (["mapping_offset"] if "offsets" in flags else [])
               + [f"prior_{c}{k}" for k in range(1, K + 1) for c in "ab"])
     return label, path, kw, params
 

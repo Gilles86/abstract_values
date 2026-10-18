@@ -92,7 +92,7 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                no_seam_crossing=False, prior_fourier_order=0,
                cardinal_truncation=False, fit_motor_noise=False,
                param="kappa-sigma", value_kernel="cell", cardinal_peak_width=0.0,
-               fit_mapping_shrinkage=False):
+               fit_mapping_shrinkage=False, fit_mapping_offsets=False, fit_lapse=False):
     if param != "kappa-sigma" and model_name not in ("sequential", "categorical"):
         raise ValueError(f"--param {param} needs a two-stage model, not {model_name}")
     if model_name == "perception":
@@ -106,7 +106,9 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                                         cardinal_truncation=cardinal_truncation,
                                         fit_motor_noise=fit_motor_noise,
                                         cardinal_peak_width=cardinal_peak_width,
-                                        fit_mapping_shrinkage=fit_mapping_shrinkage)
+                                        fit_mapping_shrinkage=fit_mapping_shrinkage,
+                                        fit_mapping_offsets=fit_mapping_offsets,
+                                        fit_lapse=fit_lapse)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
@@ -131,7 +133,9 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    fit_motor_noise=fit_motor_noise,
                    value_kernel=value_kernel,
                    cardinal_peak_width=cardinal_peak_width,
-                   fit_mapping_shrinkage=fit_mapping_shrinkage)
+                   fit_mapping_shrinkage=fit_mapping_shrinkage,
+                   fit_mapping_offsets=fit_mapping_offsets,
+                   fit_lapse=fit_lapse)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -146,7 +150,7 @@ def subject_parameters(idata, paradigm, model_name):
     for par in ("kappa_r", "sigma_rep", "total_noise", "perceptual_share",
                 "share_high_prob",
                 "sigma_motor", "prior_weight", "cardinal_peak", "mapping_shrinkage",
-                *fourier):
+                "lapse", *fourier):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
             continue
@@ -286,6 +290,13 @@ def main():
                         "(1 - lambda) G + lambda * (the straight line from 2 CHF at 0 deg "
                         "to 42 CHF at 180 deg). Bias toward the line without extra noise. "
                         "Tag '_shrink'.")
+    p.add_argument("--fit-mapping-offsets", action="store_true",
+                   help="Free offset (CHF) per subject x mapping x stimulus orientation on "
+                        "the internal mapping -- a learned look-up table with persistent "
+                        "errors; non-centred, tau ~ HalfNormal(0.5). Tag '_offsets'.")
+    p.add_argument("--fit-lapse", action="store_true",
+                   help="Free per-subject lapse rate (replaces the fixed --lapse-rate). "
+                        "Tag '_freelapse'.")
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
@@ -312,7 +323,9 @@ def main():
                        fit_motor_noise=a.fit_motor_noise,
                        param=a.param, value_kernel=a.value_kernel,
                        cardinal_peak_width=a.cardinal_peak,
-                       fit_mapping_shrinkage=a.fit_mapping_shrinkage)
+                       fit_mapping_shrinkage=a.fit_mapping_shrinkage,
+                       fit_mapping_offsets=a.fit_mapping_offsets,
+                       fit_lapse=a.fit_lapse)
 
     model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -361,6 +374,10 @@ def main():
         tag += f"_peak{a.cardinal_peak:g}"
     if a.fit_mapping_shrinkage:
         tag += "_shrink"
+    if a.fit_mapping_offsets:
+        tag += "_offsets"
+    if a.fit_lapse:
+        tag += "_freelapse"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     # Stamp the options that change the posterior, so a later rebuild of the
     # model reads them back instead of today's defaults.
@@ -370,11 +387,13 @@ def main():
         cardinal_truncation=int(a.cardinal_truncation),
         fit_motor_noise=int(a.fit_motor_noise), group_sd_dist=a.group_sd_dist,
         fit_prior_weight=int(a.fit_prior_weight),
-        fit_mapping_shrinkage=int(a.fit_mapping_shrinkage))
+        fit_mapping_shrinkage=int(a.fit_mapping_shrinkage),
+        fit_mapping_offsets=int(a.fit_mapping_offsets), fit_lapse=int(a.fit_lapse))
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
 
-    summ = az.summary(idata, var_names=["~.*_untransformed", "~.*_offset"], filter_vars="regex")
+    summ = az.summary(idata, var_names=["~.*_untransformed", "~.*_offset$", "~mapping_offset_z"],
+                      filter_vars="regex")
     print(summ.head(30).to_string())
     bad = summ[summ["r_hat"] > 1.01]
     print(f"\n{len(bad)} parameters with r_hat > 1.01"

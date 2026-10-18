@@ -38,7 +38,8 @@ def pointwise_loglik(model, paradigm, idata, params, n_draws=400, seed=1):
     with pm.Model() as g:
         par_ = model._get_paradigm(paradigm=paradigm)
         model.set_paradigm(par_)
-        holders = {p: pm.Data(p, np.zeros(len(subjects))) for p in params}
+        shapes = {p: idata.posterior[p].shape[2:] for p in params}
+        holders = {p: pm.Data(p, np.zeros(shapes[p])) for p in params}
         mi = model.get_model_inputs(holders)
         ll = model._get_response_log_likelihood(mi)
         pm.Deterministic("pointwise_ll", ll)
@@ -46,7 +47,7 @@ def pointwise_loglik(model, paradigm, idata, params, n_draws=400, seed=1):
     rows = []
     for pars in posterior_subject_draws(idata, subjects, params, n_draws, seed=seed):
         for p in params:
-            pm.set_data({p: pars[p].values}, model=g)
+            pm.set_data({p: np.asarray(pars[p]) for p in [p]}, model=g)
         rows.append(np.asarray(g["pointwise_ll"].eval()))
     return np.stack(rows)
 
