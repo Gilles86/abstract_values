@@ -25,4 +25,5 @@ PYTHONUNBUFFERED=1 exec $HOME/data/conda/envs/bauer/bin/python -u -m abstract_va
     --fit "+ free lapse=$D/efficient_coding_categorical_freeprior_grid161_trunc_hn_total-share_erf_shrink_freelapse_trace.nc:trunc,prior_weight,shrink,freelapse" \
     --fit "+ free lapse + offsets=$D/efficient_coding_categorical_freeprior_grid161_trunc_hn_total-share_erf_shrink_offsets_freelapse_trace.nc:trunc,prior_weight,shrink,freelapse,offsets" \
     --fit "+ free lapse + spline offsets=$D/efficient_coding_categorical_freeprior_grid161_trunc_hn_total-share_erf_shrink_splineoffsets_freelapse_trace.nc:trunc,prior_weight,shrink,freelapse,splineoffsets" \
+    --fit "Free prior + free lapse + spline offsets with group mean (no shrinkage)=$D/efficient_coding_categorical_freeprior_grid161_trunc_hn_total-share_erf_splineoffsets_offsetmean_freelapse_trace.nc:trunc,prior_weight,freelapse,splineoffsets,offsetmean" \
     --out-dir $OUT

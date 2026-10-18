@@ -56,6 +56,7 @@ SHRINK="${SHRINK:-}"
 # FREE_LAPSE=1: per-subject lapse rate instead of the fixed LAPSE.
 OFFSETS="${OFFSETS:-}"
 OFFSET_BASIS="${OFFSET_BASIS:-cell}"   # cell | spline (with OFFSETS=1)
+OFFSET_MEAN="${OFFSET_MEAN:-}"         # 1: free population-mean offset curve per mapping
 FREE_LAPSE="${FREE_LAPSE:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
@@ -123,5 +124,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     ${PEAK:+--cardinal-peak "$PEAK"} \
     ${SHRINK:+--fit-mapping-shrinkage} \
     ${OFFSETS:+--fit-mapping-offsets --offset-basis "$OFFSET_BASIS"} \
+    ${OFFSET_MEAN:+--offset-group-mean} \
     ${FREE_LAPSE:+--fit-lapse} \
     --out-dir "$OUTDIR"

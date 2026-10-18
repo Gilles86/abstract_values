@@ -55,7 +55,7 @@ def parse_fit(s):
               fit_mapping_shrinkage="shrink" in flags,
               fit_mapping_offsets=("spline" if "splineoffsets" in flags
                                    else "cell" if "offsets" in flags else False),
-              fit_lapse="freelapse" in flags)
+              fit_lapse="freelapse" in flags, offset_group_mean="offsetmean" in flags)
     params = (["kappa_r", "sigma_rep"] + (["prior_weight"] if "prior_weight" in flags else [])
               + (["mapping_shrinkage"] if "shrink" in flags else [])
               + (["lapse"] if "freelapse" in flags else [])

@@ -92,7 +92,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                no_seam_crossing=False, prior_fourier_order=0,
                cardinal_truncation=False, fit_motor_noise=False,
                param="kappa-sigma", value_kernel="cell", cardinal_peak_width=0.0,
-               fit_mapping_shrinkage=False, fit_mapping_offsets=False, fit_lapse=False):
+               fit_mapping_shrinkage=False, fit_mapping_offsets=False, fit_lapse=False,
+               offset_group_mean=False):
     if param != "kappa-sigma" and model_name not in ("sequential", "categorical"):
         raise ValueError(f"--param {param} needs a two-stage model, not {model_name}")
     if model_name == "perception":
@@ -108,7 +109,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                                         cardinal_peak_width=cardinal_peak_width,
                                         fit_mapping_shrinkage=fit_mapping_shrinkage,
                                         fit_mapping_offsets=fit_mapping_offsets,
-                                        fit_lapse=fit_lapse)
+                                        fit_lapse=fit_lapse,
+                                        offset_group_mean=offset_group_mean)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
@@ -135,7 +137,7 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    cardinal_peak_width=cardinal_peak_width,
                    fit_mapping_shrinkage=fit_mapping_shrinkage,
                    fit_mapping_offsets=fit_mapping_offsets,
-                   fit_lapse=fit_lapse)
+                   fit_lapse=fit_lapse, offset_group_mean=offset_group_mean)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -299,6 +301,10 @@ def main():
                         "a smooth cubic B-spline over orientation, knots every 22.5 deg "
                         "('spline', 11 coefficients per subject x mapping; tag "
                         "'_splineoffsets').")
+    p.add_argument("--offset-group-mean", action="store_true",
+                   help="With --fit-mapping-offsets: free population-mean offset curve per "
+                        "mapping, subjects deviate around it (makes --fit-mapping-shrinkage "
+                        "redundant). Tag '_offsetmean'.")
     p.add_argument("--fit-lapse", action="store_true",
                    help="Free per-subject lapse rate (replaces the fixed --lapse-rate). "
                         "Tag '_freelapse'.")
@@ -331,7 +337,7 @@ def main():
                        fit_mapping_shrinkage=a.fit_mapping_shrinkage,
                        fit_mapping_offsets=(a.offset_basis if a.fit_mapping_offsets
                                             else False),
-                       fit_lapse=a.fit_lapse)
+                       fit_lapse=a.fit_lapse, offset_group_mean=a.offset_group_mean)
 
     model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -382,6 +388,8 @@ def main():
         tag += "_shrink"
     if a.fit_mapping_offsets:
         tag += "_offsets" if a.offset_basis == "cell" else "_splineoffsets"
+        if a.offset_group_mean:
+            tag += "_offsetmean"
     if a.fit_lapse:
         tag += "_freelapse"
     nc = out / f"efficient_coding_{tag}_trace.nc"
@@ -395,7 +403,7 @@ def main():
         fit_prior_weight=int(a.fit_prior_weight),
         fit_mapping_shrinkage=int(a.fit_mapping_shrinkage),
         fit_mapping_offsets=(a.offset_basis if a.fit_mapping_offsets else ""),
-        fit_lapse=int(a.fit_lapse))
+        fit_lapse=int(a.fit_lapse), offset_group_mean=int(a.offset_group_mean))
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
 
