@@ -50,6 +50,8 @@ FOURIER="${FOURIER:-}"
 PARAM="${PARAM:-kappa-sigma}"
 PEAK="${PEAK:-}"   # cardinal-peak SD in orientation degrees (empty = off)
 VALUE_KERNEL="${VALUE_KERNEL:-cell}"   # cell (erf, default) | point (pre-2026-10-15)
+# SHRINK=1 fits the per-subject shrinkage of the internal mapping toward a line.
+SHRINK="${SHRINK:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -114,4 +116,5 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     --param "$PARAM" \
     --value-kernel "$VALUE_KERNEL" \
     ${PEAK:+--cardinal-peak "$PEAK"} \
+    ${SHRINK:+--fit-mapping-shrinkage} \
     --out-dir "$OUTDIR"

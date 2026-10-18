@@ -14,7 +14,8 @@ pointwise log-likelihood on ``--n-loo`` posterior draws. Writes, into --out-dir:
   ppc_compare_loo_subj.tsv  ELPD per subject per fit (sum of pointwise elpd_loo)
 
 Flags after the colon: ``prior_weight`` (fit had --fit-prior-weight), ``trunc``
-(--cardinal-truncation), ``noseam``, ``fourierK``.
+(--cardinal-truncation), ``noseam``, ``fourierK``, ``shrink``
+(--fit-mapping-shrinkage).
 
     python -m abstract_values.cogmodels.compare_ppc \\
         --paradigm-tsv notes/data/efficient_coding_paradigm_n35.tsv \\
@@ -49,8 +50,10 @@ def parse_fit(s):
     K = next((int(f[7:]) for f in flags if f.startswith("fourier")), 0)
     kw = dict(model_name="categorical" if "categorical" in Path(path).name else "sequential",
               cardinal_truncation="trunc" in flags, fit_prior_weight="prior_weight" in flags,
-              no_seam_crossing="noseam" in flags, prior_fourier_order=K, value_kernel="cell")
+              no_seam_crossing="noseam" in flags, prior_fourier_order=K, value_kernel="cell",
+              fit_mapping_shrinkage="shrink" in flags)
     params = (["kappa_r", "sigma_rep"] + (["prior_weight"] if "prior_weight" in flags else [])
+              + (["mapping_shrinkage"] if "shrink" in flags else [])
               + [f"prior_{c}{k}" for k in range(1, K + 1) for c in "ab"])
     return label, path, kw, params
 
