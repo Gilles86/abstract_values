@@ -1,0 +1,141 @@
+subject	elpd	max_k	fit
+1	-749.6648269205513	0.6660867288906659	Fixed prior
+2	-1007.4554778050456	inf	Fixed prior
+3	-956.3251882993125	inf	Fixed prior
+4	-696.9271347382833	8.859734750502447	Fixed prior
+5	-827.0852164260893	inf	Fixed prior
+6	-761.7981634700567	inf	Fixed prior
+7	-1274.5400408046992	inf	Fixed prior
+8	-1044.0348622767594	inf	Fixed prior
+9	-975.5824082526863	inf	Fixed prior
+10	-1071.1509774541225	inf	Fixed prior
+11	-884.2359453411267	inf	Fixed prior
+12	-677.6382783735288	9.470004580188045	Fixed prior
+13	-813.4622110279709	inf	Fixed prior
+14	-729.0705157873349	inf	Fixed prior
+15	-819.0175182205849	inf	Fixed prior
+16	-1041.7804703271229	inf	Fixed prior
+17	-1082.4029669698043	inf	Fixed prior
+18	-965.3271400639611	inf	Fixed prior
+19	-801.502078100132	inf	Fixed prior
+20	-632.4672001975986	0.8991583935403971	Fixed prior
+21	-1116.682149788688	inf	Fixed prior
+22	-985.194763304817	inf	Fixed prior
+23	-985.1512786079043	inf	Fixed prior
+24	-794.4584355710355	inf	Fixed prior
+25	-1143.4836873039053	inf	Fixed prior
+26	-877.3007254419659	inf	Fixed prior
+27	-576.5934851247813	inf	Fixed prior
+28	-884.5284376667845	inf	Fixed prior
+29	-599.4582432871845	10.00704577222735	Fixed prior
+30	-834.4032227348217	inf	Fixed prior
+31	-974.8117208310124	inf	Fixed prior
+32	-782.9300415444727	inf	Fixed prior
+33	-865.687776991802	inf	Fixed prior
+34	-707.079315353395	inf	Fixed prior
+35	-910.7847307146346	inf	Fixed prior
+1	-750.3229732891195	1.2202595066310853	Free prior steepness
+2	-1003.5803336365998	inf	Free prior steepness
+3	-944.2438163366947	inf	Free prior steepness
+4	-676.5970038989715	10.1004610930444	Free prior steepness
+5	-825.8040554149359	inf	Free prior steepness
+6	-761.6509645371661	inf	Free prior steepness
+7	-1272.869246612771	inf	Free prior steepness
+8	-1031.901031927622	inf	Free prior steepness
+9	-973.8885141985105	inf	Free prior steepness
+10	-1067.1684461046514	inf	Free prior steepness
+11	-884.3546803587809	inf	Free prior steepness
+12	-678.7493092117543	8.208842168440336	Free prior steepness
+13	-803.774604294412	inf	Free prior steepness
+14	-730.4501085925092	inf	Free prior steepness
+15	-816.6217010029674	inf	Free prior steepness
+16	-1041.4141180745987	inf	Free prior steepness
+17	-1077.2014909709299	inf	Free prior steepness
+18	-956.2471814269536	inf	Free prior steepness
+19	-802.501216017515	inf	Free prior steepness
+20	-629.5608418002831	0.6194958445607905	Free prior steepness
+21	-1109.2114514722925	inf	Free prior steepness
+22	-984.7109132360582	inf	Free prior steepness
+23	-980.9525147981564	inf	Free prior steepness
+24	-794.0732899126148	inf	Free prior steepness
+25	-1143.6411443288262	inf	Free prior steepness
+26	-877.295616955963	inf	Free prior steepness
+27	-578.9594433699602	inf	Free prior steepness
+28	-881.9651640567339	inf	Free prior steepness
+29	-594.7021006464644	8.942758393791127	Free prior steepness
+30	-833.2346635377772	inf	Free prior steepness
+31	-974.8739443612058	inf	Free prior steepness
+32	-782.2195561581508	inf	Free prior steepness
+33	-864.5739635264543	inf	Free prior steepness
+34	-707.1666004957794	inf	Free prior steepness
+35	-909.9474220134937	inf	Free prior steepness
+1	-734.5179305885263	2.0129331952533507	Mapping shrinkage
+2	-976.2126989609034	inf	Mapping shrinkage
+3	-956.78705441107	inf	Mapping shrinkage
+4	-696.0129104770541	2.412861725781559	Mapping shrinkage
+5	-811.838306180725	inf	Mapping shrinkage
+6	-740.8088281863819	inf	Mapping shrinkage
+7	-1266.996284793082	inf	Mapping shrinkage
+8	-1020.9683423827872	inf	Mapping shrinkage
+9	-976.4515383249178	inf	Mapping shrinkage
+10	-1072.0889596498453	inf	Mapping shrinkage
+11	-853.1895810835213	inf	Mapping shrinkage
+12	-673.6309672864584	2.878741437760043	Mapping shrinkage
+13	-784.3685676767412	inf	Mapping shrinkage
+14	-716.8477424013031	inf	Mapping shrinkage
+15	-818.2206547877014	inf	Mapping shrinkage
+16	-1042.0311088317815	inf	Mapping shrinkage
+17	-1082.5877541588302	inf	Mapping shrinkage
+18	-958.0904601441251	inf	Mapping shrinkage
+19	-802.450173128832	inf	Mapping shrinkage
+20	-628.8717540068184	5.143300201573345	Mapping shrinkage
+21	-1117.7615705883993	inf	Mapping shrinkage
+22	-970.3866488709386	inf	Mapping shrinkage
+23	-985.821771367817	inf	Mapping shrinkage
+24	-779.2291253721739	inf	Mapping shrinkage
+25	-1142.6748196214164	inf	Mapping shrinkage
+26	-867.0761126692536	inf	Mapping shrinkage
+27	-575.9053377087714	inf	Mapping shrinkage
+28	-882.970472280748	inf	Mapping shrinkage
+29	-599.7149255787299	6.929221857370547	Mapping shrinkage
+30	-835.4730455012532	inf	Mapping shrinkage
+31	-972.6100284861377	inf	Mapping shrinkage
+32	-767.8577890616488	inf	Mapping shrinkage
+33	-866.294347477774	inf	Mapping shrinkage
+34	-676.6346699669404	inf	Mapping shrinkage
+35	-849.570838000468	inf	Mapping shrinkage
+1	-734.5821254686548	0.7203583465772349	Free prior + shrinkage
+2	-968.5778811179542	inf	Free prior + shrinkage
+3	-943.6236322515807	inf	Free prior + shrinkage
+4	-676.4656459042271	5.648617472066975	Free prior + shrinkage
+5	-812.1864596640718	inf	Free prior + shrinkage
+6	-741.2089016842594	inf	Free prior + shrinkage
+7	-1263.9070202157188	inf	Free prior + shrinkage
+8	-1012.1271477175617	inf	Free prior + shrinkage
+9	-974.7325641396561	inf	Free prior + shrinkage
+10	-1068.2453377016993	inf	Free prior + shrinkage
+11	-851.2724923776564	inf	Free prior + shrinkage
+12	-675.0617244179095	2.119934498010333	Free prior + shrinkage
+13	-769.7752508850946	inf	Free prior + shrinkage
+14	-717.4247632366207	inf	Free prior + shrinkage
+15	-820.7225583013314	inf	Free prior + shrinkage
+16	-1042.0015376616154	inf	Free prior + shrinkage
+17	-1077.7321178509414	inf	Free prior + shrinkage
+18	-940.2320668896182	inf	Free prior + shrinkage
+19	-802.6993364509102	inf	Free prior + shrinkage
+20	-625.1349415259574	6.491697306168453	Free prior + shrinkage
+21	-1110.2781661096699	inf	Free prior + shrinkage
+22	-967.3733320922731	inf	Free prior + shrinkage
+23	-981.4728398993215	inf	Free prior + shrinkage
+24	-779.7087803634874	inf	Free prior + shrinkage
+25	-1143.174867292071	inf	Free prior + shrinkage
+26	-867.2095176528184	inf	Free prior + shrinkage
+27	-578.0621374590431	inf	Free prior + shrinkage
+28	-882.6893901013402	inf	Free prior + shrinkage
+29	-595.1301879234612	5.311733393788903	Free prior + shrinkage
+30	-834.5510933130092	inf	Free prior + shrinkage
+31	-970.8478764779596	inf	Free prior + shrinkage
+32	-766.2359587747991	inf	Free prior + shrinkage
+33	-865.0898286199991	inf	Free prior + shrinkage
+34	-677.1929828535189	inf	Free prior + shrinkage
+35	-848.3853578954676	inf	Free prior + shrinkage
