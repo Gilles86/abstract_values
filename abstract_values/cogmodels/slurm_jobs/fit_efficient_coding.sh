@@ -55,6 +55,7 @@ SHRINK="${SHRINK:-}"
 # OFFSETS=1: per subject x mapping x stimulus offsets on the internal mapping.
 # FREE_LAPSE=1: per-subject lapse rate instead of the fixed LAPSE.
 OFFSETS="${OFFSETS:-}"
+OFFSET_BASIS="${OFFSET_BASIS:-cell}"   # cell | spline (with OFFSETS=1)
 FREE_LAPSE="${FREE_LAPSE:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
@@ -121,6 +122,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     --value-kernel "$VALUE_KERNEL" \
     ${PEAK:+--cardinal-peak "$PEAK"} \
     ${SHRINK:+--fit-mapping-shrinkage} \
-    ${OFFSETS:+--fit-mapping-offsets} \
+    ${OFFSETS:+--fit-mapping-offsets --offset-basis "$OFFSET_BASIS"} \
     ${FREE_LAPSE:+--fit-lapse} \
     --out-dir "$OUTDIR"

@@ -294,6 +294,11 @@ def main():
                    help="Free offset (CHF) per subject x mapping x stimulus orientation on "
                         "the internal mapping -- a learned look-up table with persistent "
                         "errors; non-centred, tau ~ HalfNormal(0.5). Tag '_offsets'.")
+    p.add_argument("--offset-basis", default="cell", choices=["cell", "spline"],
+                   help="With --fit-mapping-offsets: one offset per stimulus ('cell') or "
+                        "a smooth cubic B-spline over orientation, knots every 22.5 deg "
+                        "('spline', 11 coefficients per subject x mapping; tag "
+                        "'_splineoffsets').")
     p.add_argument("--fit-lapse", action="store_true",
                    help="Free per-subject lapse rate (replaces the fixed --lapse-rate). "
                         "Tag '_freelapse'.")
@@ -324,7 +329,8 @@ def main():
                        param=a.param, value_kernel=a.value_kernel,
                        cardinal_peak_width=a.cardinal_peak,
                        fit_mapping_shrinkage=a.fit_mapping_shrinkage,
-                       fit_mapping_offsets=a.fit_mapping_offsets,
+                       fit_mapping_offsets=(a.offset_basis if a.fit_mapping_offsets
+                                            else False),
                        fit_lapse=a.fit_lapse)
 
     model.group_sd_dist = a.group_sd_dist
@@ -375,7 +381,7 @@ def main():
     if a.fit_mapping_shrinkage:
         tag += "_shrink"
     if a.fit_mapping_offsets:
-        tag += "_offsets"
+        tag += "_offsets" if a.offset_basis == "cell" else "_splineoffsets"
     if a.fit_lapse:
         tag += "_freelapse"
     nc = out / f"efficient_coding_{tag}_trace.nc"
@@ -388,7 +394,8 @@ def main():
         fit_motor_noise=int(a.fit_motor_noise), group_sd_dist=a.group_sd_dist,
         fit_prior_weight=int(a.fit_prior_weight),
         fit_mapping_shrinkage=int(a.fit_mapping_shrinkage),
-        fit_mapping_offsets=int(a.fit_mapping_offsets), fit_lapse=int(a.fit_lapse))
+        fit_mapping_offsets=(a.offset_basis if a.fit_mapping_offsets else ""),
+        fit_lapse=int(a.fit_lapse))
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
 
