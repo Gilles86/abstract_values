@@ -24,7 +24,7 @@ import arviz as az
 import numpy as np
 import pandas as pd
 
-from abstract_values.cogmodels.compare_ppc import GRID, LAPSE, parse_fit
+from abstract_values.cogmodels.compare_ppc import GRID, parse_fit
 from abstract_values.cogmodels.fit_efficient_coding import make_model
 from abstract_values.cogmodels.ppc_efficient_coding import (load_paradigm, run_ppc,
                                                            subset_paradigm_to_trace)
@@ -72,7 +72,7 @@ def main():
         idata = az.from_netcdf(path)
         par = subset_paradigm_to_trace(load_paradigm(a.paradigm_tsv), idata)
         kw = dict(kw)
-        model = make_model(par, kw.pop("model_name"), GRID, lapse_rate=LAPSE,
+        model = make_model(par, kw.pop("model_name"), GRID,
                            perceptual_prior="long_term", **kw)
         if not obs_done:
             h, c = summaries(par.reset_index())

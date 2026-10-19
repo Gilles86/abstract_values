@@ -17,7 +17,7 @@ Flags after the colon: ``prior_weight`` (fit had --fit-prior-weight), ``trunc``
 (--cardinal-truncation), ``noseam``, ``fourierK``, ``shrink``
 (--fit-mapping-shrinkage), ``offsets`` / ``splineoffsets`` (--fit-mapping-offsets, cell or spline basis), ``freelapse``
 (--fit-lapse), ``motor`` (--fit-motor-noise), ``ptail`` / ``mtail``
-(--perceptual-tail / --motor-tail).
+(--perceptual-tail / --motor-tail), ``nolapse`` (--lapse-rate 0).
 
     python -m abstract_values.cogmodels.compare_ppc \\
         --paradigm-tsv notes/data/efficient_coding_paradigm_n35.tsv \\
@@ -58,7 +58,8 @@ def parse_fit(s):
                                    else "cell" if "offsets" in flags else False),
               fit_lapse="freelapse" in flags, offset_group_mean="offsetmean" in flags,
               fit_motor_noise="motor" in flags, perceptual_tail="ptail" in flags,
-              motor_tail="mtail" in flags)
+              motor_tail="mtail" in flags,
+              lapse_rate=0.0 if "nolapse" in flags else LAPSE)
     params = (["kappa_r", "sigma_rep"] + (["prior_weight"] if "prior_weight" in flags else [])
               + (["mapping_shrinkage"] if "shrink" in flags else [])
               + (["lapse"] if "freelapse" in flags else [])
@@ -100,7 +101,7 @@ def main():
         idata = az.from_netcdf(path)
         par = subset_paradigm_to_trace(load_paradigm(a.paradigm_tsv), idata)
         kw = dict(kw)
-        model = make_model(par, kw.pop("model_name"), GRID, lapse_rate=LAPSE,
+        model = make_model(par, kw.pop("model_name"), GRID,
                            perceptual_prior="long_term", **kw)
         obs = per_subject(par.reset_index())
         g = group(obs).reset_index().assign(fit=label, draw=-1)

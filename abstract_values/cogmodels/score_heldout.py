@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import logsumexp
 
-from abstract_values.cogmodels.compare_ppc import GRID, LAPSE, parse_fit
+from abstract_values.cogmodels.compare_ppc import GRID, parse_fit
 from abstract_values.cogmodels.fit_efficient_coding import make_model
 from abstract_values.cogmodels.loo_efficient_coding import pointwise_loglik
 from abstract_values.cogmodels.ppc_efficient_coding import (load_paradigm,
@@ -78,7 +78,7 @@ def main():
         label, path, kw, params = parse_fit(spec)
         print(f"== {label}: {path}", flush=True)
         kw = dict(kw)
-        model = make_model(test, kw.pop("model_name"), GRID, lapse_rate=LAPSE,
+        model = make_model(test, kw.pop("model_name"), GRID,
                            perceptual_prior="long_term", **kw)
         model._setup_grids(test)
         idata = align_offsets(az.from_netcdf(path), model)
