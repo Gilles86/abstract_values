@@ -122,7 +122,9 @@ def build(subjects, nvoxels, noise, lam, smoothed):
 
     rows = []
     for s, beh_s in beh.groupby("subject", sort=True):
-        label = f"{int(s):02d}"
+        # The first two participants are sub-pil01/pil02 on the MRI side
+        # (same people as behavioural sub-01/02, see CLAUDE.md).
+        label = {1: "pil01", 2: "pil02"}.get(int(s), f"{int(s):02d}")
         merged = beh_s.set_index(["session", "run", "trial_nr"]).copy()
         any_brain = False
         for quantity, roi, tag, circular in DECODERS:
