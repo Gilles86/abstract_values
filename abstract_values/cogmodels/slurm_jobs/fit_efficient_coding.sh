@@ -58,6 +58,9 @@ OFFSETS="${OFFSETS:-}"
 OFFSET_BASIS="${OFFSET_BASIS:-cell}"   # cell | spline (with OFFSETS=1)
 OFFSET_MEAN="${OFFSET_MEAN:-}"         # 1: free population-mean offset curve per mapping
 FREE_LAPSE="${FREE_LAPSE:-}"
+# PTAIL=1: heavy-tailed perceptual noise; MTAIL=1 (with MOTOR=1): heavy-tailed motor noise.
+PTAIL="${PTAIL:-}"
+MTAIL="${MTAIL:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -126,4 +129,6 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     ${OFFSETS:+--fit-mapping-offsets --offset-basis "$OFFSET_BASIS"} \
     ${OFFSET_MEAN:+--offset-group-mean} \
     ${FREE_LAPSE:+--fit-lapse} \
+    ${PTAIL:+--perceptual-tail} \
+    ${MTAIL:+--motor-tail} \
     --out-dir "$OUTDIR"

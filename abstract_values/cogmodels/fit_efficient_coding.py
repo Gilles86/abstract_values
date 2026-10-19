@@ -93,7 +93,7 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                cardinal_truncation=False, fit_motor_noise=False,
                param="kappa-sigma", value_kernel="cell", cardinal_peak_width=0.0,
                fit_mapping_shrinkage=False, fit_mapping_offsets=False, fit_lapse=False,
-               offset_group_mean=False):
+               offset_group_mean=False, perceptual_tail=False, motor_tail=False):
     if param != "kappa-sigma" and model_name not in ("sequential", "categorical"):
         raise ValueError(f"--param {param} needs a two-stage model, not {model_name}")
     if model_name == "perception":
@@ -110,7 +110,9 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                                         fit_mapping_shrinkage=fit_mapping_shrinkage,
                                         fit_mapping_offsets=fit_mapping_offsets,
                                         fit_lapse=fit_lapse,
-                                        offset_group_mean=offset_group_mean)
+                                        offset_group_mean=offset_group_mean,
+                                        perceptual_tail=perceptual_tail,
+                                        motor_tail=motor_tail)
     if model_name == "valuation":
         from bauer.efficient_coding import EfficientValuationModel
         return EfficientValuationModel(paradigm, grid_resolution=grid_resolution,
@@ -137,7 +139,8 @@ def make_model(paradigm, model_name, grid_resolution, lapse_rate=0.01,
                    cardinal_peak_width=cardinal_peak_width,
                    fit_mapping_shrinkage=fit_mapping_shrinkage,
                    fit_mapping_offsets=fit_mapping_offsets,
-                   fit_lapse=fit_lapse, offset_group_mean=offset_group_mean)
+                   fit_lapse=fit_lapse, offset_group_mean=offset_group_mean,
+                   perceptual_tail=perceptual_tail, motor_tail=motor_tail)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -152,7 +155,7 @@ def subject_parameters(idata, paradigm, model_name):
     for par in ("kappa_r", "sigma_rep", "total_noise", "perceptual_share",
                 "share_high_prob",
                 "sigma_motor", "prior_weight", "cardinal_peak", "mapping_shrinkage",
-                "lapse", *fourier):
+                "lapse", "perceptual_tail", "motor_tail", *fourier):
         cands = [v for v in post.data_vars if v == par or v.startswith(f"{par}_subject")]
         if not cands:
             continue
@@ -308,6 +311,12 @@ def main():
     p.add_argument("--fit-lapse", action="store_true",
                    help="Free per-subject lapse rate (replaces the fixed --lapse-rate). "
                         "Tag '_freelapse'.")
+    p.add_argument("--perceptual-tail", action="store_true",
+                   help="Heavy-tailed perceptual noise (per-subject tail weight; the "
+                        "von Mises is the limit tail -> 0). Tag '_ptail'.")
+    p.add_argument("--motor-tail", action="store_true",
+                   help="With --fit-motor-noise: heavy-tailed (Student-t-like) motor "
+                        "noise. Tag '_mtail'.")
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
@@ -337,7 +346,8 @@ def main():
                        fit_mapping_shrinkage=a.fit_mapping_shrinkage,
                        fit_mapping_offsets=(a.offset_basis if a.fit_mapping_offsets
                                             else False),
-                       fit_lapse=a.fit_lapse, offset_group_mean=a.offset_group_mean)
+                       fit_lapse=a.fit_lapse, offset_group_mean=a.offset_group_mean,
+                       perceptual_tail=a.perceptual_tail, motor_tail=a.motor_tail)
 
     model.group_sd_dist = a.group_sd_dist
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
@@ -392,6 +402,10 @@ def main():
             tag += "_offsetmean"
     if a.fit_lapse:
         tag += "_freelapse"
+    if a.perceptual_tail:
+        tag += "_ptail"
+    if a.motor_tail:
+        tag += "_mtail"
     nc = out / f"efficient_coding_{tag}_trace.nc"
     # Stamp the options that change the posterior, so a later rebuild of the
     # model reads them back instead of today's defaults.
@@ -403,7 +417,8 @@ def main():
         fit_prior_weight=int(a.fit_prior_weight),
         fit_mapping_shrinkage=int(a.fit_mapping_shrinkage),
         fit_mapping_offsets=(a.offset_basis if a.fit_mapping_offsets else ""),
-        fit_lapse=int(a.fit_lapse), offset_group_mean=int(a.offset_group_mean))
+        fit_lapse=int(a.fit_lapse), offset_group_mean=int(a.offset_group_mean),
+        perceptual_tail=int(a.perceptual_tail), motor_tail=int(a.motor_tail))
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
 
