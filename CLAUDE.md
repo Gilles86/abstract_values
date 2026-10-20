@@ -116,7 +116,7 @@ Scripts in `abstract_values/prepare/cluster_preproc/`:
 sbatch --array=1-30 fmriprep.sh
 
 # submit a pilot by name
-sbatch --export=PARTICIPANT_LABEL=pil02 fmriprep.sh
+sbatch --export=ALL,PARTICIPANT_LABEL=pil02 fmriprep.sh
 ```
 
 Sync fmriprep results back to local (T1w-space only):
@@ -162,10 +162,10 @@ Resources: 8 CPUs, 32 GB RAM, 2 h wall time.
 
 ```bash
 # standard model, single subject
-sbatch --export=PARTICIPANT_LABEL=pil01 fit_aprf.sh
+sbatch --export=ALL,PARTICIPANT_LABEL=pil01 fit_aprf.sh
 
 # session-shift model
-sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=session-shift fit_aprf.sh
+sbatch --export=ALL,PARTICIPANT_LABEL=pil01,MODEL=session-shift fit_aprf.sh
 
 # study participants as array
 sbatch --array=1-30 fit_aprf.sh
@@ -322,8 +322,11 @@ debugging conversation, so load them explicitly):
 - **scientific-figures** — before writing any plotting code, including a PPC
   panel. `notes/figures/*.pdf` is the house output format.
 - **sciencecluster** — before submitting any SLURM job and before diagnosing a
-  held/failed/pending one. Submit with `--export=VAR=...` only, never
-  `--export=ALL` (that is what causes `user env retrieval failed requeued held`).
+  held/failed/pending one. Submit with `--export=ALL,VAR=...`, never a
+  bare `--export=VAR=...` list: without `ALL`, SLURM retrieves the login
+  environment on the compute node, and that retrieval timing out is what causes
+  `user env retrieval failed requeued held` (re-tested 2026-10-19; the earlier
+  "never ALL" rule here had it backwards).
 
 ## Cluster
 
