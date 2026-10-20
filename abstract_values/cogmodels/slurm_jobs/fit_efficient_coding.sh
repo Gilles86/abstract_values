@@ -61,6 +61,8 @@ FREE_LAPSE="${FREE_LAPSE:-}"
 # PTAIL=1: heavy-tailed perceptual noise; MTAIL=1 (with MOTOR=1): heavy-tailed motor noise.
 PTAIL="${PTAIL:-}"
 MTAIL="${MTAIL:-}"
+# VTAIL=1: heavy-tailed (variable-precision) value-representation noise.
+VTAIL="${VTAIL:-}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -131,4 +133,5 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     ${FREE_LAPSE:+--fit-lapse} \
     ${PTAIL:+--perceptual-tail} \
     ${MTAIL:+--motor-tail} \
+    ${VTAIL:+--value-tail} \
     --out-dir "$OUTDIR"

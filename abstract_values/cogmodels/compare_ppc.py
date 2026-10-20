@@ -17,7 +17,7 @@ Flags after the colon: ``prior_weight`` (fit had --fit-prior-weight), ``trunc``
 (--cardinal-truncation), ``noseam``, ``fourierK``, ``shrink``
 (--fit-mapping-shrinkage), ``offsets`` / ``splineoffsets`` (--fit-mapping-offsets, cell or spline basis), ``freelapse``
 (--fit-lapse), ``motor`` (--fit-motor-noise), ``ptail`` / ``mtail``
-(--perceptual-tail / --motor-tail), ``nolapse`` (--lapse-rate 0).
+(--perceptual-tail / --motor-tail), ``vtail`` (--value-tail), ``nolapse`` (--lapse-rate 0).
 
     python -m abstract_values.cogmodels.compare_ppc \\
         --paradigm-tsv notes/data/efficient_coding_paradigm_n35.tsv \\
@@ -58,7 +58,7 @@ def parse_fit(s):
                                    else "cell" if "offsets" in flags else False),
               fit_lapse="freelapse" in flags, offset_group_mean="offsetmean" in flags,
               fit_motor_noise="motor" in flags, perceptual_tail="ptail" in flags,
-              motor_tail="mtail" in flags,
+              motor_tail="mtail" in flags, value_tail="vtail" in flags,
               lapse_rate=0.0 if "nolapse" in flags else LAPSE)
     params = (["kappa_r", "sigma_rep"] + (["prior_weight"] if "prior_weight" in flags else [])
               + (["mapping_shrinkage"] if "shrink" in flags else [])
@@ -66,6 +66,7 @@ def parse_fit(s):
               + (["sigma_motor"] if "motor" in flags else [])
               + (["perceptual_tail"] if "ptail" in flags else [])
               + (["motor_tail"] if "mtail" in flags else [])
+              + (["value_tail"] if "vtail" in flags else [])
               + (["mapping_offset"] if ("offsets" in flags or "splineoffsets" in flags)
                  else [])
               + [f"prior_{c}{k}" for k in range(1, K + 1) for c in "ab"])
