@@ -93,9 +93,67 @@ class TotalShareMixin:
     and the LOO code see exactly the variables they always did -- they are just
     Deterministics now. Everything else (motor noise, prior weight, Fourier
     coefficients) is built as before.
+
+    Subject-level covariates
+    ------------------------
+    Set ``covariates`` (a DataFrame indexed by subject, z-scored columns) to
+    regress both subject-level parameters on them, on the untransformed scale:
+
+        logit(s_j)     = mu_s + X_j . beta_s + sd_s * offset_j
+        softplus^-1 T_j = mu_T + X_j . beta_T + sd_T * offset_j
+
+    ``perceptual_share_beta`` / ``total_noise_beta`` (dims ``covariate``) are
+    the coefficients; the group SDs are then residual SDs. Built for the test
+    of whether V1 orientation-code and IPS value-code strength identify the
+    perceptual/value noise split (prediction: beta_s < 0 for V1, > 0 for IPS).
     """
 
     parameterisation = 'total-share'
+    covariates = None
+    COVARIATE_BETA_SD = 1.0      # logit / softplus^-1 units per covariate SD
+
+    def _covariate_term(self, name):
+        """X @ beta for one parameter, or 0 without covariates."""
+        import pymc as pm
+        import pytensor.tensor as pt
+
+        if self.covariates is None:
+            return 0.0
+        model = pm.Model.get_context()
+        subs = list(model.coords['subject'])
+        X = self.covariates.loc[[int(s) for s in subs]]
+        if X.isna().any().any():
+            raise ValueError(f"covariates missing for subjects "
+                             f"{list(X.index[X.isna().any(axis=1)])}")
+        if 'covariate' not in model.coords:
+            model.add_coord('covariate', list(X.columns))
+        beta = pm.Normal(f'{name}_beta', 0.0, self.COVARIATE_BETA_SD, dims=('covariate',))
+        return pt.dot(pt.as_tensor(X.to_numpy(float)), beta)
+
+    def _hierarchical_with_covariates(self, name, mu_intercept, sigma_intercept,
+                                      cauchy_sigma_intercept, transform):
+        """bauer's non-centred hierarchical node plus the covariate term."""
+        import pymc as pm
+        import pytensor.tensor as pt
+        from bauer.core import _group_sd_rv
+        from bauer.utils.math import logistic
+
+        group_mu = pm.Normal(f"{name}_mu_untransformed", mu=mu_intercept,
+                             sigma=sigma_intercept)
+        link = {'softplus': pt.softplus, 'logistic': logistic}[transform]
+        pm.Deterministic(f'{name}_mu', link(group_mu))
+        group_sd = _group_sd_rv(f'{name}_sd', cauchy_sigma_intercept,
+                                getattr(self, 'group_sd_dist', 'halfnormal'))
+        offset = pm.Normal(f'{name}_offset', mu=0, sigma=1, dims=('subject',))
+        z = pm.Deterministic(f'{name}_untransformed',
+                             group_mu + self._covariate_term(name) + group_sd * offset,
+                             dims=('subject',))
+        return pm.Deterministic(name, link(z), dims=('subject',))
+
+    def _node(self, name, prior):
+        if self.covariates is None:
+            return self.build_hierarchical_nodes(name, **prior)
+        return self._hierarchical_with_covariates(name, **prior)
 
     def build_priors(self, hierarchical=True, flat_prior=False):
         import pymc as pm
@@ -114,7 +172,7 @@ class TotalShareMixin:
         # must be 1D sequences of concrete values of integer type").
         n_sub = self._n_subjects(pm.Model.get_context())
         total = pt.specify_shape(
-            self.build_hierarchical_nodes('total_noise', **TOTAL_NOISE_PRIOR), (n_sub,))
+            self._node('total_noise', TOTAL_NOISE_PRIOR), (n_sub,))
         share = pt.specify_shape(self._build_share(n_sub), (n_sub,))
         perc = total * pt.sqrt(share)
         kappa_raw = (PERC_SCALE / perc) ** 2
@@ -126,7 +184,7 @@ class TotalShareMixin:
 
     def _build_share(self, n_sub):
         """Per-subject perceptual share: logit-normal, hierarchical."""
-        return self.build_hierarchical_nodes('perceptual_share', **SHARE_PRIOR)
+        return self._node('perceptual_share', SHARE_PRIOR)
 
 
 # ── two-component population for the share ───────────────────────────────────

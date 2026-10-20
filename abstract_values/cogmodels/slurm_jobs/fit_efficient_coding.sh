@@ -63,6 +63,10 @@ PTAIL="${PTAIL:-}"
 MTAIL="${MTAIL:-}"
 # VTAIL=1: heavy-tailed (variable-precision) value-representation noise.
 VTAIL="${VTAIL:-}"
+# COVARIATES=<tsv>: subject-level covariates on share and total noise (total-share only);
+# COV_COLS="v1_ori ips_val fd" picks the columns.
+COVARIATES="${COVARIATES:-}"
+COV_COLS="${COV_COLS:-v1_ori ips_val fd}"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -134,4 +138,5 @@ PYTHONUNBUFFERED=1 $HOME/data/conda/envs/bauer_cuda/bin/python -u \
     ${PTAIL:+--perceptual-tail} \
     ${MTAIL:+--motor-tail} \
     ${VTAIL:+--value-tail} \
+    ${COVARIATES:+--covariates "$COVARIATES" --covariate-cols $COV_COLS} \
     --out-dir "$OUTDIR"

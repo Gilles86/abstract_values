@@ -325,6 +325,12 @@ def main():
                    help="Two-stage models: heavy-tailed (variable-precision) noise on the "
                         "value representation (per-subject tail weight; Gaussian is the "
                         "limit tail -> 0). Tag '_vtail'.")
+    p.add_argument("--covariates", default=None,
+                   help="--param total-share only: TSV of z-scored subject-level "
+                        "covariates (index 'subject'), regressed into the logit share "
+                        "and the softplus^-1 total noise (cogmodels/reparam.py). "
+                        "Tag '_cov-<cols>'.")
+    p.add_argument("--covariate-cols", nargs="+", default=["v1_ori", "ips_val", "fd"])
     p.add_argument("--out-dir", default="derivatives/cogmodels")
     a = p.parse_args()
 
@@ -359,6 +365,13 @@ def main():
                        value_tail=a.value_tail)
 
     model.group_sd_dist = a.group_sd_dist
+    if a.covariates:
+        if not a.param.startswith("total-share"):
+            raise SystemExit("--covariates needs --param total-share")
+        cov = pd.read_csv(a.covariates, sep="\t", index_col="subject")[a.covariate_cols]
+        model.covariates = cov
+        print(f"Covariates on perceptual_share and total_noise: {a.covariate_cols} "
+              f"({len(cov)} subjects in {a.covariates})")
     print(f"\nBuilding {a.model} model (grid={a.grid_resolution}, "
           f"hierarchical={not a.no_hierarchical}, lapse={a.lapse_rate}, "
           f"group_sd={a.group_sd_dist})…")
@@ -417,6 +430,8 @@ def main():
         tag += "_mtail"
     if a.value_tail:
         tag += "_vtail"
+    if a.covariates:
+        tag += "_cov-" + "-".join(c.replace("_", "") for c in a.covariate_cols)
     nc = out / f"efficient_coding_{tag}_trace.nc"
     # Stamp the options that change the posterior, so a later rebuild of the
     # model reads them back instead of today's defaults.
@@ -430,9 +445,14 @@ def main():
         fit_mapping_offsets=(a.offset_basis if a.fit_mapping_offsets else ""),
         fit_lapse=int(a.fit_lapse), offset_group_mean=int(a.offset_group_mean),
         perceptual_tail=int(a.perceptual_tail), motor_tail=int(a.motor_tail),
-        value_tail=int(a.value_tail))
+        value_tail=int(a.value_tail),
+        covariates=(a.covariates or ""), covariate_cols=",".join(a.covariate_cols))
     idata.to_netcdf(str(nc))
     print(f"\nWrote {nc}")
+    if a.covariates:
+        print(az.summary(idata, var_names=["perceptual_share_beta", "total_noise_beta",
+                                           "perceptual_share_sd", "total_noise_sd"],
+                         hdi_prob=0.95).to_string())
 
     summ = az.summary(idata, var_names=["~.*_untransformed", "~.*_offset$", "~mapping_offset_z"],
                       filter_vars="regex")
