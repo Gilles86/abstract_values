@@ -2,7 +2,13 @@
 
 Script: `/Users/gdehol/git/abstract_values/abstract_values/simulations/v1_ips_mapping.py`
 (run from the repo root with `~/mambaforge/envs/abstract_values/bin/python -m abstract_values.simulations.v1_ips_mapping`, ~25 s, numpy/scipy only).
-Figure: `/Users/gdehol/git/abstract_values/notes/figures/sim_v1_ips_mapping.pdf` (+ `.png`).
+Figures:
+- Story figure (2 pages): `/Users/gdehol/git/abstract_values/notes/figures/sim_v1_ips_mapping.pdf`
+  (+ `_p1.png`, `_p2.png`). Page 1: the mappings, the network wiring in each session,
+  how one IPS unit's tuning shifts, and the efficient-coding consequence. Page 2: the
+  orientation-wired confound and the preferred-value test.
+- Quantitative panels: `/Users/gdehol/git/abstract_values/notes/figures/sim_v1_ips_mapping_details.pdf`
+  (+ `.png`). The panel letters below refer to this figure.
 
 ## Question
 

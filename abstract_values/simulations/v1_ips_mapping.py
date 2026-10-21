@@ -25,7 +25,8 @@ IPS rate h_j = b + g * sum_i W_ij r_i / N_V1 with one gain g per model shared by
 both mappings; independent Poisson noise on IPS.
 
 Outputs (repo-relative):
-  notes/figures/sim_v1_ips_mapping.pdf / .png
+  notes/figures/sim_v1_ips_mapping.pdf (+ _p1/_p2.png): two-page story figure
+  notes/figures/sim_v1_ips_mapping_details.pdf / .png: all quantitative panels
   stdout: all numbers quoted in notes/sim_v1_ips_mapping.md
 
 Run from the repo root:
@@ -595,6 +596,356 @@ def plot(res, out):
     print(f'\nwrote {out} and {out.with_suffix(".png")}')
 
 
+def wiring_panel(ax, net, mapping, model='value', hi_theta=37.5, s=2.0):
+    """Schematic of the V1 -> IPS wiring. V1 units (oriented bars, top row)
+    at the 23 stimulus orientations; line opacity = weight; one V1 unit
+    highlighted. Value-wired: IPS units (dots, bottom row) sit at their fixed
+    preferred value and the lines follow the session's mapping. Orientation-
+    wired: IPS units sit under the V1 units they pool, never rewired, and
+    their value is read off through each session's mapping (labels below)."""
+    f, _ = mapping_fn(mapping)
+    col = COLORS[mapping] if model == 'value' else MODEL_COL['orient']
+    if model == 'value':
+        ips_v = np.arange(2, 42.1, 2.0)
+        ips_x = (ips_v - 2) / 40
+    else:
+        ips_t = STIM_ORI
+        ips_x = ips_t / 180
+        ips_v = mapping_fn('cdf')[0](ips_t)
+    for th in STIM_ORI:
+        if model == 'value':
+            w = np.exp(-(f(th) - ips_v) ** 2 / (2 * s ** 2))
+        else:   # local pooling; drawn without the 0/180 wrap-around
+            w = vm_axial(th - ips_t, 12.0) * (np.abs(th - ips_t) < 45)
+        hi = np.isclose(th, hi_theta)
+        for xj, wj in zip(ips_x, w):
+            if wj < 0.05:
+                continue
+            ax.plot([th / 180, xj], [1, 0], color=col if hi else '0.35',
+                    lw=1.4 if hi else 0.5, alpha=min(1, wj) * (1 if hi else 0.45),
+                    solid_capstyle='round', zorder=3 if hi else 1)
+    for th in STIM_ORI:   # gabor-like bar
+        ax.plot(th / 180, 1.0, marker=(2, 0, th), ms=6, mew=1.1,
+                color=col if np.isclose(th, hi_theta) else '0.15', zorder=4)
+    for th in (0, 45, 90, 135, 180):
+        ax.text(th / 180, 1.13, f'{th}°', ha='center', va='bottom', fontsize=6,
+                color='0.35')
+    ax.text(1.0, 1.27, 'Preferred orientation', ha='right', va='bottom',
+            fontsize=6, color='0.35')
+    ax.text(-0.04, 1.0, 'V1', ha='right', va='center', fontsize=7, fontweight='bold')
+    ax.text(-0.04, 0.0, 'IPS', ha='right', va='center', fontsize=7,
+            fontweight='bold')
+    if model == 'value':
+        ax.scatter(ips_x, np.zeros_like(ips_x), s=14, c=ips_v, cmap='YlGnBu',
+                   vmin=-8, vmax=46, edgecolor='0.15', lw=0.4, zorder=4)
+        for v in (2, 12, 22, 32, 42):
+            ax.text((v - 2) / 40, -0.13, f'{v}', ha='center', va='top',
+                    fontsize=6, color='0.35')
+        ax.text(1.0, -0.29, 'Preferred value (CHF)', ha='right', va='top',
+                fontsize=6, color='0.35')
+        ax.set(xlim=(-0.03, 1.03), ylim=(-0.32, 1.3))
+    else:
+        ax.scatter(ips_x, np.zeros_like(ips_x), s=14, c=MODEL_COL['orient'],
+                   edgecolor='0.15', lw=0.4, zorder=4)
+        show = np.arange(1, len(ips_t), 4)
+        for row, m in enumerate(MAPPINGS):
+            fv = mapping_fn(m)[0](ips_t)
+            for k in show:
+                ax.text(ips_x[k], -0.13 - 0.13 * row, f'{fv[k]:.0f}', ha='center',
+                        va='top', fontsize=6, color=COLORS[m])
+            ax.text(-0.04, -0.13 - 0.13 * row, f'{NAMES[m]} (CHF)',
+                    ha='right', va='top', fontsize=6, color=COLORS[m])
+        ax.text(0.5, -0.45, 'Each IPS unit\'s preferred value is whatever its '
+                'orientation is worth in the session', ha='center', va='top',
+                fontsize=6.5, color='0.3')
+        ax.set(xlim=(-0.03, 1.03), ylim=(-0.55, 1.3))
+    ax.axis('off')
+
+
+def plot_narrative(res, out):
+    """Two-page story figure: what the network is, how rewiring shifts it,
+    what that buys (efficient coding), and why orientation coding is the
+    confound."""
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+    style()
+    net = res['net']
+    vt = [2, 12, 22, 32, 42]
+    hi_theta = 37.5
+    demo_v = (16.0, 26.0)
+
+    def letter(a, s, x=-0.16):
+        a.text(x, 1.04, s, transform=a.transAxes, fontsize=8, fontweight='bold',
+               va='bottom', ha='right')
+
+    def headline(fig, spec, n, text, dy=0.025):
+        y = spec.get_position(fig).y1 + dy
+        fig.text(0.01, y, f'{n}  {text}', fontsize=8.5, fontweight='bold',
+                 color='0.1', va='bottom')
+
+    def despine(a):
+        for sp in ('left', 'bottom'):
+            a.spines[sp].set_position(('outward', 3))
+
+    figs = []
+    # ---------------- page 1: the network and how it shifts -----------------
+    fig = plt.figure(figsize=(7.25, 9.4))
+    gs = fig.add_gridspec(4, 2, height_ratios=[1, 1.15, 1, 1], hspace=0.75,
+                          wspace=0.32, left=0.08, right=0.98, top=0.95,
+                          bottom=0.05)
+
+    headline(fig, gs[0, :], '1', 'The same orientations are worth different '
+             'amounts in the two sessions')
+    a = fig.add_subplot(gs[0, 0])
+    for m in MAPPINGS:
+        f, _ = mapping_fn(m)
+        a.plot(THETA, f(THETA), color=COLORS[m], lw=1.2)
+        a.plot(STIM_ORI, f(STIM_ORI), 'o', ms=2.4, color=COLORS[m])
+    a.text(150, 27, 'Cdf session', color=COLORS['cdf'], ha='center')
+    a.text(122, 18, 'Inverse-cdf\nsession', color=COLORS['inverse_cdf'],
+           ha='left', va='top')
+    for m in MAPPINGS:
+        v = float(mapping_fn(m)[0](hi_theta))
+        a.plot([hi_theta, hi_theta, 0], [2, v, v], color=COLORS[m], lw=0.6,
+               ls=(0, (2, 1.5)), zorder=0)
+    a.text(hi_theta + 3, 3.2, f'{hi_theta:g}°', fontsize=6.5, color='0.3')
+    a.set(xticks=[0, 45, 90, 135, 180], yticks=vt, xlim=(0, 180), ylim=(2, 42),
+          xlabel='Orientation (deg)', ylabel='Value (CHF)')
+    despine(a)
+    letter(a, 'a')
+
+    a = fig.add_subplot(gs[0, 1])
+    for m in MAPPINGS:
+        f, _ = mapping_fn(m)
+        a.fill_between(f(THETA), value_density(m), color=COLORS[m], alpha=.15,
+                       lw=0)
+        a.plot(f(THETA), value_density(m), color=COLORS[m], lw=1.2)
+    a.annotate('Values cluster at\n12 and 32 CHF', xy=(13.2, 0.07),
+               xytext=(15.5, 0.13), color=COLORS['cdf'], fontsize=6.5,
+               arrowprops=dict(arrowstyle='-|>', color=COLORS['cdf'], lw=0.8,
+                               mutation_scale=7, shrinkB=3))
+    a.annotate('Values cluster at\n2, 22 and 42 CHF', xy=(23.2, 0.07),
+               xytext=(26, 0.16),
+               color=COLORS['inverse_cdf'], fontsize=6.5,
+               arrowprops=dict(arrowstyle='-|>', color=COLORS['inverse_cdf'],
+                               lw=0.8, mutation_scale=7, shrinkB=3))
+    a.set(xticks=vt, xlim=(2, 42), ylim=(0, 0.2), yticks=[0, 0.1, 0.2],
+          xlabel='Value (CHF)', ylabel='How often a value is shown\n(density)')
+    despine(a)
+    letter(a, 'b')
+
+    headline(fig, gs[1, :], '2', 'Model: V1 codes orientation; each V1 unit '
+             'projects to the IPS units that code its current value', dy=0.05)
+    for j, m in enumerate(MAPPINGS):
+        a = fig.add_subplot(gs[1, j])
+        wiring_panel(a, net, m, hi_theta=hi_theta)
+        a.set_title(f'{NAMES[m]} session', color=COLORS[m], fontsize=7.5,
+                    pad=14, loc='center')
+        letter(a, 'cd'[j], x=0.0)
+    a = fig.axes[-1]
+    a.annotate('Many V1 units converge\non the frequent values', xy=(0.5, 0.06),
+               xytext=(0.73, 0.55), fontsize=6.5, color='0.2', ha='left',
+               arrowprops=dict(arrowstyle='-|>', color='0.2', lw=0.9,
+                               mutation_scale=7, shrinkB=4,
+                               connectionstyle='angle3,angleA=180,angleB=70'))
+    fig.text(0.5, gs[1, :].get_position(fig).y0 - 0.035, f'Only the wiring differs between sessions: the '
+             f'{hi_theta:g}° unit (coloured) feeds the ~'
+             f'{float(mapping_fn("cdf")[0](hi_theta)):.0f}-CHF IPS units in '
+             f'one session and the ~'
+             f'{float(mapping_fn("inverse_cdf")[0](hi_theta)):.0f}-CHF units '
+             'in the other', ha='center', fontsize=6.5, color='0.35')
+
+    headline(fig, gs[2, :], '3', 'Each IPS unit keeps its preferred value, so its '
+             'preferred orientation moves')
+    a_o = fig.add_subplot(gs[2, 0])
+    a_v = fig.add_subplot(gs[2, 1])
+    for m in MAPPINGS:
+        f, _ = mapping_fn(m)
+        h = net.ips_rates('value', m)
+        for k, v0 in enumerate(demo_v):
+            j = int(np.argmin(np.abs(net.v_pref - v0)))
+            ls = '-' if k == 0 else (0, (3, 1.5))
+            a_o.plot(THETA, h[:, j], color=COLORS[m], lw=1.1, ls=ls)
+            a_v.plot(f(THETA), h[:, j], color=COLORS[m], lw=1.1, ls=ls)
+            i_pk = np.argmax(h[:, j])
+            a_o.plot(THETA[i_pk], h[i_pk, j] + 1.8, 'v', ms=3, color=COLORS[m])
+            a_v.plot(f(THETA[i_pk]), h[i_pk, j] + 1.8, 'v', ms=3, color=COLORS[m])
+    for k, v0 in enumerate(demo_v):
+        a_v.axvline(v0, color='0.6', lw=0.6, ls='--', zorder=0)
+        a_v.text(v0 + (-0.8 if k == 0 else 0.8), 27, f'{v0:g}-CHF unit',
+                 ha='right' if k == 0 else 'left', va='bottom', fontsize=6.5,
+                 color='0.3')
+        j = int(np.argmin(np.abs(net.v_pref - v0)))
+        pk = {m: THETA[np.argmax(net.ips_rates('value', m)[:, j])] for m in MAPPINGS}
+        a_o.annotate('', xy=(pk['inverse_cdf'], 30), xytext=(pk['cdf'], 30),
+                     arrowprops=dict(arrowstyle='-|>', color='0.3', lw=0.9,
+                                     mutation_scale=7, shrinkA=0, shrinkB=0))
+        a_o.text(np.mean(list(pk.values())), 24, f'{v0:g}-CHF unit',
+                 ha='center', va='bottom', fontsize=6.5, color='0.3')
+    a_o.text(75, 36, 'Preferred orientation moves', ha='center', va='bottom',
+             fontsize=6.5, color='0.3')
+    a_o.set(xticks=[0, 45, 90, 135, 180], xlim=(0, 180), ylim=(0, 42),
+            yticks=[0, 20, 40], xlabel='Orientation (deg)',
+            ylabel='IPS rate (spikes/s)')
+    a_v.set(xticks=vt, xlim=(2, 42), ylim=(0, 42), yticks=[0, 20, 40],
+            xlabel='Value (CHF)', ylabel='IPS rate (spikes/s)')
+    a_v.text(22, 36, 'Preferred value stays (roughly)', ha='center', va='bottom',
+             fontsize=6.5, color='0.3')
+    key(a_o, [('Cdf session', COLORS['cdf'], 'line', {}),
+              ('Inverse-cdf session', COLORS['inverse_cdf'], 'line', {})],
+        x=0.72, y=0.97, dy=0.1)
+    for a, s in ((a_o, 'e'), (a_v, 'f')):
+        despine(a)
+        letter(a, s)
+
+    headline(fig, gs[3, :], '4', 'Consequence: the IPS code is most precise where '
+             'values are most frequent (efficient coding)')
+    a = fig.add_subplot(gs[3, 0])
+    for m in MAPPINGS:
+        f, _ = mapping_fn(m)
+        w_tot = net.weights('value', m).sum(0)
+        p = value_density(m)
+        a.plot(f(THETA), scale_to(p, np.interp(f(THETA), net.v_pref, w_tot)),
+               color=COLORS[m], lw=2.8, alpha=.25, solid_capstyle='butt')
+        a.plot(net.v_pref, w_tot, 'o', ms=2, color=COLORS[m])
+    key(a, [('Total V1 input per IPS unit', '0.25', 'marker', {'ms': 2.4}),
+            (r'$\propto$ How often the value is shown', '0.25', 'bar', {'alpha': .25})],
+        x=0.03, y=0.97, dy=0.1)
+    a.set(xticks=vt, xlim=(2, 42), ylim=(0, 65), xlabel='Preferred value (CHF)',
+          ylabel='V1 input (summed weight)')
+    despine(a)
+    letter(a, 'g')
+
+    a = fig.add_subplot(gs[3, 1])
+    sl = pd.DataFrame(res['slopes']).set_index(['model', 'mapping'])['fi_slope']
+    for m in MAPPINGS:
+        v = mapping_fn(m)[0](THETA)[INNER]
+        fi = res['fi'][('value', m)][INNER]
+        a.plot(v, scale_to(value_density(m)[INNER] ** 2, fi), color=COLORS[m],
+               lw=2.8, alpha=.25, solid_capstyle='butt')
+        a.plot(v, fi, color=COLORS[m], lw=1.1)
+        a.plot(v, res['fi'][('control', m)][INNER], color=MODEL_COL['control'],
+               lw=1, ls=(0, (3, 1.5)))
+    a.set_yscale('log')
+    a.set(xticks=vt, xlim=(2, 42), ylim=(0.5, 5e3), xlabel='Value (CHF)',
+          ylabel='Precision\n(Fisher information)')
+    key(a, [('Rewired IPS', '0.25', 'line', {}),
+            (r'$\propto$ p(value)², the efficient code', '0.25', 'bar', {'alpha': .25}),
+            ('Fixed value code, no rewiring', MODEL_COL['control'], 'line',
+             {'ls': (0, (3, 1.5))})],
+        x=0.03, y=0.97, dy=0.1)
+    despine(a)
+    letter(a, 'h')
+    figs.append(fig)
+
+    # ---------------- page 2: the confound and the test ----------------------
+    fig = plt.figure(figsize=(7.25, 5.4))
+    gs = fig.add_gridspec(2, 3, height_ratios=[1, 1], hspace=0.7, wspace=0.45,
+                          left=0.08, right=0.98, top=0.88, bottom=0.08)
+    headline(fig, gs[0, :], '5', 'The catch: a plain orientation code, never '
+             'rewired, is just as efficient', dy=0.06)
+    a = fig.add_subplot(gs[0, 0:2])
+    wiring_panel(a, net, 'cdf', model='orient', hi_theta=hi_theta)
+    a.set_title('Orientation-wired IPS: same wiring in both sessions',
+                color=MODEL_COL['orient'], fontsize=7.5, pad=14)
+    letter(a, 'i', x=0.0)
+    a = fig.add_subplot(gs[0, 2])
+    for m in MAPPINGS:
+        v = mapping_fn(m)[0](THETA)[INNER]
+        a.plot(v, res['fi'][('orient', m)][INNER] /
+               res['fi'][('orient', m)][INNER].mean(), color=COLORS[m], lw=1.1)
+        a.plot(v, res['fi'][('value', m)][INNER] /
+               res['fi'][('value', m)][INNER].mean(), color=COLORS[m], lw=1.1,
+               ls=(0, (3, 1.5)), alpha=.7)
+    a.set_yscale('log')
+    a.set(xticks=vt, xlim=(2, 42), xlabel='Value (CHF)',
+          ylabel='Precision (relative)')
+    key(a, [('Orientation-wired', '0.25', 'line', {}),
+            ('Value-wired', '0.25', 'line', {'ls': (0, (3, 1.5))})],
+        x=0.03, y=0.97, dy=0.1)
+    a.set_ylim(0.03, 40)
+    despine(a)
+    letter(a, 'j')
+
+    headline(fig, gs[1, :], '6', 'What does differ: does the preferred value stay '
+             'put across sessions?', dy=0.06)
+    f_c, _ = mapping_fn('cdf')
+    f_i, _ = mapping_fn('inverse_cdf')
+    u = res['units'].pivot_table(index=['model', 'unit'], columns='mapping',
+                                 values='pref').reset_index()
+    a = fig.add_subplot(gs[1, 0])
+    a.plot([2, 42], [2, 42], color='0.6', lw=0.8, zorder=0)
+    a.plot(f_c(THETA), f_i(THETA), color='0.6', lw=0.8, ls=':', zorder=0)
+    for mo in MODELS:
+        g = u[u.model == mo]
+        a.plot(g['cdf'], g['inverse_cdf'], 'o', ms=2.4, mew=0,
+               color=MODEL_COL[mo])
+    a.text(33, 37.5, 'Same value', rotation=45, ha='center', fontsize=6.5,
+           color='0.4')
+    a.text(33, 16, 'Same\norientation', ha='left', fontsize=6.5, color='0.4')
+    a.set(xticks=vt, yticks=vt, xlim=(2, 42), ylim=(2, 42), aspect='equal',
+          xlabel='Preferred value, cdf (CHF)',
+          ylabel='Preferred value,\ninverse cdf (CHF)')
+    a.set_title('Single units', fontsize=7, loc='left')
+    key(a, [('Value-wired', MODEL_COL['value'], 'marker', {}),
+            ('Orientation-wired', MODEL_COL['orient'], 'marker', {})],
+        x=0.03, y=0.97, dy=0.1)
+    despine(a)
+    letter(a, 'k')
+
+    a = fig.add_subplot(gs[1, 1])
+    vox = res['voxels']
+    vox = vox[(vox.r2_cdf > .5) & (vox.r2_inverse_cdf > .5)]
+    a.plot([2, 42], [2, 42], color='0.6', lw=0.8, zorder=0)
+    a.plot(f_c(THETA), f_i(THETA), color='0.6', lw=0.8, ls=':', zorder=0)
+    for mo in MODELS:
+        g = vox[vox.model == mo]
+        a.plot(g.mu_cdf, g.mu_inverse_cdf, 'o', ms=1.8, alpha=.45, mew=0,
+               color=MODEL_COL[mo])
+    a.set(xticks=vt, yticks=vt, xlim=(2, 42), ylim=(2, 42), aspect='equal',
+          xlabel='Preferred value, cdf (CHF)', ylabel='')
+    a.set_title('Voxels (30 units, 40° V1 tuning)', fontsize=7, loc='left')
+    a.text(0.97, 0.03, 'Both hug the diagonal', transform=a.transAxes,
+           ha='right', fontsize=6.5, color='0.3')
+    despine(a)
+    letter(a, 'l')
+
+    a = fig.add_subplot(gs[1, 2])
+    sw = res['sweep']
+    for mo in MODELS:
+        g = sw[sw.model == mo]
+        a.fill_between(g.v1_fwhm, g.oi_lo, g.oi_hi, color=MODEL_COL[mo],
+                       alpha=.2, lw=0)
+        a.plot(g.v1_fwhm, g.oi_median, 'o-', ms=2.4, color=MODEL_COL[mo])
+    a.axhline(1, color='0.6', lw=0.8, ls=':', zorder=0)
+    a.axhline(0, color='0.6', lw=0.8, zorder=0)
+    a.set_xscale('log')
+    a.set_xticks([10, 20, 40])
+    import matplotlib.ticker as mt
+    a.xaxis.set_major_formatter(mt.FuncFormatter(lambda x, _: f'{x:g}'))
+    a.xaxis.set_minor_formatter(mt.NullFormatter())
+    a.set(xlim=(8, 70), ylim=(-0.3, 1.15), yticks=[0, 0.5, 1],
+          xlabel='V1 tuning width (FWHM, deg)',
+          ylabel='Voxel shift')
+    a.text(70, 1.03, 'Same orientation', ha='right', va='bottom', fontsize=6.5,
+           color='0.45')
+    a.text(8.5, 0.05, 'Same value', ha='left', va='bottom', fontsize=6.5,
+           color='0.45')
+    a.set_title('Only sharp tuning separates them', fontsize=7, loc='left')
+    a.text(9, 0.87, 'Orientation-wired', color=MODEL_COL['orient'], fontsize=6.5)
+    a.text(9, -0.2, 'Value-wired', color=MODEL_COL['value'], fontsize=6.5)
+    despine(a)
+    letter(a, 'm')
+    figs.append(fig)
+
+    out = Path(out)
+    with PdfPages(out) as pdf:
+        for i, f in enumerate(figs):
+            pdf.savefig(f)
+            f.savefig(out.with_name(f'{out.stem}_p{i + 1}.png'), dpi=200)
+    print(f'\nwrote {out} (+ _p1/_p2.png)')
+
+
 def key(ax, entries, x=.04, y=.96, dy=.085, seg=.07, fs=6.5, up=False):
     """Inline glyph legend (house style); up=True stacks upward from y."""
     import matplotlib.pyplot as plt
@@ -644,7 +995,8 @@ def main():
     res = run(args)
     report(res)
     if not args.no_plot:
-        plot(res, args.out)
+        plot_narrative(res, args.out)
+        plot(res, str(Path(args.out).with_name(Path(args.out).stem + '_details.pdf')))
 
 
 if __name__ == '__main__':
