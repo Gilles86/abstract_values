@@ -22,7 +22,9 @@
 #   N_BASIS, KAPPA  iem: basis functions (default 8) and concentration (default 2)
 #   GAIN        1 = remove per-trial gain in both regions
 #   DRIVE       low | high: target trials by predicted drive (npc_from_v1 only)
-#   NPC_CLASS   value | orientation: NPCr voxels by aprf.cv vs vonmises-prf.cv
+#   NPC_CLASS   value | orientation: target voxels by aprf.cv vs vonmises-prf.cv;
+#               bell | basis: by aprf.cv vs aprf-weighted.cv
+#   TEMPLATE    bell (default) | basis: value-target prediction (npc_from_v1 only)
 #   TARGET_ROI  value-side ROI (default NPCr); unions with +, e.g. IPS0+IPS12+IPS345
 #   SHAM_OUTER  1 = outermost lag uses permuted orientations (df-matched control)
 #   REPO        checkout to run from (default ~/git/abstract_values)
@@ -39,6 +41,7 @@ EXTRA=(--projection "${PROJECTION:-bins}" --n-channels "${N_CHANNELS:-8}"
 [ -n "${DRIVE:-}" ] && EXTRA+=(--drive "$DRIVE" --directions npc_from_v1)
 [ -n "${NPC_CLASS:-}" ] && EXTRA+=(--npc-class "$NPC_CLASS" --directions npc_from_v1)
 [ -n "${TARGET_ROI:-}" ] && EXTRA+=(--target-roi "$TARGET_ROI")
+[ -n "${TEMPLATE:-}" ] && EXTRA+=(--template "$TEMPLATE" --directions npc_from_v1)
 REPO="${REPO:-$HOME/git/abstract_values}"
 
 . $HOME/init_conda.sh

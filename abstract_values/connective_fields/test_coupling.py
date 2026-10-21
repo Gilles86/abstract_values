@@ -139,17 +139,48 @@ def value_prediction(mode, fwhm, channel_values):
     return p - p.mean(0, keepdims=True)
 
 
+VALUE_N_BASIS = 8          # aprf-weighted: fit_aprf_weighted.py defaults
+
+
+def value_basis(values, vmin, vmax, n_basis=VALUE_N_BASIS):
+    """The joint value-basis ('aprf-weighted') model's design: n log-Gaussians,
+    modes equally spaced over the value range, fwhm twice the spacing
+    (fit_aprf_weighted.make_basis_parameters). values -> values x basis."""
+    modes = np.linspace(vmin, vmax, n_basis)
+    fwhm = 2 * (modes[1] - modes[0])
+    return lognormal_mode_fwhm(np.asarray(values, float)[:, None], modes[None, :], fwhm)
+
+
+def fit_value_basis_weights(y, par, n_basis=VALUE_N_BASIS):
+    """Ridge weights (basis x voxels) of the value-basis model, both sessions jointly,
+    on run-demeaned betas (ridge alpha as aprf-weighted)."""
+    v = par['value'].to_numpy(float)
+    b = value_basis(v, v.min(), v.max(), n_basis)
+    b = b - b.mean(0)
+    yd = demean_runs(y, par)
+    return np.linalg.solve(b.T @ b + RIDGE_ALPHA * np.eye(n_basis), b.T @ yd), (v.min(), v.max())
+
+
+def basis_value_prediction(weights, vrange, channel_values):
+    """Each voxel's full fitted value tuning curve read at the channels' values."""
+    p = value_basis(np.clip(channel_values, *vrange), *vrange, weights.shape[0]) @ weights
+    return p - p.mean(0, keepdims=True)
+
+
 def orientation_prediction(mu, kappa, channel_oris):
     p = np.exp(kappa[None, :] * np.cos(np.deg2rad(2 * (channel_oris[:, None] - mu[None, :]))))
     return p - p.mean(0, keepdims=True)
 
 
 def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, lags=0,
-                  sham_outer=False, gain=False, drive='all'):
+                  sham_outer=False, gain=False, drive='all', template='bell'):
     """``gain``: remove each region's per-trial gain (gates.remove_gain) from the
     residuals. ``drive``: 'low' / 'high' computes each target voxel's CF from
     only the half of trials its own tuning predicts to drive it least / most
-    (value targets only). Shared gain acts through the evoked response, so it
+    (value targets only). ``template``: 'bell' (default) predicts each value
+    target's coupling profile from its single-peak log-Gaussian label; 'basis'
+    from its full tuning curve under the joint value-basis model (aprf-weighted
+    design), read through each session's mapping. Shared gain acts through the evoked response, so it
     predicts the effect in the high half only; coupling that does not depend on
     the stimulus predicts it in both."""
     """target/source: dicts with residual-ready data (trials x voxels) and kind."""
@@ -204,28 +235,45 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
             cf = masked_connective_field(res_tgt, d, low if drive == 'low' else ~low)
         per_session.append(dict(cf=cf, right=chan(cond), wrong=chan(wrong)))
 
-    def predict(channel_stim, lo, wi):
-        return (value_prediction(lo, wi, channel_stim) if target['kind'] == 'value'
-                else orientation_prediction(lo, wi, channel_stim))
+    if template == 'basis':
+        if target['kind'] != 'value':
+            raise ValueError('the basis template is implemented for value targets only')
+        w_tgt, vrange = fit_value_basis_weights(target['y'], par)
+        labels = (w_tgt,)
 
-    def score(lo, wi):
-        per_voxel = [colcorr(x['cf'], predict(x['right'], lo, wi))
-                     - colcorr(x['cf'], predict(x['wrong'], lo, wi)) for x in per_session]
+        def predict(channel_stim, w):
+            return basis_value_prediction(w, vrange, channel_stim)
+
+        def permute(lab, perm):
+            return (lab[0][:, perm],)
+    else:
+        labels = (loc, wid)
+
+        def predict(channel_stim, lo, wi):
+            return (value_prediction(lo, wi, channel_stim) if target['kind'] == 'value'
+                    else orientation_prediction(lo, wi, channel_stim))
+
+        def permute(lab, perm):
+            return tuple(x[perm] for x in lab)
+
+    def score(lab):
+        per_voxel = [colcorr(x['cf'], predict(x['right'], *lab))
+                     - colcorr(x['cf'], predict(x['wrong'], *lab)) for x in per_session]
         return np.nanmean(per_voxel, 0)
 
-    observed = score(loc, wid)
+    observed = score(labels)
     rows = [{'direction': direction, 'kind': 'observed', 'perm': -1,
              'score': float(np.nanmean(observed)), 'n_target': len(loc)}]
     for k in range(n_shuffle):
         perm = rng.permutation(len(loc))
         rows.append({'direction': direction, 'kind': 'label-shuffle', 'perm': k,
-                     'score': float(np.nanmean(score(loc[perm], wid[perm]))),
+                     'score': float(np.nanmean(score(permute(labels, perm)))),
                      'n_target': len(loc)})
 
     # How different the two mappings' predictions are for each voxel: the score
     # can only be large where they differ.
     x = per_session[0]
-    dissim = 1 - colcorr(predict(x['right'], loc, wid), predict(x['wrong'], loc, wid))
+    dissim = 1 - colcorr(predict(x['right'], *labels), predict(x['wrong'], *labels))
     if target['kind'] == 'value':
         bins = np.linspace(2, 42, 9)
     else:
@@ -242,7 +290,7 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
 def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
          smoothed=False, lags=0, sham_outer=False, projection='bins', n_basis=N_BASIS,
          kappa=KAPPA, gain=False, drive='all', directions=('npc_from_v1', 'v1_from_npc'),
-         npc_class='all', target_roi='NPCr'):
+         npc_class='all', target_roi='NPCr', template='bell'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -256,14 +304,17 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
     if npc_class == 'all':
         y_npc, sel_npc = load_roi(sub, betas, target_roi, 'aprf.cv', bids_folder, smoothed)
     else:
-        # Value aPRF vs its orientation-space twin (one bump each, same parameter
-        # count), both fitted jointly over the two sessions: within a session
-        # they are equivalent, so the winner says whether a voxel's tuning stays
-        # put in value or in orientation when the mapping changes.
+        # value / orientation: value aPRF vs its orientation-space twin (one bump
+        # each, same parameter count), both fitted jointly over the two sessions:
+        # within a session they are equivalent, so the winner says whether a
+        # voxel's tuning stays put in value or in orientation when the mapping
+        # changes. bell / basis: single-peak aPRF vs the value-basis model
+        # (aprf-weighted.cv).
+        rival = 'vonmises-prf.cv' if npc_class in ('value', 'orientation') else 'aprf-weighted.cv'
         y_npc, sel_npc, delta = load_roi(sub, betas, target_roi, 'aprf.cv', bids_folder, smoothed,
-                                         compare='vonmises-prf.cv')
-        sel_npc = sel_npc & ((delta > 0) if npc_class == 'value' else (delta < 0))
-        print(f'  NPCr {npc_class}-winning tuned voxels: {sel_npc.sum()}')
+                                         compare=rival)
+        sel_npc = sel_npc & ((delta > 0) if npc_class in ('value', 'bell') else (delta < 0))
+        print(f'  {target_roi} {npc_class}-winning tuned voxels: {sel_npc.sum()}')
     y_v1, sel_v1 = load_roi(sub, betas, 'BensonV1ecc075-375', 'vonmises.cv', bids_folder,
                             smoothed)
     npc_tuned = dict(y=y_npc[:, sel_npc], kind='value', stim='value')
@@ -276,7 +327,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
     setups = {'npc_from_v1': (npc_tuned, v1_all), 'v1_from_npc': (v1_tuned, npc_tuned)}
     scores, by = zip(*[
         run_direction(dn, par, *setups[dn], n_channels, n_shuffle, rng, lags, sham_outer,
-                      gain, drive) for dn in directions])
+                      gain, drive, template if dn == 'npc_from_v1' else 'bell')
+        for dn in directions])
     scores = pd.concat(scores, ignore_index=True).assign(subject=subject)
     by = pd.concat(by, ignore_index=True).assign(subject=subject)
 
@@ -285,7 +337,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
               + variant_suffix(projection, n_channels, n_basis, kappa)
               + ('_gain' if gain else '') + ('' if drive == 'all' else f'_drive-{drive}')
               + ('' if npc_class == 'all' else f'_npc-{npc_class}')
-              + ('' if target_roi == 'NPCr' else f'_target-{target_roi.replace("+", "")}'))
+              + ('' if target_roi == 'NPCr' else f'_target-{target_roi.replace("+", "")}')
+              + ('' if template == 'bell' else f'_tpl-{template}'))
            / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     scores.to_csv(out / f'sub-{subject}_desc-scores.tsv', sep='\t', index=False)
@@ -317,11 +370,16 @@ if __name__ == '__main__':
     p.add_argument('--directions', nargs='+', default=['npc_from_v1', 'v1_from_npc'])
     p.add_argument('--target-roi', default='NPCr',
                    help="Value-side ROI; 'A+B' = union, e.g. IPS0+IPS12+IPS345 (Wang IPS0-5)")
-    p.add_argument('--npc-class', choices=['all', 'value', 'orientation'], default='all',
-                   help='Only NPCr voxels where aprf.cv beats / loses to vonmises-prf.cv')
+    p.add_argument('--npc-class', choices=['all', 'value', 'orientation', 'bell', 'basis'],
+                   default='all',
+                   help='Only target voxels where aprf.cv beats / loses to vonmises-prf.cv '
+                        '(value / orientation) or to aprf-weighted.cv (bell / basis)')
+    p.add_argument('--template', choices=['bell', 'basis'], default='bell',
+                   help='Value-target prediction: single-peak aPRF label (bell) or the full '
+                        'value-basis tuning curve (basis, aprf-weighted design)')
     a = p.parse_args()
     main(a.subject, bids_folder=a.bids_folder, n_channels=a.n_channels,
          n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags, sham_outer=a.sham_outer,
          projection=a.projection, n_basis=a.n_basis, kappa=a.kappa, gain=a.gain,
          drive=a.drive, directions=a.directions, npc_class=a.npc_class,
-         target_roi=a.target_roi)
+         target_roi=a.target_roi, template=a.template)
