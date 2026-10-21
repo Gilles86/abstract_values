@@ -55,7 +55,8 @@ def get_paradigm(sub, sessions, needs_session: bool,
     orientation in radians wrapped to [0, pi); with ``space='bid'`` the
     participant's reported value for that trial (NaN when they did not respond
     in time, clipped below at 1 CHF so the log-Gaussian stays defined); with
-    ``space='quantile'`` the value's mid-rank quantile within its session.
+    ``space='quantile'`` the value's mid-rank quantile within its session
+    (``'quantile-wrapped'``: that times pi, an axial angle).
     A 'bid' column is always returned so the objective-value control can be
     restricted to the same trials. 'session' (when needed) is the 0-based session index
     float for SessionShifted* models.
@@ -76,13 +77,16 @@ def get_paradigm(sub, sessions, needs_session: bool,
                 stim = {'orientation': np.deg2rad(float(row['orientation'])) % np.pi,
                         'value': float(row['value']),
                         'quantile': float(row['value']),
+                        'quantile-wrapped': float(row['value']),
                         'bid': bid}[space]
                 rows.append({'session': session, 'run': run,
                               'x': stim, 'bid': bid,
                               'session_idx': float(ses_idx)})
     df = pd.DataFrame(rows)
-    if space == 'quantile':
+    if space in ('quantile', 'quantile-wrapped'):
         df['x'] = value_quantiles(df['x'], df['session'])
+        if space == 'quantile-wrapped':
+            df['x'] *= np.pi
     df = df.astype({'x': np.float32, 'bid': np.float32,
                     'session_idx': np.float32})
     df.index = pd.MultiIndex.from_frame(

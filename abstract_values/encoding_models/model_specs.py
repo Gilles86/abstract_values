@@ -326,6 +326,24 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         stimulus_space='quantile',
         grid2=('log', 0.05, 2.0),
     ),
+    # Same quantile axis, but WRAPPED: a von Mises with period 1 in quantile
+    # (x = pi * quantile, axial), so the lowest and highest quantile are
+    # neighbours, as 7.5 deg and 172.5 deg are in orientation. Given the
+    # design (quantile = orientation rank, orientations evenly spaced),
+    # 'quantile' is exactly an unwrapped Gaussian on orientation (affine
+    # reparameterisation) and this one is 'vonmises-prf' up to a 23/24
+    # rescaling of the circle. Wrapped vs unwrapped is the V1-vs-IPS
+    # contrast: orientation is circular, value/quantile is not.
+    'quantile-wrapped': ModelSpec(
+        name='quantile-wrapped',
+        cls=AxialVonMisesPRF,
+        save_params=['mu', 'kappa', 'amplitude', 'baseline'],
+        out_subdir='aprf-quantile-wrapped',
+        cv_out_subdir='aprf-quantile-wrapped.cv',
+        grid_dims=1,
+        stimulus_space='quantile-wrapped',
+        grid2=('log', 0.5, 50.0),
+    ),
 
     'linear': ModelSpec(
         name='linear',

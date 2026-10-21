@@ -63,8 +63,9 @@ def get_value_paradigm(sub, sessions, needs_session: bool,
     ``space='value'`` puts the objective CHF value in 'x'; ``'orientation'``
     puts the gabor orientation in radians, wrapped to [0, pi) because
     orientation is axial; ``'quantile'`` puts the value's mid-rank quantile
-    within its session. Same trials, same order — only the stimulus
-    dimension the model is asked to explain differs.
+    within its session (``'quantile-wrapped'``: times pi, an axial angle).
+    Same trials, same order — only the stimulus dimension the model is
+    asked to explain differs.
 
     Row order matches gabor betas: session → run (sorted) → events
     sorted by onset, gabor only. For ``needs_session=True`` the
@@ -82,8 +83,10 @@ def get_value_paradigm(sub, sessions, needs_session: bool,
                         if space == 'orientation' else float(row['value']))
                 rows.append((stim, float(ses_idx)))
     arr = np.asarray(rows, dtype=np.float32)
-    if space == 'quantile':
+    if space in ('quantile', 'quantile-wrapped'):
         arr[:, 0] = value_quantiles(arr[:, 0], arr[:, 1])
+        if space == 'quantile-wrapped':
+            arr[:, 0] *= np.pi
     if not needs_session:
         return pd.DataFrame({'x': arr[:, 0]})
     unique = set(np.unique(arr[:, 1]).tolist())
