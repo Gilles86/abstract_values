@@ -61,9 +61,13 @@ study is within-subject with Aligned and Misaligned only, one per session.
 15. **Statistics.** IPS0–5 +0.013 ± 0.003, p = .0001 with neighbouring trials removed (n = 35); IPS0
     n.s., IPS3–5 +0.020. The mapping can be read out from a session's coupling map in ~60% of sessions.
     Gain confound: gain regression leaves +0.010 (p = .02), but map-level agreement drops (p = .14).
-16. **Individual differences.** Participants whose parietal coupling follows the mapping more closely
+16. **Robustness.** NPC1–3 (n = 35): +0.012, p = .0002 at ±1 lag; NPC1 .0135, NPC2 .0116, NPC3 .0113,
+    flat rather than graded as along IPS (NPC overlaps the Wang IPS maps, so not independent). Full
+    value-basis tuning curve as template: a bit weaker but significant in every ROI at ±1 lag, including
+    IPS0 (+0.011, p = .009). Orientation-winning voxels also route (IPS0–5 +0.010, p = .025).
+17. **Individual differences.** Participants whose parietal coupling follows the mapping more closely
     have less value noise (ρ = .35, p = .04; r = .48); perceptual precision is unrelated.
-17. **Summary and questions.** Fixed codes, flexible routing. Then: testing value vs orientation coding
+18. **Summary and questions.** Fixed codes, flexible routing. Then: testing value vs orientation coding
     when efficient-coding signatures coincide; re-routing vs fixed population + flexible readout;
     decoded uncertainty to split perceptual from value noise; noise correlations; single-peak vs
     basis tuning labels for the routing test.

@@ -94,10 +94,12 @@ def slide(pdf, title, images, bullets=(), kicker=None, img_box=None, note=None,
 
 def main():
     paper = REPO / "notes" / "papers" / "bedi_et_al2026.pdf"
-    pg = render(["fig_summary", "fig_connectopy", "sim_v1_ips_mapping", str(paper)],
+    pg = render(["fig_summary", "fig_connectopy", "fig_connectopy_npc",
+                 "sim_v1_ips_mapping", str(paper)],
                 pages={"bedi_et_al2026": [6, 8, 12, 14]})
     S = pg["fig_summary"][0]
     C = pg["fig_connectopy"][0]
+    N = pg["fig_connectopy_npc"][0]
     S1, S2 = pg["sim_v1_ips_mapping"]
     B1, B2, B3, B4 = pg["bedi_et_al2026"]          # paper Figs 1, 2, 3, 4
     out = FIG / "slides_pouget.pdf"
@@ -223,6 +225,15 @@ def main():
                "Mapping read out from the\ncoupling map: 60% of sessions",
                "Gain confound: partly\naddressed, not closed"],
               kicker="Connectivity", bullet_box=(0.71, 0.80), **nxt())
+
+        slide(pdf, "It replicates in NPC1–3 and with the full tuning curve as template",
+              [(crop(N, 0, 0.33, 1, 0.635), [0.03, 0.44, 0.64, 0.42]),
+               (crop(N, 0, 0.655, 1, 1.0), [0.03, 0.02, 0.64, 0.42])],
+              ["NPC1–3: +0.012, p = .0002\n(±1 lag); flat across NPC1–3,\nno gradient as along IPS",
+               "Multi-peak (value-basis)\ntemplate: a bit weaker,\nsignificant everywhere,\nincl. IPS0",
+               "Orientation-winning voxels\nalso route (IPS0–5 +0.010)",
+               "NPC and Wang IPS overlap:\nnot independent"],
+              kicker="Robustness", **nxt())
 
         slide(pdf, "Who routes better has less value noise",
               [(crop(C, 0, 0.70, 0.37, 1.0), [0.03, 0.14, 0.33, 0.66]),
