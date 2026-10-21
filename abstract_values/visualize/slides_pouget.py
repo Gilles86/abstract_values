@@ -34,14 +34,20 @@ plt.rcParams.update({"font.family": "Helvetica", "pdf.fonttype": 42,
                      "mathtext.fontset": "stixsans"})
 
 
-def render(names, dpi=250):
+def render(names, dpi=250, pages=None):
+    """Render PDFs (in notes/figures, or a full path) to PNG; ``pages`` maps a
+    name to the 1-based pages to render (default: all)."""
     tmp = Path(tempfile.mkdtemp())
-    pages = {}
+    out = {}
     for n in names:
-        subprocess.run(["pdftoppm", "-r", str(dpi), "-png", str(FIG / f"{n}.pdf"),
-                        str(tmp / n)], check=True)
-        pages[n] = sorted(tmp.glob(f"{n}-*.png"))
-    return pages
+        src = Path(n) if Path(n).suffix == ".pdf" else FIG / f"{n}.pdf"
+        key = src.stem
+        cmd = ["pdftoppm", "-r", str(dpi), "-png"]
+        for pg in (pages or {}).get(key, [None]):
+            extra = ["-f", str(pg), "-l", str(pg)] if pg else []
+            subprocess.run(cmd + extra + [str(src), str(tmp / key)], check=True)
+        out[key] = sorted(tmp.glob(f"{key}-*.png"))
+    return out
 
 
 def crop(path, x0, y0, x1, y1):
@@ -87,11 +93,16 @@ def slide(pdf, title, images, bullets=(), kicker=None, img_box=None, note=None,
 
 
 def main():
-    pg = render(["fig_summary", "fig_connectopy", "sim_v1_ips_mapping"])
+    paper = REPO / "notes" / "papers" / "bedi_et_al2026.pdf"
+    pg = render(["fig_summary", "fig_connectopy", "sim_v1_ips_mapping", str(paper)],
+                pages={"bedi_et_al2026": [6, 8, 12, 14]})
     S = pg["fig_summary"][0]
     C = pg["fig_connectopy"][0]
     S1, S2 = pg["sim_v1_ips_mapping"]
+    B1, B2, B3, B4 = pg["bedi_et_al2026"]          # paper Figs 1, 2, 3, 4
     out = FIG / "slides_pouget.pdf"
+    for old in FIG.glob("slides_pouget_p*.png"):
+        old.unlink()
     png = lambda i: FIG / f"slides_pouget_p{i:02d}.png"
     i = 0
 
@@ -100,65 +111,112 @@ def main():
         i += 1
         return dict(out=png(i), n=i)
 
+    paper_ref = "Bedi, de Hollander, Harl & Ruff (2026), preregistered, n = 119"
     with PdfPages(out) as pdf:
-        slide(pdf, "Abstract value from orientation:\nfixed codes, flexible routing",
+        # ── Part 1: the question and the behavioural logic (Bedi et al.) ────
+        slide(pdf, "Where does efficient coding act when value\nis constructed from perception?",
               [(crop(C, 0, 0, 1, 0.345), [0.04, 0.12, 0.92, 0.56])],
-              note="Gilles de Hollander · Bedi, Ruff & de Hollander · UZH · "
+              note="Gilles de Hollander · with Saurabh Bedi & Christian Ruff · UZH · "
                    "meeting with Alexandre Pouget, 22 Oct 2026", **nxt())
 
-        slide(pdf, "Same orientation, different value: two mappings",
-              [(crop(S1, 0, 0.012, 1, 0.224), [0.03, 0.14, 0.64, 0.66])],
-              ["35 participants learn an\norientation-to-CHF mapping",
-               "BDM auction: the bid\nis the value (truth-telling)",
-               "23 orientations, uniform;\none mapping per fMRI session",
-               "Mappings set where values\nbunch: 12/32 vs 2/22/42 CHF"],
-              kicker="Design", **nxt())
+        slide(pdf, "Value is not in the stimulus: a goal maps a percept onto value",
+              [(crop(B1, 0.15, 0.105, 0.86, 0.475), [0.03, 0.10, 0.62, 0.74])],
+              ["Same feature, different value\nunder different goals",
+               "Change the mapping G and\nthe value prior changes:\n"
+               r"$p(v) = p(s)\,|ds/dv|$",
+               "Both stages are noisy and\nresource-limited: perception,\nvaluation, or both coded\nefficiently?"],
+              kicker="Question", note=paper_ref, **nxt())
 
-        slide(pdf, "Bids: efficient coding in value space, after a perceptual stage",
+        slide(pdf, "Task: learn what each orientation is worth, then bid",
+              [(crop(B2, 0.18, 0.103, 0.85, 0.44), [0.03, 0.08, 0.60, 0.76])],
+              ["23 orientations, 7.5–172.5°,\nshown equally often",
+               "Learn the orientation-to-CHF\nmapping with feedback",
+               "Test: low-contrast Gabor,\nBDM auction, no feedback",
+               "BDM is incentive-compatible:\nthe bid IS the subjective\nvalue"],
+              kicker="Task", note=paper_ref, **nxt())
+
+        slide(pdf, "The trick: change only the mapping, so only the value prior changes",
+              [(crop(B3, 0.18, 0.104, 0.85, 0.228), [0.03, 0.22, 0.64, 0.56])],
+              ["Orientations uniform in the\nexperiment; the long-term\n(natural) prior favours cardinals",
+               "Aligned: dense values at\ncardinal orientations",
+               "Misaligned: dense values at\nobliques",
+               "Perceptual input statistics\nidentical across mappings"],
+              kicker="Design logic", note=paper_ref, **nxt())
+
+        slide(pdf, "Three architectures predict different bias patterns",
+              [(crop(B3, 0.18, 0.226, 0.85, 0.338), [0.03, 0.22, 0.64, 0.56])],
+              ["Efficient perception: bias\nkeeps its sign across mappings",
+               "Efficient valuation: bias flips\nbetween Aligned and Misaligned",
+               "Both stages: flips, and is\namplified when the priors agree\n(Aligned), damped when not"],
+              kicker="Predictions", note=paper_ref, **nxt())
+
+        slide(pdf, "Bids: efficient coding at both stages, on different timescales",
+              [(crop(B4, 0.18, 0.104, 0.85, 0.46), [0.03, 0.06, 0.58, 0.80])],
+              ["Bias reverses between Aligned\nand Misaligned (t = 27)",
+               "Asymmetric, and persists under\nUniform: a perceptual stage too",
+               "Perception: long-term prior.\nValue: adapts to the session",
+               "!So where in the brain is the\nvalue code, and how does it\nfollow the mapping?"],
+              kicker="Result", note=paper_ref, bullet_box=(0.66, 0.80), **nxt())
+
+        # ── Part 2: the fMRI study ──────────────────────────────────────────
+        slide(pdf, "fMRI: the same task, both mappings within each person",
+              [(crop(S1, 0, 0.012, 1, 0.224), [0.03, 0.14, 0.64, 0.66])],
+              ["35 participants, two fMRI\nsessions, one mapping each",
+               "Cdf = Misaligned (values\nbunch at 12 and 32 CHF)",
+               "Inverse cdf = Aligned (2, 22\nand 42 CHF, the cardinals)",
+               "Single-trial betas, 23\norientations × 8 runs"],
+              kicker="fMRI study", **nxt())
+
+        slide(pdf, "In the scanner, bids show the same multi-stage signature",
               [(crop(S, 0, 0.231, 1, 0.307), [0.03, 0.14, 0.64, 0.66])],
-              ["Two stages: orientation noise\n(cardinal prior), then value\nnoise σ_rep (efficient code)",
-               "Category gate at 90° / 22 CHF:\nΔELPD = 270 (LOO)",
-               "!Open: per person, perceptual\nvs value noise is weakly\nidentified from bids"],
-              kicker="Behaviour", note="Bedi, Ruff & de Hollander (2026)",
-              **nxt())
+              ["Bias and spread swing with\nthe mapping (violet vs pink)",
+               "Two-stage model + category\ngate at 90° / 22 CHF\n(ΔELPD = 270)",
+               "!Open: per person, perceptual\nvs value noise is weakly\nidentified from bids alone"],
+              kicker="Behaviour", **nxt())
+
+        slide(pdf, "How could the brain implement a mapping that changes?",
+              [(crop(S1, 0, 0.228, 1, 0.48), [0.03, 0.14, 0.62, 0.66])],
+              ["A. Parietal cortex codes\norientation; value is read\nout downstream",
+               "B. Parietal value code with\nfixed labels; the V1 input\nis re-routed (left: toy model)",
+               "C. Parietal neurons re-allocate\nto the value prior (an efficient\ncode in the tuning itself)"],
+              kicker="Hypotheses", bullet_box=(0.68, 0.80), **nxt())
 
         slide(pdf, "Where the codes live: V1 orientation, parietal cortex value",
               [(crop(S, 0, 0.019, 1, 0.088), [0.03, 0.47, 0.94, 0.36]),
                (crop(S, 0, 0.098, 1, 0.19), [0.03, 0.06, 0.94, 0.40])],
               kicker="Encoding models", **nxt())
 
-        slide(pdf, "V1 is a circle, parietal cortex an ordered line",
-              [(crop(S, 0, 0.503, 1, 0.578), [0.03, 0.14, 0.64, 0.66])],
+        slide(pdf, "V1 is a circle, parietal cortex an ordered line, and the line\ndoes not re-scale with the mapping",
+              [(crop(S, 0, 0.503, 1, 0.578), [0.03, 0.12, 0.64, 0.64])],
               ["Crossnobis RDMs over the\n23 orientations",
-               "V1: 7.5° and 172.5° are\nneighbours. IPS: they are\nthe far ends",
-               "IPS geometry does not\nre-scale with the mapping"],
+               "V1: 7.5° and 172.5° are\nneighbours. IPS: the far ends",
+               "!Against C: no re-allocation\nof resolution visible in the\nparietal geometry"],
               kicker="Representational geometry", **nxt())
 
         slide(pdf, "The catch: a fixed orientation code already looks 'efficient'",
               [(crop(S2, 0, 0.03, 1, 0.47), [0.03, 0.14, 0.62, 0.66])],
               [r"Uniform θ, monotone f:" "\n" r"quantile of v = rank of θ",
                r"$I_v = I_\theta\,(d\theta/dv)^2 \propto p(v)^2$",
-               "Efficient-coding signatures\ncan't tell value from\norientation here",
+               "Efficient-coding signatures\ncan't tell A from B here",
                "Tuning comparison neither:\norientation model wins\n~55–60% in V1 and in IPS"],
               kicker="Theory", bullet_box=(0.69, 0.80), **nxt())
 
-        slide(pdf, "A mechanism: rewire V1-to-IPS, keep IPS value labels",
-              [(crop(S1, 0, 0.228, 1, 0.48), [0.03, 0.40, 0.64, 0.45]),
-               (crop(S1, 0, 0.755, 1, 1.0), [0.03, 0.04, 0.64, 0.35])],
-              ["Only the weights depend\non the session's mapping",
-               "IPS stays bell-shaped\nin value (R² ≈ .93)",
-               "Fisher info ~ p(v) to the\n1.6–1.9 (ideal 2); fixed\ncode: flat",
-               "!Prediction: the V1 orientation\nan IPS voxel listens to\nmoves with the mapping"],
+        slide(pdf, "What B predicts that A does not: the preferred orientation moves",
+              [(crop(S1, 0, 0.51, 1, 0.752), [0.03, 0.42, 0.64, 0.42]),
+               (crop(S1, 0, 0.755, 1, 1.0), [0.03, 0.03, 0.64, 0.37])],
+              ["Re-routing alone gives an\nefficient value code\n(Fisher info ~ p(v) to the 1.6–1.9)",
+               "IPS stays bell-shaped in value",
+               "!Test: which V1 orientation\ndoes a parietal voxel listen to,\nsession by session?"],
               kicker="Toy model", **nxt())
 
         slide(pdf, "Parietal–V1 coupling follows the mapping in force",
               [(crop(C, 0, 0.0, 1, 0.345), [0.03, 0.14, 0.66, 0.68])],
               ["Trial-to-trial residuals:\nstimulus means removed",
                "Parietal voxels binned by\npreferred value × V1\norientation channel",
-               "Ridge sits on the mapping\nin force, not the other one"],
+               "Fixed coupling cancels in the\nscore: A predicts zero"],
               kicker="Connectivity", bullet_box=(0.71, 0.80), **nxt())
 
-        slide(pdf, "The effect grows along IPS and survives neighbour control",
+        slide(pdf, "The effect grows along IPS and survives the neighbour control",
               [(crop(C, 0, 0.36, 1, 0.68), [0.03, 0.14, 0.66, 0.66])],
               ["IPS0–5: +0.013 ± 0.003,\np = .0001 (±1 lag; n = 35)",
                "IPS0 n.s., rising to\nIPS3–5 +0.020",
@@ -173,18 +231,18 @@ def main():
                    "r = .48). Right: value decoding precision vs model noise, per region.",
               kicker="Individual differences", **nxt())
 
-        slide(pdf, "Questions for you", [],
-              ["How would you test value vs orientation coding when\n"
-               "efficient-coding signatures are identical by design?",
-               "Flexible routing vs a fixed population + flexible readout:\n"
+        slide(pdf, "Summary and questions", [],
+              ["!Fixed codes (V1 circle, parietal line), flexible routing between them",
+               "How to test value vs orientation coding when efficient-coding\n"
+               "signatures are identical by design?",
+               "Re-routing vs a fixed population with a flexible readout:\n"
                "what distinguishes them in population activity?",
                "Can decoded (posterior) uncertainty in V1 / IPS separate\n"
                "perceptual from value noise where bids cannot?",
-               "Information-limiting correlations: should routing\n"
-               "show up in noise correlations, as we see?",
-               "Single-peak vs multi-peak tuning: most voxels prefer\n"
-               "a basis model; what label should the routing test use?"],
-              bullet_box=(0.08, 0.76), **nxt())
+               "Should routing show up in (information-limiting) noise correlations?",
+               "Single-peak vs multi-peak tuning: which label should\n"
+               "the routing test use?"],
+              bullet_box=(0.08, 0.78), **nxt())
     print(f"Wrote {out} ({i} slides)")
 
 
