@@ -138,6 +138,22 @@ Fits a log-Gaussian pRF to single-trial GLMsingle betas using the **objective CH
 | `standard` (default) | `mode, fwhm, amplitude, baseline, r2` | Single log-Gaussian per voxel across all sessions. `mode_fwhm_natural` parameterisation. |
 | `session-shift` | `mode_1, mode_2, fwhm, amplitude, baseline, r2` | Mode shifts freely per session; fwhm/amplitude/baseline shared. Requires ≥2 sessions. Implemented in `SessionShiftedLogGaussianPRF`. |
 | `linear` | `amplitude, baseline, r2` | No tuning bump — signed slope (`amplitude`) + intercept (`baseline`) in CHF value. Fit by one closed-form OLS regression (`refine_baseline_and_amplitude`, `positive_amplitude=False`), not grid search + gradient descent. Baseline comparison for whether a voxel's value response is a tuned bump or a monotonic ramp. Implemented in `LinearValuePRF`. Output dir `aprf-linear` / `aprf-linear.cv`. |
+| `quantile` | `mode, fwhm, amplitude, baseline, r2` | Quantile ("efficient") coding: Gaussian on the mid-rank quantile of the value within its session (`model_specs.value_quantiles`), so the preferred value moves with the session's value distribution. **Confound:** both mappings are monotone in orientation and the 23 orientations are equally frequent, so quantile = orientation rank in both sessions — this model is exactly an unwrapped Gaussian on orientation. Output `aprf-quantile(.cv)`. |
+| `quantile-wrapped` | `mu, kappa, amplitude, baseline, r2` | Same axis, wrapped (axial von Mises on pi × quantile) — `vonmises-prf` up to a 23/24 rescaling. Wrapped vs unwrapped is the orientation-vs-value (V1-vs-IPS) contrast. Output `aprf-quantile-wrapped(.cv)`. |
+
+**ROI-restricted CV fits.** The `quantile`/`quantile-wrapped` CV fits (2026-10-21) were run with
+`--mask .../desc-permnullunion_mask` (V1–3, hV4, V3ab, IPS0/12/345, NPCl/r): their cvR² maps are
+0 outside those ROIs, not whole-brain.
+
+### Permutation-null voxel selection
+
+`encoding_models/permnull_select.py` (+ `slurm_jobs/permnull_select.sh`), after retinonumeral,
+using `braincoder.selection` (keras-backend branch). Real fit + K = 20 within-(session, run) label
+shuffles of an aPRF spec, stacked into one fit on the ROI-union voxels; pooled p, BH q per ROI,
+leave-one-shuffle-out calibration and exchangeability report. Output:
+`derivatives/encoding_models/permnull/<spec.out_subdir>/sub-<S>/func/` (voxels TSV with per-ROI
+`q_<roi>`, null npz, summary JSON). Collect with `visualize/collect_permnull.py` (cluster),
+plot with `visualize/plot_permnull_selection.py` and `visualize/plot_quantile_models.py`.
 
 ### Output paths
 
