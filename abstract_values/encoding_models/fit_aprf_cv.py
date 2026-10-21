@@ -37,7 +37,7 @@ from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.fit_pipeline import fit_one_model
 from abstract_values.encoding_models.model_specs import (
-    get_spec, list_model_types,
+    get_spec, list_model_types, value_quantiles,
 )
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
@@ -54,7 +54,8 @@ def get_paradigm(sub, sessions, needs_session: bool,
     'x' is the objective CHF value; with ``space='orientation'`` the gabor
     orientation in radians wrapped to [0, pi); with ``space='bid'`` the
     participant's reported value for that trial (NaN when they did not respond
-    in time, clipped below at 1 CHF so the log-Gaussian stays defined).
+    in time, clipped below at 1 CHF so the log-Gaussian stays defined); with
+    ``space='quantile'`` the value's mid-rank quantile within its session.
     A 'bid' column is always returned so the objective-value control can be
     restricted to the same trials. 'session' (when needed) is the 0-based session index
     float for SessionShifted* models.
@@ -74,12 +75,16 @@ def get_paradigm(sub, sessions, needs_session: bool,
                 bid = np.nan if not np.isfinite(bid) else max(bid, 1.0)
                 stim = {'orientation': np.deg2rad(float(row['orientation'])) % np.pi,
                         'value': float(row['value']),
+                        'quantile': float(row['value']),
                         'bid': bid}[space]
                 rows.append({'session': session, 'run': run,
                               'x': stim, 'bid': bid,
                               'session_idx': float(ses_idx)})
-    df = pd.DataFrame(rows).astype({'x': np.float32, 'bid': np.float32,
-                                       'session_idx': np.float32})
+    df = pd.DataFrame(rows)
+    if space == 'quantile':
+        df['x'] = value_quantiles(df['x'], df['session'])
+    df = df.astype({'x': np.float32, 'bid': np.float32,
+                    'session_idx': np.float32})
     df.index = pd.MultiIndex.from_frame(
         df[['session', 'run']].assign(
             trial=df.groupby(['session', 'run']).cumcount()),

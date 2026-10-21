@@ -301,6 +301,32 @@ MODEL_SPECS: dict[str, ModelSpec] = {
         grid_dims=2,
     ),
 
+    # ── quantile coding ─────────────────────────────────────────────────
+    # Efficient ("quantile") coding of value, after the range-adaptation
+    # models of neural_priors: each voxel prefers a fixed QUANTILE of the
+    # session's value distribution rather than a fixed CHF amount. The
+    # paradigm's x is the mid-rank empirical CDF of the presented value
+    # within its session (see value_quantiles), and a symmetric Gaussian is
+    # fitted on that [0, 1] axis — same parameter count as 'gaussian'.
+    # Between 'gaussian' (fixed value, 4 params) and 'gauss-session-shift'
+    # (free mode per session, 5 params).
+    # NB: in this design both mappings are monotone in orientation and all
+    # 23 orientations are shown equally often, so a value's within-session
+    # quantile is the rank of its orientation — identical in both sessions.
+    # Quantile coding of value is therefore not separable from tuning to
+    # (non-circular) orientation rank; compare with 'vonmises-prf'.
+    'quantile': ModelSpec(
+        name='quantile',
+        cls=GaussianValuePRF,
+        needs_session=False,
+        save_params=['mode', 'fwhm', 'amplitude', 'baseline'],
+        out_subdir='aprf-quantile',
+        cv_out_subdir='aprf-quantile.cv',
+        grid_dims=1,
+        stimulus_space='quantile',
+        grid2=('log', 0.05, 2.0),
+    ),
+
     'linear': ModelSpec(
         name='linear',
         cls=LinearValuePRF,
@@ -336,6 +362,18 @@ for _base in ('vonmises-prf', 'null'):
     MODEL_SPECS[f'{_base}-bidmatched'] = _twin(_base, 'bidmatched')
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
+def value_quantiles(values, sessions):
+    """Mid-rank empirical CDF of each trial's value within its session:
+    F(v) = (#{< v} + #{== v} / 2) / N, so every presented value maps into
+    (0, 1). Used for the 'quantile' stimulus space."""
+    import numpy as np
+    import pandas as pd
+    s = pd.Series(np.asarray(values, dtype=float))
+    ses = np.asarray(sessions)
+    return (s.groupby(ses).rank(method='average', pct=False)
+            .sub(0.5).div(s.groupby(ses).transform('size'))).to_numpy()
+
 
 def get_spec(model_type: str) -> ModelSpec:
     """Look up a ModelSpec by short tag; raise KeyError with a helpful
