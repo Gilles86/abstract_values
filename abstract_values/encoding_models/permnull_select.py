@@ -91,13 +91,42 @@ def roi_masks(sub, ref_img):
     return out
 
 
+def union_mask_path(sub):
+    return (sub.bids_folder / 'derivatives' / 'masks' / f'sub-{sub.subject_id}'
+            / 'anat' / f'sub-{sub.subject_id}_space-T1w_desc-permnullunion_mask.nii.gz')
+
+
+def roi_union(sub, betas_img, session):
+    """ROI masks and their union (within the brain mask) on the betas grid.
+    Also written to ``derivatives/masks/.../desc-permnullunion_mask`` so CV
+    fits can be restricted to the same voxels (``fit_aprf_cv.py --mask``)."""
+    ref = nib.Nifti1Image(np.zeros(betas_img.shape[:3], np.uint8), betas_img.affine)
+    brain = nimage.resample_to_img(sub.get_brain_mask(session), ref,
+                                   interpolation='nearest', force_resample=True,
+                                   copy_header=True).get_fdata() > 0
+    rois = roi_masks(sub, ref)
+    union = np.zeros(ref.shape, bool)
+    for m in rois.values():
+        union |= m
+    union &= brain
+    fn = union_mask_path(sub)
+    fn.parent.mkdir(parents=True, exist_ok=True)
+    nib.Nifti1Image(union.astype(np.uint8), ref.affine).to_filename(str(fn))
+    return ref, rois, union
+
+
 def main(subject, model_type='session-shift', n_permutations=20, q=0.05,
          n_iterations=1000, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False):
+         smoothed=False, debug=False, union_mask_only=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder,
                   fmriprep_deriv=fmriprep_deriv)
     sessions = sorted(sub.get_sessions())
+    if union_mask_only:
+        _, _, union = roi_union(sub, sub.get_single_trial_estimates(
+            sessions, desc='gabor', smoothed=smoothed), sessions[0])
+        print(f"sub-{subject}: {int(union.sum())} voxels -> {union_mask_path(sub)}")
+        return
     spec = get_spec(model_type)
     if spec.needs_session and len(sessions) < 2:
         raise ValueError(f"--model {spec.name} requires at least 2 sessions.")
@@ -126,15 +155,7 @@ def main(subject, model_type='session-shift', n_permutations=20, q=0.05,
     # ── betas in the ROI union ──────────────────────────────────────────────
     betas_img = sub.get_single_trial_estimates(sessions, desc='gabor',
                                                smoothed=smoothed)
-    ref = nimage.index_img(betas_img, 0)
-    brain = nimage.resample_to_img(sub.get_brain_mask(sessions[0]), ref,
-                                   interpolation='nearest', force_resample=True,
-                                   copy_header=True).get_fdata() > 0
-    rois = roi_masks(sub, ref)
-    union = np.zeros(ref.shape, bool)
-    for m in rois.values():
-        union |= m
-    union &= brain
+    ref, rois, union = roi_union(sub, betas_img, sessions[0])
     mask_img = nib.Nifti1Image(union.astype(np.float32), ref.affine)
     masker = NiftiMasker(mask_img=mask_img).fit()
     data = masker.transform(betas_img).astype(np.float32)[keep]
@@ -253,7 +274,10 @@ if __name__ == '__main__':
     ap.add_argument('--smoothed', action='store_true')
     ap.add_argument('--debug', action='store_true',
                     help='300 voxels, K<=3, 50 iterations, nothing saved')
+    ap.add_argument('--union-mask-only', action='store_true',
+                    help='only write the ROI-union mask (for fit_aprf_cv --mask)')
     a = ap.parse_args()
     main(a.subject, model_type=a.model, n_permutations=a.n_permutations, q=a.q,
          n_iterations=a.n_iterations, bids_folder=a.bids_folder,
-         fmriprep_deriv=a.fmriprep_deriv, smoothed=a.smoothed, debug=a.debug)
+         fmriprep_deriv=a.fmriprep_deriv, smoothed=a.smoothed, debug=a.debug,
+         union_mask_only=a.union_mask_only)

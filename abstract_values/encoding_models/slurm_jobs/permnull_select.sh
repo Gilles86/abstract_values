@@ -3,9 +3,9 @@
 #SBATCH --output=/home/gdehol/logs/permnull_%j.txt
 #SBATCH --account=zne.uzh
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=96G
-#SBATCH --time=16:00:00
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=06:00:00
 
 # Label-permutation null voxel selection (permnull_select.py): real fit + K
 # within-run label shuffles of one aPRF variant on the ROI-union voxels,
