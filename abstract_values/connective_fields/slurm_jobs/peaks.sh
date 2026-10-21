@@ -14,7 +14,8 @@
 #   sbatch --export=ALL,PARTICIPANT_LABEL=pil01 peaks.sh
 #
 # Optional overrides: N_BASIS, KAPPA, LAGS, GAIN (1 = remove per-trial gain),
-#   NPC_CLASS (all | value | orientation), REPO (default ~/git/abstract_values)
+#   NPC_CLASS (all | value | orientation), TARGET_ROI (default NPCr; unions with +,
+#   e.g. NPC1+NPC2+NPC3), SELECTION, REPO (default ~/git/abstract_values)
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%02d" $SLURM_ARRAY_TASK_ID)
@@ -23,6 +24,8 @@ REPO="${REPO:-$HOME/git/abstract_values}"
 
 . $HOME/init_conda.sh
 export PYTHONUNBUFFERED=1
+export TMPDIR="/scratch/$USER/tmp/${SLURM_JOB_ID:-manual}_${SLURM_ARRAY_TASK_ID:-0}"
+mkdir -p "$TMPDIR"
 export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 cd "$REPO"
 conda run --no-capture-output -n abstract_values python -u -W ignore \

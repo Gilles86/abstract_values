@@ -43,6 +43,8 @@ REPO="${REPO:-$HOME/git/abstract_values}"
 
 . $HOME/init_conda.sh
 export PYTHONUNBUFFERED=1
+export TMPDIR="/scratch/$USER/tmp/${SLURM_JOB_ID:-manual}_${SLURM_ARRAY_TASK_ID:-0}"
+mkdir -p "$TMPDIR"
 export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 cd "$REPO"
 conda run --no-capture-output -n abstract_values python -u -W ignore \
