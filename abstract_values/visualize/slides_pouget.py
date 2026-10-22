@@ -95,11 +95,16 @@ def slide(pdf, title, images, bullets=(), kicker=None, img_box=None, note=None,
 def main():
     paper = REPO / "notes" / "papers" / "bedi_et_al2026.pdf"
     pg = render(["fig_summary", "fig_connectopy", "fig_connectopy_npc",
-                 "sim_v1_ips_mapping", str(paper)],
+                 "sim_v1_ips_mapping", "fig_model_comparison", "fig_gradient",
+                 "fig_wrap_behavior", "fig_coupling_components", str(paper)],
                 pages={"bedi_et_al2026": [6, 8, 12, 14]})
     S = pg["fig_summary"][0]
     C = pg["fig_connectopy"][0]
     N = pg["fig_connectopy_npc"][0]
+    M = pg["fig_model_comparison"][0]
+    G = pg["fig_gradient"][0]
+    WB = pg["fig_wrap_behavior"][0]
+    CC = pg["fig_coupling_components"][0]
     S1, S2 = pg["sim_v1_ips_mapping"]
     B1, B2, B3, B4 = pg["bedi_et_al2026"]          # paper Figs 1, 2, 3, 4
     out = FIG / "slides_pouget.pdf"
@@ -188,20 +193,29 @@ def main():
                (crop(S, 0, 0.098, 1, 0.19), [0.03, 0.06, 0.94, 0.40])],
               kicker="Encoding models", **nxt())
 
-        slide(pdf, "V1 is a circle, parietal cortex an ordered line, and the line\ndoes not re-scale with the mapping",
-              [(crop(S, 0, 0.503, 1, 0.578), [0.03, 0.12, 0.64, 0.64])],
-              ["Crossnobis RDMs over the\n23 orientations",
-               "V1: 7.5° and 172.5° are\nneighbours. IPS: the far ends",
-               "!Against C: no re-allocation\nof resolution visible in the\nparietal geometry"],
+        slide(pdf, "V1 is a circle, parietal cortex a line: IPS codes value,\nnot orientation",
+              [(crop(S, 0, 0.503, 1, 0.5695), [0.03, 0.12, 0.64, 0.64])],
+              ["V1: 7.5° and 172.5° are\nneighbours. IPS: the far ends",
+               "Geometry over orientations is\nthe same in both sessions, as\na quantile value code predicts",
+               "Orientation has no edge at\n0°/180°. Value does: 42 CHF\nnext to 2 CHF",
+               "!The IPS axis is cut where\nthe task puts it, not where\nthe stimulus does"],
               kicker="Representational geometry", **nxt())
 
         slide(pdf, "The catch: a fixed orientation code already looks 'efficient'",
               [(crop(S2, 0, 0.03, 1, 0.47), [0.03, 0.14, 0.62, 0.66])],
               [r"Uniform θ, monotone f:" "\n" r"quantile of v = rank of θ",
                r"$I_v = I_\theta\,(d\theta/dv)^2 \propto p(v)^2$",
-               "Efficient-coding signatures\ncan't tell A from B here",
-               "Tuning comparison neither:\norientation model wins\n~55–60% in V1 and in IPS"],
+               "Efficient-coding signatures\nalone can't tell A from B",
+               "!What separates them:\nwrap-around. A sensory code\nis a circle, a value code\nis a line"],
               kicker="Theory", bullet_box=(0.69, 0.80), **nxt())
+
+        slide(pdf, "Tuning: circle in V1, line in IPS, and the IPS line tracks\nthe session's value distribution",
+              [(crop(M, 0, 0, 1, 1), [0.02, 0.05, 0.64, 0.78])],
+              ["Same parameter count, cvR²,\nall voxels, n = 35",
+               "Circle vs line flips: V1–3\ncircle, IPS line (IPS vs V1–3\nt(34) = −4.7, p < .001)",
+               "Preferred values follow the\nvalue distribution (quantile)\nbetter than fixed CHF, incl.\nIPS1–2 and IPS3–5",
+               "!An efficient value code in\nthe tuning itself (C)"],
+              kicker="Model comparison", bullet_box=(0.69, 0.80), **nxt())
 
         slide(pdf, "What B predicts that A does not: the preferred orientation moves",
               [(crop(S1, 0, 0.51, 1, 0.752), [0.03, 0.42, 0.64, 0.42]),
@@ -235,24 +249,46 @@ def main():
                "NPC and Wang IPS overlap:\nnot independent"],
               kicker="Robustness", **nxt())
 
-        slide(pdf, "Who routes better has less value noise",
-              [(crop(C, 0, 0.70, 0.37, 1.0), [0.03, 0.14, 0.33, 0.66]),
-               (crop(S, 0, 0.905, 1, 0.99), [0.37, 0.20, 0.60, 0.50])],
-              note="Left: routing score vs model value precision (ρ = .35, p = .04; "
-                   "r = .48). Right: value decoding precision vs model noise, per region.",
-              kicker="Individual differences", **nxt())
+        slide(pdf, "Most coupling is a stable, orientation-locked link: exactly what\na quantile value code needs",
+              [(crop(CC, 0, 0, 1, 0.47), [0.02, 0.43, 0.66, 0.38]),
+               (crop(CC, 0, 0.5, 1, 1), [0.02, 0.03, 0.66, 0.38])],
+              ["Fit both at once: a stable\ntemplate (a) + one that moves\nwith the mapping (b)",
+               "Stable part: a = +.037,\nt(34) = 6.4. Survives gain\nremoval and low-drive trials",
+               "Moving part: on strongly\ndriven trials (b = +.016,\np = .02)",
+               "!Uniform θ + monotone map:\nfixed wiring from orientation\nrank already yields the\nefficient value code"],
+              kicker="Connectivity, two components", bullet_box=(0.71, 0.80),
+              note="IPS0–5, n = 34–35. Moving part: n.s. over all trials (+.006) "
+                   "or after gain removal; tracks the original score (r = .43).", **nxt())
+
+        slide(pdf, "Brain maps onto the model's stages: V1 with perception,\nIPS with valuation",
+              [(crop(G, 0, 0, 1, 1), [0.02, 0.05, 0.64, 0.76])],
+              ["Code strength vs the cognitive\nmodel's precision per stage\n(partial r, n = 35)",
+               "V1 orientation code and\nperceptual precision: +.40",
+               "IPS0–5 value code and value\nprecision: +.31 to +.39",
+               "!Inside the model as covariates:\na stronger IPS value code means\nless value noise (+1.8 [0.7, 3.1]\nlogit share), in both fits"],
+              kicker="Individual differences", bullet_box=(0.69, 0.80),
+              note="Sequential fit, n = 35. The IPS half holds in every fit variant; "
+                   "the V1 half depends on how the fit splits the noise.", **nxt())
+
+        slide(pdf, "Code shape predicts bid precision, with opposite signs\nin V1 and IPS",
+              [(crop(WB, 0, 0, 1, 1), [0.02, 0.18, 0.66, 0.58])],
+              ["Precise bidders: a circular\ncode in V1–3 (ρ ≈ −.4) and a\nline-like code in IPS0–2\n(ρ ≈ +.4 to +.5)",
+               "Behaviour already says the\nreadout doesn't wrap: 1° is\nnever bid as 42 CHF",
+               "Who routes more has less\nvalue noise (IPS0–5,\nρ = −.38, p = .02)"],
+              kicker="Individual differences", bullet_box=(0.71, 0.80), **nxt())
 
         slide(pdf, "Summary and questions", [],
-              ["!Fixed codes (V1 circle, parietal line), flexible routing between them",
-               "How to test value vs orientation coding when efficient-coding\n"
-               "signatures are identical by design?",
+              ["!V1 codes orientation on a circle; IPS codes value on a line",
+               "!The IPS code tracks the value distribution, and its strength and\n"
+               "shape predict value-stage precision",
+               "!V1 to IPS: a stable orientation-rank link, plus routing that\n"
+               "follows the mapping on strongly driven trials",
+               "Quantile value = orientation rank by design: which experiment\n"
+               "separates an efficient value code from a relabelled sensory axis?\n"
+               "(non-uniform orientation sampling, non-monotone mapping)",
                "Re-routing vs a fixed population with a flexible readout:\n"
                "what distinguishes them in population activity?",
-               "Can decoded (posterior) uncertainty in V1 / IPS separate\n"
-               "perceptual from value noise where bids cannot?",
-               "Should routing show up in (information-limiting) noise correlations?",
-               "Single-peak vs multi-peak tuning: which label should\n"
-               "the routing test use?"],
+               "Should routing show up in (information-limiting) noise correlations?"],
               bullet_box=(0.08, 0.78), **nxt())
     print(f"Wrote {out} ({i} slides)")
 
