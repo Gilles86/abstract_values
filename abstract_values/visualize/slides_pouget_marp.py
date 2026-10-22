@@ -413,6 +413,45 @@ def fmri_design(out):
     save(fig, out)
 
 
+def pref_hist(out):
+    """Raw preferred values per session (session-shift fits, permutation-selected
+    voxels) against each session's value density."""
+    import abstract_values.visualize.figure_rf_shift as rf
+    ori, maps = load_mappings()
+    v = rf.load(True)
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.0),
+                             gridspec_kw=dict(wspace=.12, left=.04, right=.98,
+                                              bottom=.18, top=.78))
+    bins = np.linspace(2, 42, 21)
+    g = np.linspace(2, 42, 400)
+    for ax, (lab, rois) in zip(axes, (("V1–3", ["BensonV1", "BensonV2", "BensonV3"]),
+                                      ("IPS0–5", ["IPS0", "IPS12", "IPS345"]))):
+        d = rf.sel(v, rois)
+        for m, col in (("cdf", "mode_cdf"), ("inverse_cdf", "mode_invcdf")):
+            k = kde(maps[m][1:-1], g, bw=1.6)
+            ax.fill_between(g, 0, .55 * k / k.max(), color=SES_COL[m], alpha=.14, lw=0)
+            h = np.histogram(d[col], bins=bins, density=True)[0]
+            ax.step(bins[:-1] + 1, h / h.max(), where="mid", color=SES_COL[m], lw=2.4)
+        ax.set_xlim(2, 42)
+        ax.set_ylim(0, 1.05)
+        ax.set_xticks([2, 12, 22, 32, 42])
+        ax.set_xlabel("Preferred value (CHF)")
+        ax.set_title(f"{lab}: {len(d)} voxels, {d.subject.nunique()} people", loc="left",
+                     fontsize=15)
+        despine(ax, left=False)
+    x0 = .04
+    for i, m in enumerate(SES):
+        fig.lines.append(plt.Line2D([x0 + .27 * i, x0 + .27 * i + .03], [.95, .95],
+                                    transform=fig.transFigure, color=SES_COL[m], lw=2.4))
+        fig.text(x0 + .27 * i + .04, .95, f"Preferred values, {SES_NAME[m]}",
+                 color=SES_COL[m], fontsize=13, va="center")
+    fig.patches.append(plt.Rectangle((.6, .93), .03, .04, transform=fig.transFigure,
+                                     color="0.3", alpha=.15, lw=0))
+    fig.text(.64, .95, "Value density p(v), per session", fontsize=13, va="center",
+             color="0.35")
+    save(fig, out)
+
+
 # ── crops of existing figures ────────────────────────────────────────────────
 
 def render(pdf, page=None, dpi=250):
@@ -463,5 +502,6 @@ if __name__ == "__main__":
     fmri_design(od / "av_fmri_design.png")
     circle_line(od / "av_circle_line.png")
     lam(od / "av_lambda.png")
+    pref_hist(od / "av_pref_hist.png")
     wiring(od / "av_wiring.png")
     crops(od)

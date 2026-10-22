@@ -11,6 +11,12 @@ Output: derivatives/encoding_models/lambda_profile/sub-<S>/
   sub-<S>{_smoothed}_profile.tsv   ROI-mean cvR^2 per lambda
   sub-<S>{_smoothed}_lamhat.tsv    lambda-hat, bootstrap CI, profile depth
 
+With --whole-brain: the same coding model in every brain-mask voxel on a
+coarser grid (lambda -0.5 to 1.5, step 0.25), written as NIfTIs:
+  sub-<S>{_smoothed}_desc-lambdacvr2_pe.nii.gz   4-D, one volume per lambda
+  sub-<S>{_smoothed}_desc-lambdahat_pe.nii.gz    argmax (parabola through the peak)
+  sub-<S>{_smoothed}_desc-lambdagain_pe.nii.gz   max cvR^2 - cvR^2(lambda = 0)
+
 With --bids: reported value instead. Only trials with a valid bid, and the
 same Gaussian coding model on five stimulus axes:
   value      objective value (= mix lambda 0)
@@ -66,6 +72,64 @@ def bid_axes(par):
         rank[i] = (rankdata(par['bid'].to_numpy()[i]) - .5) / i.sum()
     return {'value': v, 'quantile': stimulus_axis(v, ses, 'mix:1.0'),
             'bid': par['bid'].to_numpy(), 'mean-bid': mean_bid, 'bid-rank': 2 + 40 * rank}
+
+
+LAMBDAS_BRAIN = np.round(np.arange(-.5, 1.5001, .25), 2)
+
+
+def main_brain(subject, bids_folder=BIDS_FOLDER, smoothed=False, chunk=4000):
+    import nibabel as nib
+    from nilearn import image as nimage
+    from nilearn.maskers import NiftiMasker
+    bids_folder = Path(bids_folder)
+    sub = Subject(subject, bids_folder=bids_folder)
+    sessions = sorted(sub.get_sessions())
+    par = get_paradigm(sub, sessions)
+    betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=smoothed)
+    ref = nimage.index_img(betas, 0)
+    mask = nimage.resample_to_img(sub.get_brain_mask(sessions[0]), ref,
+                                  interpolation='nearest', force_resample=True,
+                                  copy_header=True)
+    mask = nimage.new_img_like(ref, (mask.get_fdata() > 0).astype(np.uint8))
+    masker = NiftiMasker(mask).fit()
+    Y = masker.transform(betas).astype(np.float64)
+    ok = np.isfinite(Y).all(0) & (Y.std(0) > 0)
+    Y = demean_runs(np.where(ok, Y, 0), par)
+    folds = [((par['session'] == s) & (par['run'] == r)).to_numpy()
+             for (s, r), _ in par.groupby(['session', 'run'])]
+    code = {lam: tc.coding_regressor(stimulus_axis(par['value'].to_numpy(),
+                                                   par['session'].to_numpy(),
+                                                   f'mix:{lam}'))
+            for lam in LAMBDAS_BRAIN}
+    cv = np.full((len(LAMBDAS_BRAIN), Y.shape[1]), np.nan)
+    idx = np.flatnonzero(ok)
+    for c0 in range(0, len(idx), chunk):
+        v = idx[c0:c0 + chunk]
+        for k, lam in enumerate(LAMBDAS_BRAIN):
+            cv[k, v] = tc.cv_fit(Y[:, v], [code[lam]], folds)
+        print(f'  voxels {c0 + len(v)}/{len(idx)}', flush=True)
+    k0 = int(np.argmin(np.abs(LAMBDAS_BRAIN)))
+    step = LAMBDAS_BRAIN[1] - LAMBDAS_BRAIN[0]
+    kk = np.nanargmax(np.where(np.isfinite(cv), cv, -np.inf), 0)
+    hat = LAMBDAS_BRAIN[kk].astype(float)
+    inner = (kk > 0) & (kk < len(LAMBDAS_BRAIN) - 1)
+    j = np.flatnonzero(inner)
+    y0, y1, y2 = cv[kk[j] - 1, j], cv[kk[j], j], cv[kk[j] + 1, j]
+    den = y0 - 2 * y1 + y2
+    hat[j] += np.where(den < 0, .5 * (y0 - y2) / np.where(den < 0, den, -1), 0) * step
+    gain = np.nanmax(cv, 0) - cv[k0]
+    hat[~ok] = np.nan
+    tag = '_smoothed' if smoothed else ''
+    out = bids_folder / 'derivatives' / 'encoding_models' / 'lambda_profile' / f'sub-{subject}'
+    out.mkdir(parents=True, exist_ok=True)
+    for name, arr in (('lambdacvr2', cv), ('lambdahat', hat[None]), ('lambdagain', gain[None])):
+        img = masker.inverse_transform(arr.astype(np.float32))
+        if arr.shape[0] == 1:
+            img = nimage.index_img(img, 0)
+        img.set_data_dtype(np.float32)
+        img.header.set_slope_inter(slope=1, inter=0)
+        img.to_filename(out / f'sub-{subject}{tag}_desc-{name}_pe.nii.gz')
+    print(f'saved to {out}')
 
 
 def main_bids(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
@@ -174,6 +238,11 @@ if __name__ == '__main__':
     p.add_argument('--n-boot', type=int, default=1000)
     p.add_argument('--bids', action='store_true',
                    help='reported-value axes instead of the lambda profile')
+    p.add_argument('--whole-brain', action='store_true',
+                   help='per-voxel lambda profile in the whole brain mask (NIfTIs)')
     a = p.parse_args()
-    (main_bids if a.bids else main)(a.subject, a.bids_folder, a.smoothed, a.targets,
-                                    a.n_boot)
+    if a.whole_brain:
+        main_brain(a.subject, a.bids_folder, a.smoothed)
+    else:
+        (main_bids if a.bids else main)(a.subject, a.bids_folder, a.smoothed, a.targets,
+                                        a.n_boot)
