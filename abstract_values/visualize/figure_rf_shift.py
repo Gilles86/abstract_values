@@ -18,9 +18,12 @@ mapping should prefer under the other:
         pulls any curve fitted through these clouds towards the diagonal, so
         lambda itself is estimated from the cvR² profile of the mix-<lambda>
         fits (collect_mix_lambda.py), not from this plot
-  g     preferred-value distributions per session vs the value density p(v)
-        of that mapping, IPS0–5 (an efficient population puts more preferred
-        values where values are dense)
+  g, h  preferred-value distributions per session vs the value density p(v)
+        of that mapping, V1–3 and IPS0–5 (an efficient population puts more
+        preferred values where values are dense)
+  i, j  the same preferred values as orientations (each through its own
+        session's mapping): a quantile / orientation-rank code overlaps here,
+        a fixed-value code does not
 
 Voxels: permutation-selected on the fixed-value (gaussian) model, which is
 neutral to or against shifting; preferred values off the 2/42 CHF grid edges.
@@ -131,9 +134,9 @@ def square(ax):
 
 def main(out, smoothed):
     v = load(smoothed)
-    fig = plt.figure(figsize=(7.25, 5.0))
-    gt = fig.add_gridspec(1, 6, wspace=.5, left=.07, right=.99, top=.9, bottom=.56)
-    gb = fig.add_gridspec(1, 2, wspace=.3, left=.07, right=.99, top=.4, bottom=.09)
+    fig = plt.figure(figsize=(7.25, 7.0))
+    gt = fig.add_gridspec(1, 6, wspace=.5, left=.07, right=.99, top=.93, bottom=.68)
+    gb = fig.add_gridspec(2, 2, wspace=.3, hspace=.6, left=.07, right=.99, top=.55, bottom=.07)
     axes = [fig.add_subplot(gt[0, i]) for i in range(6)]
     rows = []
 
@@ -201,7 +204,33 @@ def main(out, smoothed):
             ax.text(.64, .85, "Value density p(v)", transform=ax.transAxes,
                     fontsize=6, va="center")
 
-    for ax, l in zip(axes + fig.axes[6:], "abcdefgh"):
+    # i, j: the same voxels' preferred ORIENTATION per session (value -> the
+    # orientation that carries it under that session's mapping). A quantile /
+    # orientation-rank code puts both sessions on top of each other here; a
+    # fixed-value code separates them.
+    ori_grid = np.linspace(0, 180, 361)
+    for j, (roi_lab, dd) in enumerate((("V1–3", sel(v, ["BensonV1", "BensonV2", "BensonV3"])),
+                                       ("IPS0–5", d))):
+        ax = fig.add_subplot(gb[1, j])
+        for m, col in (("cdf", "mode_cdf"), ("inverse_cdf", "mode_invcdf")):
+            th = np.interp(dd[col], MAPPINGS[m], ORI_TABLE)
+            kde = stats.gaussian_kde(th, bw_method=.12)(ori_grid)
+            ax.plot(ori_grid, kde / kde.max(), color=SES_COL[m], lw=1.5)
+        a_ = np.interp(dd.mode_cdf, MAPPINGS["cdf"], ORI_TABLE)
+        b_ = np.interp(dd.mode_invcdf, MAPPINGS["inverse_cdf"], ORI_TABLE)
+        r_th = stats.spearmanr(a_, b_)[0]
+        r_v = stats.spearmanr(dd.mode_cdf, dd.mode_invcdf)[0]
+        ax.text(.98, .95, f"Cross-session ρ: orientation {r_th:.2f}, value {r_v:.2f}",
+                transform=ax.transAxes, ha="right", va="top", fontsize=6)
+        ax.set_xlim(0, 180)
+        ax.set_xticks([0, 45, 90, 135, 180])
+        ax.set_yticks([])
+        ax.spines["left"].set_visible(False)
+        ax.set_xlabel("Preferred orientation (°), via each session's mapping")
+        ax.set_title(f"{roi_lab}: the same voxels in orientation space", loc="left",
+                     fontweight="bold")
+
+    for ax, l in zip(axes + fig.axes[6:], "abcdefghij"):
         ax.text(-.32 if ax is axes[0] else -.12, 1.12, l, transform=ax.transAxes,
                 fontsize=9, fontweight="bold")
     res = pd.DataFrame(rows)
