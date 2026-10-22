@@ -42,6 +42,15 @@ session order is counterbalanced, says whether that part tracks the mapping.
 Outputs, under derivatives/connective_fields/coupling/sub-<S>/:
   sub-<S>_desc-scores.tsv    observed and label-shuffled scores per direction
   sub-<S>_desc-bytuning.tsv  observed score binned by the target voxels' tuning
+  sub-<S>_desc-voxels.tsv    (--template mixture) per-voxel orientation (a) and
+                             value (b) components + cvR2(quantile) - cvR2(fixed)
+
+--template mixture fits, per target voxel, the stacked CFs of both sessions on
+two templates at once: a session-invariant one from an unwrapped Gaussian on
+orientation (the 'quantile' aPRF: orientation-wired) and the value template read
+through each session's own mapping (value-wired). 'score' is then the mean value
+weight b, 'score_orientation' the mean orientation weight a; both against
+label shuffles as usual.
 
 Usage:
   python -m abstract_values.connective_fields.test_coupling 03
@@ -172,6 +181,50 @@ def orientation_prediction(mu, kappa, channel_oris):
     return p - p.mean(0, keepdims=True)
 
 
+QUANTILE_MUS = np.arange(7.5, 172.5 + 1e-9, 2.5)
+QUANTILE_SDS = np.array([7.5, 10., 15., 20., 30., 45., 60.])
+
+
+def quantile_fit(y, theta):
+    """Unwrapped Gaussian on orientation = the 'quantile' aPRF (in this design the
+    value quantile is the orientation rank). Best (mu, sd) per voxel by
+    correlation; y: trials x voxels, run-demeaned."""
+    mu, sd = np.meshgrid(QUANTILE_MUS, QUANTILE_SDS, indexing='ij')
+    g = np.exp(-0.5 * ((theta[None, :] - mu.ravel()[:, None]) / sd.ravel()[:, None]) ** 2)
+    r = zscore(g, axis=1) @ zscore(y, axis=0) / len(theta)
+    best = np.nanargmax(r, axis=0)
+    return mu.ravel()[best], sd.ravel()[best]
+
+
+def quantile_prediction(mu, sd, channel_oris):
+    """Session-invariant template: the same orientation profile under both
+    mappings (channel orientations on the unwrapped 0-180 line)."""
+    p = np.exp(-0.5 * ((channel_oris[:, None] - mu[None, :]) / sd[None, :]) ** 2)
+    return p - p.mean(0, keepdims=True)
+
+
+def unit(x):
+    """Columns scaled to unit norm (templates centred over channels already)."""
+    with np.errstate(invalid='ignore', divide='ignore'):
+        return x / np.linalg.norm(x, axis=0, keepdims=True)
+
+
+def two_component_fit(per_session, q_tpl, v_tpls):
+    """Per-voxel OLS of the stacked CFs (both sessions) on two templates:
+    a = session-invariant orientation (quantile) template, b = value template
+    read through each session's own mapping. Returns a, b (voxels,)."""
+    y = np.concatenate([x['cf'] for x in per_session], 0)            # (2C, vox)
+    xa = np.concatenate([unit(q_tpl)] * len(per_session), 0)
+    xb = np.concatenate([unit(v) for v in v_tpls], 0)
+    saa, sbb, sab = (xa * xa).sum(0), (xb * xb).sum(0), (xa * xb).sum(0)
+    sya, syb = (y * xa).sum(0), (y * xb).sum(0)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        det = saa * sbb - sab ** 2
+        a = (sbb * sya - sab * syb) / det
+        b = (saa * syb - sab * sya) / det
+    return a, b
+
+
 def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, lags=0,
                   sham_outer=False, gain=False, drive='all', template='bell'):
     """``gain``: remove each region's per-trial gain (gates.remove_gain) from the
@@ -233,7 +286,38 @@ def run_direction(direction, par, target, source, n_channels, n_shuffle, rng, la
             rank = pred.argsort(0, kind='stable').argsort(0)
             low = rank < len(pred) // 2
             cf = masked_connective_field(res_tgt, d, low if drive == 'low' else ~low)
-        per_session.append(dict(cf=cf, right=chan(cond), wrong=chan(wrong)))
+        per_session.append(dict(cf=cf, right=chan(cond), wrong=chan(wrong),
+                                centres=centres))
+
+    if template == 'mixture':
+        if target['kind'] != 'value' or source['kind'] != 'orientation':
+            raise ValueError('the mixture template is implemented for npc_from_v1 only')
+        q_mu, q_sd = quantile_fit(demean_runs(target['y'], par),
+                                  par['orientation'].to_numpy(float))
+        centres = per_session[0]['centres']
+
+        def mix(lab):
+            lo, wi, qm, qs = lab
+            q_tpl = quantile_prediction(qm, qs, centres)
+            v_tpls = [value_prediction(lo, wi, x['right']) for x in per_session]
+            return two_component_fit(per_session, q_tpl, v_tpls)
+
+        labels = (loc, wid, q_mu, q_sd)
+        a_obs, b_obs = mix(labels)
+        rows = [{'direction': direction, 'kind': 'observed', 'perm': -1,
+                 'score': float(np.nanmean(b_obs)), 'score_orientation': float(np.nanmean(a_obs)),
+                 'n_target': len(loc)}]
+        for k in range(n_shuffle):
+            perm = rng.permutation(len(loc))
+            a_sh, b_sh = mix(tuple(x[perm] for x in labels))
+            rows.append({'direction': direction, 'kind': 'label-shuffle', 'perm': k,
+                         'score': float(np.nanmean(b_sh)),
+                         'score_orientation': float(np.nanmean(a_sh)), 'n_target': len(loc)})
+        voxels = pd.DataFrame({'mode': loc, 'fwhm': wid, 'q_mu': q_mu, 'q_sd': q_sd,
+                               'a_orientation': a_obs, 'b_value': b_obs,
+                               'delta_quantile_fixed': target.get('delta')})
+        voxels['direction'] = direction
+        return pd.DataFrame(rows), voxels
 
     if template == 'basis':
         if target['kind'] != 'value':
@@ -318,6 +402,11 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
     y_v1, sel_v1 = load_roi(sub, betas, 'BensonV1ecc075-375', 'vonmises.cv', bids_folder,
                             smoothed)
     npc_tuned = dict(y=y_npc[:, sel_npc], kind='value', stim='value')
+    if template == 'mixture':
+        # per-voxel tuning preference, quantile vs fixed value (cvR2 difference)
+        _, _, dq = load_roi(sub, betas, target_roi, 'aprf-quantile.cv', bids_folder,
+                            smoothed, compare='aprf-gauss.cv', selection='all')
+        npc_tuned['delta'] = dq[sel_npc]
     v1_tuned = dict(y=y_v1[:, sel_v1], kind='orientation', stim='orientation')
     v1_all = dict(y=y_v1, kind='orientation', stim='orientation', projection=projection,
                   n_basis=n_basis, kappa=kappa)
@@ -342,7 +431,8 @@ def main(subject, bids_folder=BIDS_FOLDER, n_channels=8, n_shuffle=200, seed=0,
            / f'sub-{subject}')
     out.mkdir(parents=True, exist_ok=True)
     scores.to_csv(out / f'sub-{subject}_desc-scores.tsv', sep='\t', index=False)
-    by.to_csv(out / f'sub-{subject}_desc-bytuning.tsv', sep='\t', index=False)
+    by.to_csv(out / f'sub-{subject}_desc-{"voxels" if template == "mixture" else "bytuning"}.tsv',
+              sep='\t', index=False)
     summ = scores.groupby(['direction', 'kind'])['score'].agg(['mean', 'std'])
     print(summ)
     print(f'saved to {out}')
@@ -374,9 +464,11 @@ if __name__ == '__main__':
                    default='all',
                    help='Only target voxels where aprf.cv beats / loses to vonmises-prf.cv '
                         '(value / orientation) or to aprf-weighted.cv (bell / basis)')
-    p.add_argument('--template', choices=['bell', 'basis'], default='bell',
+    p.add_argument('--template', choices=['bell', 'basis', 'mixture'], default='bell',
                    help='Value-target prediction: single-peak aPRF label (bell) or the full '
-                        'value-basis tuning curve (basis, aprf-weighted design)')
+                        'value-basis tuning curve (basis, aprf-weighted design); mixture: '
+                        'joint fit of a session-invariant quantile (orientation-rank) '
+                        'template and the mapping-following value template')
     a = p.parse_args()
     main(a.subject, bids_folder=a.bids_folder, n_channels=a.n_channels,
          n_shuffle=a.n_shuffle, smoothed=a.smoothed, lags=a.lags, sham_outer=a.sham_outer,
