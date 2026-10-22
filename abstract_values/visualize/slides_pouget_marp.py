@@ -237,25 +237,21 @@ def lam(out):
     ax.set_ylabel("Δ cvR² vs λ = 0 (×10⁻³)")
     ax.set_title("Data, n = 35", loc="left", fontsize=15)
     despine(ax)
-    # d: lambda-hat per ROI: participants (IQR) and group (bootstrap 95% CI)
-    ax = fig.add_axes([.85, .2, .14, .66])
+    # d: group lambda-hat per ROI (argmax of the mean profile, bootstrap 95% CI)
+    ax = fig.add_axes([.85, .2, .13, .66])
     for i, roi in enumerate(ftc.ROIS):
         y = len(ftc.ROIS) - 1 - i
-        h = hat[hat.roi == roi].lam_hat
-        ax.plot(h, y + rng.uniform(-.18, .18, len(h)), "o", ms=3, color=ROI_COL[roi],
-                alpha=.35, mew=0)
-        ax.plot(h.quantile([.25, .75]), [y, y], color=ROI_COL[roi], lw=1.5, alpha=.7)
         g, lo, hi = group[roi]
         ax.plot([lo, hi], [y, y], color=ROI_COL[roi], lw=5, solid_capstyle="round")
-        ax.plot(g, y, "o", ms=9, color="w", mec=ROI_COL[roi], mew=2.2)
-    for l, c in ((0, VAL_COL), (1, ORI_COL)):
-        ax.axvline(l, color=c, lw=1.2, alpha=.5, zorder=0)
+        ax.plot(g, y, "o", ms=10, color="w", mec=ROI_COL[roi], mew=2.4)
+    ax.axvline(1, color=ORI_COL, lw=1.2, alpha=.5, zorder=0)
     ax.set_yticks(range(len(ftc.ROIS)))
     ax.set_yticklabels([ROI_NAME[r] for r in ftc.ROIS][::-1])
     for t, r in zip(ax.get_yticklabels(), ftc.ROIS[::-1]):
         t.set_color(ROI_COL[r])
-    ax.set_xlim(-1.05, 2.05)
-    ax.set_xticks([-1, 0, 1, 2])
+    ax.set_xlim(.3, 1.7)
+    ax.set_xticks([.5, 1, 1.5])
+    ax.set_ylim(-.6, len(ftc.ROIS) - .4)
     ax.set_xlabel("λ")
     ax.set_title("Estimated λ", loc="left", fontsize=15)
     despine(ax)
