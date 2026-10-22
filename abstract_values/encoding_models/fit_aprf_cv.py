@@ -37,7 +37,7 @@ from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.fit_pipeline import fit_one_model
 from abstract_values.encoding_models.model_specs import (
-    get_spec, list_model_types, value_quantiles,
+    get_spec, list_model_types, value_quantiles, stimulus_axis,
 )
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
@@ -78,15 +78,13 @@ def get_paradigm(sub, sessions, needs_session: bool,
                         'value': float(row['value']),
                         'quantile': float(row['value']),
                         'quantile-wrapped': float(row['value']),
-                        'bid': bid}[space]
+                        'bid': bid}['value' if space.startswith('mix:') else space]
                 rows.append({'session': session, 'run': run,
                               'x': stim, 'bid': bid,
                               'session_idx': float(ses_idx)})
     df = pd.DataFrame(rows)
-    if space in ('quantile', 'quantile-wrapped'):
-        df['x'] = value_quantiles(df['x'], df['session'])
-        if space == 'quantile-wrapped':
-            df['x'] *= np.pi
+    if space in ('quantile', 'quantile-wrapped') or space.startswith('mix:'):
+        df['x'] = stimulus_axis(df['x'], df['session'], space)
     df = df.astype({'x': np.float32, 'bid': np.float32,
                     'session_idx': np.float32})
     df.index = pd.MultiIndex.from_frame(

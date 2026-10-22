@@ -44,7 +44,7 @@ from nilearn.maskers import NiftiMasker
 
 from abstract_values.encoding_models.fit_pipeline import fit_one_model
 from abstract_values.encoding_models.model_specs import (
-    get_spec, list_model_types, value_quantiles,
+    get_spec, list_model_types, value_quantiles, stimulus_axis,
 )
 from abstract_values.utils.data import Subject, BIDS_FOLDER
 
@@ -83,10 +83,8 @@ def get_value_paradigm(sub, sessions, needs_session: bool,
                         if space == 'orientation' else float(row['value']))
                 rows.append((stim, float(ses_idx)))
     arr = np.asarray(rows, dtype=np.float32)
-    if space in ('quantile', 'quantile-wrapped'):
-        arr[:, 0] = value_quantiles(arr[:, 0], arr[:, 1])
-        if space == 'quantile-wrapped':
-            arr[:, 0] *= np.pi
+    if space in ('quantile', 'quantile-wrapped') or space.startswith('mix:'):
+        arr[:, 0] = stimulus_axis(arr[:, 0], arr[:, 1], space)
     if not needs_session:
         return pd.DataFrame({'x': arr[:, 0]})
     unique = set(np.unique(arr[:, 1]).tolist())

@@ -379,6 +379,26 @@ for _base in ('session-shift', 'linear'):
 for _base in ('vonmises-prf', 'null'):
     MODEL_SPECS[f'{_base}-bidmatched'] = _twin(_base, 'bidmatched')
 
+# ── Fixed-value ↔ quantile mixture (shared lambda, after neural_priors) ─────
+# The stimulus axis is x = (1 - lambda) * value + lambda * (2 + 40 * quantile):
+# lambda = 0 is 'gaussian' (fixed CHF), lambda = 1 is 'quantile' (the session's
+# value distribution, = orientation rank in this design), on the same CHF scale
+# so the grid and priors are identical across lambda. lambda is one number for
+# every voxel: each spec fixes it, and the cvR² profile over the lambda grid
+# (summed over an ROI) estimates it per participant x ROI.
+MIX_LAMBDAS = (-0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25)
+
+
+def mix_tag(lam):
+    return f'{lam:+.2f}'.replace('+', 'p').replace('-', 'm').replace('.', '')
+
+
+for _lam in MIX_LAMBDAS:
+    _t = mix_tag(_lam)
+    MODEL_SPECS[f'mix-{_t}'] = replace(
+        MODEL_SPECS['gaussian'], name=f'mix-{_t}', out_subdir=f'aprf-mix-{_t}',
+        cv_out_subdir=f'aprf-mix-{_t}.cv', stimulus_space=f'mix:{_lam}')
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def value_quantiles(values, sessions):
@@ -433,3 +453,19 @@ def build_warm_start_init(target_spec: ModelSpec, source_pars):
                 f"(have {list(source_pars.columns)}).")
         cols[p] = source_pars[src].values
     return pd.DataFrame(cols, index=source_pars.index)
+
+
+def stimulus_axis(values, sessions, space):
+    """Map objective values to the model's stimulus axis for the value-derived
+    spaces: 'quantile' (mid-rank quantile in [0, 1]), 'quantile-wrapped'
+    (times pi) and 'mix:<lambda>' ((1 - lambda) * value + lambda * (2 + 40 *
+    quantile), CHF scale). Other spaces: returned unchanged."""
+    import numpy as np
+    values = np.asarray(values, dtype=float)
+    if space in ('quantile', 'quantile-wrapped'):
+        q = value_quantiles(values, sessions)
+        return q * np.pi if space == 'quantile-wrapped' else q
+    if space.startswith('mix:'):
+        lam = float(space.split(':', 1)[1])
+        return (1 - lam) * values + lam * (2 + 40 * value_quantiles(values, sessions))
+    return values
