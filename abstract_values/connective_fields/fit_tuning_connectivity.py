@@ -92,30 +92,30 @@ def coding_regressor(x):
 def cv_fit(Y, regs, folds, positive=(0,)):
     """Leave-one-run-out grid fit. regs: list of (n_shapes, n_trials) arrays, one
     per regressor (plus an intercept). Shape chosen per voxel by training SSE;
-    coefficients listed in ``positive`` must be > 0. Returns cvR^2 per voxel."""
+    coefficients listed in ``positive`` must be > 0. Returns cvR^2 per voxel.
+    All shapes are solved at once (batched normal equations)."""
     n_shapes = regs[0].shape[0]
     pred = np.zeros_like(Y)
+    vi = np.arange(Y.shape[1])
     for te in folds:
         tr = ~te
         Ytr = Y[tr]
-        best = np.full(Y.shape[1], np.inf)
-        coef_best = np.zeros((len(regs) + 1, Y.shape[1]))
-        shape_best = np.zeros(Y.shape[1], int)
-        for k in range(n_shapes):
-            X = np.column_stack([np.ones(tr.sum())] + [r[k, tr] for r in regs])
-            xtx = X.T @ X
-            if np.linalg.cond(xtx) > 1e10:
-                continue
-            coef = np.linalg.solve(xtx, X.T @ Ytr)
-            sse = ((Ytr - X @ coef) ** 2).sum(0)
-            ok = np.all(coef[[1 + p for p in positive]] > 0, 0) if positive else True
-            better = ok & (sse < best)
-            best[better] = sse[better]
-            coef_best[:, better] = coef[:, better]
-            shape_best[better] = k
-        Xte = np.stack([np.ones(te.sum())] * Y.shape[1], 1)[None]
-        Xte = np.concatenate([Xte] + [r[shape_best][:, te].T[None] for r in regs], 0)
-        pred[te] = np.einsum('rtv,rv->tv', Xte, coef_best)
+        X = np.stack([np.ones((n_shapes, tr.sum()))] + [r[:, tr] for r in regs], -1)  # S,n,p
+        xtx = np.einsum('snp,snq->spq', X, X)
+        xty = np.einsum('snp,nv->spv', X, Ytr)
+        p = xtx.shape[-1]
+        xtx = xtx + 1e-9 * np.trace(xtx, axis1=1, axis2=2)[:, None, None] * np.eye(p)
+        coef = np.linalg.solve(xtx, xty)                                        # S,p,V
+        sse = ((Ytr ** 2).sum(0)[None] - 2 * np.einsum('spv,spv->sv', coef, xty)
+               + np.einsum('spv,spq,sqv->sv', coef, xtx, coef))
+        if positive:
+            ok = np.all(coef[:, [1 + q for q in positive]] > 0, 1)
+            sse = np.where(ok, sse, np.inf)
+        k = np.argmin(sse, 0)                                                   # V
+        cb = coef[k, :, vi]                                                     # V,p
+        Xte = np.stack([np.ones((Y.shape[1], te.sum()))]
+                       + [r[k][:, te] for r in regs], -1)                       # V,nte,p
+        pred[te] = np.einsum('vnp,vp->nv', Xte, cb)
     ss_res = ((Y - pred) ** 2).sum(0)
     ss_tot = ((Y - Y.mean(0)) ** 2).sum(0)
     return 1 - ss_res / ss_tot

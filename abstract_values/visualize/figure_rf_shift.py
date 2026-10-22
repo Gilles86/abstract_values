@@ -21,9 +21,11 @@ mapping should prefer under the other:
   g, h  preferred-value distributions per session vs the value density p(v)
         of that mapping, V1–3 and IPS0–5 (an efficient population puts more
         preferred values where values are dense)
-  i, j  the same preferred values as orientations (each through its own
-        session's mapping): a quantile / orientation-rank code overlaps here,
-        a fixed-value code does not
+  i, j  preferred orientation per session from the orientation-space twin
+        (vonmises-prf-session-shift, unsmoothed). Each per-session fit is
+        biased towards invariance in its own space (value-space modes turned
+        into orientations show spurious session-specific peaks), so b-j are
+        descriptive; lambda comes from the cross-validated profile
 
 Voxels: permutation-selected on the fixed-value (gaussian) model, which is
 neutral to or against shifting; preferred values off the 2/42 CHF grid edges.
@@ -204,30 +206,39 @@ def main(out, smoothed):
             ax.text(.64, .85, "Value density p(v)", transform=ax.transAxes,
                     fontsize=6, va="center")
 
-    # i, j: the same voxels' preferred ORIENTATION per session (value -> the
-    # orientation that carries it under that session's mapping). A quantile /
-    # orientation-rank code puts both sessions on top of each other here; a
-    # fixed-value code separates them.
+    # i, j: preferred ORIENTATION per session from the orientation-space twin
+    # (vonmises-prf-session-shift: axial von Mises, free mu per session,
+    # unsmoothed betas only). Converting the value-space modes above to
+    # orientation instead is misleading: their candidate modes are evenly
+    # spaced in CHF, i.e. crowded wherever a mapping is steep, and noisy
+    # estimates pile up there, so each session gets its own spurious peaks.
+    # Every per-session fit is biased towards invariance in its own space;
+    # the cross-validated lambda profile is what adjudicates.
+    vm = pd.read_csv(REPO / "notes/data/vm_shift_voxels.tsv.gz", sep="\t",
+                     dtype={"subject": str})
+    vu = load(False).merge(vm, on=["subject", "smoothed", "flat_index"])
+    vu = vu[vu.r2_vm > 0]
     ori_grid = np.linspace(0, 180, 361)
-    for j, (roi_lab, dd) in enumerate((("V1–3", sel(v, ["BensonV1", "BensonV2", "BensonV3"])),
-                                       ("IPS0–5", d))):
+    for j, (roi_lab, rois_) in enumerate((("V1–3", ["BensonV1", "BensonV2", "BensonV3"]),
+                                          ("IPS0–5", IPS))):
         ax = fig.add_subplot(gb[1, j])
-        for m, col in (("cdf", "mode_cdf"), ("inverse_cdf", "mode_invcdf")):
-            th = np.interp(dd[col], MAPPINGS[m], ORI_TABLE)
-            kde = stats.gaussian_kde(th, bw_method=.12)(ori_grid)
+        dd = sel(vu, rois_)
+        mus = {m: np.rad2deg(dd[c] % np.pi) for m, c in (("cdf", "mu_cdf"),
+                                                         ("inverse_cdf", "mu_invcdf"))}
+        for m, th in mus.items():
+            ext = np.r_[th - 180, th, th + 180]          # axial: wrap the KDE
+            kde = stats.gaussian_kde(ext, bw_method=.04)(ori_grid)
             ax.plot(ori_grid, kde / kde.max(), color=SES_COL[m], lw=1.5)
-        a_ = np.interp(dd.mode_cdf, MAPPINGS["cdf"], ORI_TABLE)
-        b_ = np.interp(dd.mode_invcdf, MAPPINGS["inverse_cdf"], ORI_TABLE)
-        r_th = stats.spearmanr(a_, b_)[0]
-        r_v = stats.spearmanr(dd.mode_cdf, dd.mode_invcdf)[0]
-        ax.text(.98, .95, f"Cross-session ρ: orientation {r_th:.2f}, value {r_v:.2f}",
-                transform=ax.transAxes, ha="right", va="top", fontsize=6)
+        dth = np.rad2deg(np.angle(np.exp(2j * np.deg2rad(mus["cdf"] - mus["inverse_cdf"]))) / 2)
+        ax.text(1, 1.01, f"Median session difference {np.median(np.abs(dth)):.0f}°\n"
+                f"{len(dd)} voxels, {dd.subject.nunique()} people (unsmoothed)",
+                transform=ax.transAxes, ha="right", va="bottom", fontsize=6)
         ax.set_xlim(0, 180)
         ax.set_xticks([0, 45, 90, 135, 180])
         ax.set_yticks([])
         ax.spines["left"].set_visible(False)
-        ax.set_xlabel("Preferred orientation (°), via each session's mapping")
-        ax.set_title(f"{roi_lab}: the same voxels in orientation space", loc="left",
+        ax.set_xlabel("Preferred orientation (°), orientation-space fit per session")
+        ax.set_title(f"{roi_lab}: preferred orientation per session", loc="left",
                      fontweight="bold")
 
     for ax, l in zip(axes + fig.axes[6:], "abcdefghij"):
