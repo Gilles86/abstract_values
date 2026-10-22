@@ -120,30 +120,25 @@ def circle_line(out):
     d = ps.set_index(["subject", "roi"])
     diff = (d["quantile_wrapped"] - d["quantile"]).rename("diff").reset_index()
     fig = plt.figure(figsize=(11.5, 4.3))
-    # schematic: circle vs line
-    s1 = fig.add_axes([.02, .14, .17, .72])
-    s2 = fig.add_axes([.2, .14, .12, .72])
-    th = np.deg2rad(np.linspace(0, 360, 200))
-    s1.plot(np.cos(th), np.sin(th), color=ORI_COL, lw=3)
-    for t, lab, ha in ((7.5, "7.5°", "left"), (172.5, "172.5°", "right")):
-        p = np.deg2rad(90 - 2 * t)
-        s1.plot(np.cos(p), np.sin(p), "o", ms=9, color="0.2")
-        s1.text(np.cos(p) + (.12 if ha == "left" else -.12), np.sin(p) + .22, lab,
-                ha=ha, fontsize=13)
-    s1.text(0, -1.4, "Orientation:\na circle", ha="center", va="top", color=ORI_COL,
-            fontsize=15)
-    s1.set_xlim(-1.6, 1.6)
-    s1.set_ylim(-2.3, 1.6)
-    s1.set_aspect("equal")
-    s1.axis("off")
-    s2.plot([0, 0], [-1, 1], color=VAL_COL, lw=3)
-    for y, lab in ((-1, "2 CHF"), (1, "42 CHF")):
-        s2.plot(0, y, "o", ms=9, color="0.2")
-        s2.text(.12, y, lab, va="center", fontsize=13)
-    s2.text(0, -1.4, "Value:\na line", ha="center", va="top", color=VAL_COL, fontsize=15)
-    s2.set_xlim(-.5, 1)
-    s2.set_ylim(-2.3, 1.6)
-    s2.axis("off")
+    # the two encoding models, one voxel each, preferring the far end
+    th = np.linspace(7.5, 172.5, 400)
+    stim = np.arange(7.5, 172.6, 7.5)
+    mu = 165.
+    circ = lambda x: np.exp(3 * (np.cos(np.deg2rad(2 * (x - mu))) - 1))
+    line = lambda x: np.exp(-.5 * ((x - mu) / 22) ** 2)
+    for k, (f, col, t, sub) in enumerate((
+            (circ, ORI_COL, "Circle", "von Mises on orientation"),
+            (line, VAL_COL, "Line", "Gaussian on orientation rank"))):
+        s1 = fig.add_axes([.06, .6 - .43 * k, .27, .26])
+        s1.plot(th, f(th), color=col)
+        s1.plot(stim, f(stim), "o", ms=5, color=col, mew=0)
+        s1.set_xlim(0, 180)
+        s1.set_ylim(-.05, 1.1)
+        s1.set_xticks([7.5, 90, 172.5])
+        s1.set_xticklabels(["7.5°\n2 CHF", "90°", "172.5°\n42 CHF"] if k else [])
+        s1.set_title(f"{t}: {sub}", loc="left", color=col, fontsize=14)
+        despine(s1, left=False)
+    fig.text(.03, .5, "One voxel's response", rotation=90, va="center", fontsize=14)
     # data
     ax = fig.add_axes([.43, .2, .55, .68])
     ax.axvspan(4.5, 7.5, color="0.94", lw=0, zorder=0)
@@ -168,8 +163,8 @@ def circle_line(out):
             va="top", fontsize=14)
     ax.text(.01, .03, "Line fits better", transform=ax.transAxes, color=VAL_COL,
             fontsize=14)
-    ax.text(.99, .03, f"IPS vs V1–3: t(34) = {t.statistic:.1f}, p < .001",
-            transform=ax.transAxes, ha="right", fontsize=13, color="0.3")
+    ax.set_title(f"IPS vs V1–3: t(34) = {t.statistic:.1f}, p < .001", loc="right",
+                 fontsize=13, color="0.3")
     despine(ax)
     save(fig, out)
 
@@ -180,32 +175,49 @@ def lam(out):
     d = d[d.smoothed & (d.model == "coding")]
     fig = plt.figure(figsize=(11.5, 4.3))
     V = ftc.V
-    for k, (l, col, t) in enumerate(((0., VAL_COL, "λ = 0: fixed value"),
-                                     (1., ORI_COL, "λ = 1: follows p(v)"))):
-        ax = fig.add_axes([.05 + .22 * k, .2, .18, .62])
-        for m in SES:
-            y = ftc.gauss(ftc.x_lam(V, ori, maps[m], l))
-            ax.plot(V, y, color=SES_COL[m])
-        ax.set_xlim(2, 42)
-        ax.set_xticks([2, 22, 42])
-        ax.set_ylim(0, 1.1)
-        ax.set_xlabel("Value (CHF)")
-        ax.set_title(t, color=col, loc="left", fontsize=16)
-        despine(ax, left=False)
-        if k == 0:
-            ax.set_ylabel("One voxel")
-            for i, m in enumerate(SES):
-                ax.text(42, .95 - .14 * i, SES_NAME[m], color=SES_COL[m], ha="right",
-                        fontsize=13)
-    ax = fig.add_axes([.58, .2, .3, .66])
+    # a: one voxel at lambda = 1
+    ax = fig.add_axes([.05, .2, .2, .62])
+    for m in SES:
+        ax.plot(V, ftc.gauss(ftc.x_lam(V, ori, maps[m], 1.)), color=SES_COL[m])
+    ax.set_xlim(2, 42)
+    ax.set_xticks([2, 22, 42])
+    ax.set_ylim(0, 1.1)
+    ax.set_xlabel("Value (CHF)")
+    ax.set_ylabel("One voxel")
+    ax.set_title("Tuning moves with p(v)", loc="left", fontsize=15)
+    for i, m in enumerate(SES):
+        ax.text(42, 1.0 - .13 * i, SES_NAME[m], color=SES_COL[m], ha="right", fontsize=13)
+    despine(ax, left=False)
+    # b: predicted preferred values, Aligned vs Misaligned
+    ax = fig.add_axes([.34, .2, .24, .66])
+    modes = np.linspace(2, 42, 161)
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("l", [VAL_COL, ORI_COL])
+    for l in (0., .5, 1.):
+        pv = {m: np.array([V[np.argmax(ftc.gauss(ftc.x_lam(V, ori, maps[m], l), mu=x0))]
+                           for x0 in modes]) for m in SES}
+        c = cmap(l)
+        ax.plot(pv["inverse_cdf"], pv["cdf"], color=c, lw=2.6 if l in (0, 1) else 1.6)
+        ax.text(4, 39 - 4 * (1 - l) / .5, f"λ = {l:g}", color=c, fontsize=13)
+    ax.set_xlim(2, 42)
+    ax.set_ylim(2, 42)
+    ax.set_xticks([2, 12, 22, 32, 42])
+    ax.set_yticks([2, 12, 22, 32, 42])
+    ax.set_aspect("equal")
+    ax.set_xlabel("Preferred value, Aligned")
+    ax.set_ylabel("Preferred value,\nMisaligned")
+    ax.set_title("Prediction, every voxel", loc="left", fontsize=15)
+    despine(ax)
+    # c: data
+    ax = fig.add_axes([.68, .2, .23, .66])
     ends = {}
     for roi in ftc.ROIS:
         p = d[d.roi == roi].pivot(index="subject", columns="lam", values="cvr2")
         p = p.sub(p[0.0], axis=0) * 1e3
-        m, s = p.mean(), p.sem()
+        m, se = p.mean(), p.sem()
         x = p.columns.to_numpy(float)
         ip = roi.startswith("IPS")
-        ax.fill_between(x, m - s, m + s, color=ROI_COL[roi], alpha=.18 if ip else .1, lw=0)
+        ax.fill_between(x, m - se, m + se, color=ROI_COL[roi], alpha=.18 if ip else .1,
+                        lw=0)
         ax.plot(x, m, color=ROI_COL[roi], lw=2.6 if ip else 1.6)
         ends[roi] = m.iloc[-1]
     ax.axhline(0, color="0.6", lw=1)
@@ -213,12 +225,12 @@ def lam(out):
         ax.axvline(l, color=c, lw=1.2, alpha=.5, zorder=0)
     ax.set_xlim(-.5, 1.5)
     ax.set_xticks([-.5, 0, .5, 1, 1.5])
-    ax.set_xlabel("Tuning axis λ")
+    ax.set_xlabel("λ")
     ax.set_ylabel("Δ cvR² vs λ = 0 (×10⁻³)")
-    ys = sorted(ends.items(), key=lambda kv: kv[1])
+    ax.set_title("Data, n = 35", loc="left", fontsize=15)
     last = -9
-    for roi, y in ys:
-        y = max(y, last + .45)
+    for roi, y in sorted(ends.items(), key=lambda kv: kv[1]):
+        y = max(y, last + .5)
         last = y
         ax.text(1.55, y, ROI_NAME[roi], color=ROI_COL[roi], va="center", fontsize=13)
     despine(ax)
@@ -283,6 +295,66 @@ def wiring(out):
     save(fig, out)
 
 
+def fmri_design(out):
+    """Trial timeline, session structure and what goes into the encoding model."""
+    from matplotlib.patches import FancyBboxPatch, Rectangle
+    fig = plt.figure(figsize=(11.5, 4.3))
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, 11.5)
+    ax.set_ylim(0, 4.3)
+    ax.axis("off")
+    W, H, y0 = 1.45, 1.0, 2.15
+    labels = ["Gabor", "Delay", "Bid", "ITI"]
+    times = ["1.5 s", "4–5.5 s", "≤ 3.5 s", "~6 s"]
+    yy, xx = np.mgrid[-1:1:200j, -1:1:200j]
+    th = np.deg2rad(52.5)
+    grating = .5 + .12 * np.cos(2 * np.pi * 4 * (xx * np.cos(th) + yy * np.sin(th)))
+    grating = np.where(xx ** 2 + yy ** 2 < .8, grating, .55)
+    for i, (lab, t) in enumerate(zip(labels, times)):
+        x = .3 + i * 1.7
+        ax.add_patch(Rectangle((x, y0), W, H, facecolor="0.55", edgecolor="0.25",
+                               lw=1.2))
+        cx, cy = x + W / 2, y0 + H / 2
+        if i == 0:
+            ax.imshow(grating, cmap="gray", vmin=0, vmax=1, extent=(cx - .45, cx + .45,
+                      cy - .45, cy + .45), zorder=3)
+        elif i == 2:
+            ax.add_patch(Rectangle((cx - .55, cy - .03), 1.1, .06, facecolor="w", lw=0,
+                                   zorder=3))
+            ax.add_patch(Rectangle((cx + .12, cy - .12), .06, .24, facecolor="#E8C547",
+                                   lw=0, zorder=4))
+            ax.text(cx + .15, cy + .17, "27 CHF", color="w", ha="center", fontsize=10)
+        else:
+            ax.plot(cx, cy, "+", color="w", ms=9, mew=1.6)
+        ax.text(cx, y0 - .18, lab, ha="center", va="top", fontsize=14)
+        ax.text(cx, y0 - .48, t, ha="center", va="top", fontsize=12, color="0.4")
+        if i < 3:
+            ax.annotate("", (x + 1.68, cy), (x + W + .02, cy),
+                        arrowprops=dict(arrowstyle="-|>", color="0.4", lw=1.2))
+    ax.text(.3, 3.75, "One trial, ~14 s", fontsize=15, fontweight="bold")
+    x0 = 7.4
+    ax.text(x0, 3.75, "Two sessions, one mapping each", fontsize=15, fontweight="bold")
+    for i, (m, lab) in enumerate((("inverse_cdf", "Aligned"), ("cdf", "Misaligned"))):
+        y = 2.75 - .8 * i
+        ax.text(x0, y + .4, f"Session {i + 1}: {lab}", color=SES_COL[m], fontsize=13)
+        for r in range(8):
+            ax.add_patch(FancyBboxPatch((x0 + r * .48, y), .4, .3,
+                                        boxstyle="round,pad=0.01,rounding_size=.05",
+                                        facecolor=SES_COL[m], alpha=.85, lw=0))
+    ax.text(x0, 1.75, "8 runs × 23 orientations, once each;\norder counterbalanced",
+            fontsize=12, color="0.35", va="top")
+    ax.plot([.3, 11.2], [.95, .95], color="0.85", lw=1)
+    steps = ["Single-trial BOLD (GLMsingle)", "Tuning model per voxel",
+             "Leave-one-run-out cvR²"]
+    xs = [.3, 4.55, 8.1]
+    for i, (x, t) in enumerate(zip(xs, steps)):
+        ax.text(x, .48, t, fontsize=14, color="0.2", va="center")
+        if i < 2:
+            ax.annotate("", (xs[i + 1] - .15, .48), (xs[i + 1] - .85, .48),
+                        arrowprops=dict(arrowstyle="-|>", color="0.4", lw=1.2))
+    save(fig, out)
+
+
 # ── crops of existing figures ────────────────────────────────────────────────
 
 def render(pdf, page=None, dpi=250):
@@ -308,6 +380,17 @@ def crops(od):
     crop(render(paper, 14), (0.18, 0.104, 0.85, 0.46), od / "av_bias.png")
     S = render(FIG / "fig_summary.pdf")
     crop(S, (0, 0.019, 1, 0.19), od / "av_maps.png")
+    m = Image.open(od / "av_maps.png")
+    a = m.crop((0, 95, 530, 335))
+    cd = m.crop((975, 0, 1812, 420)).copy()
+    from PIL import ImageDraw
+    ImageDraw.Draw(cd).rectangle([400, 50, 440, 90], fill="white")   # panel letter d
+    top = Image.new("RGB", (a.width + 60 + cd.width, cd.height), "white")
+    top.paste(a, (0, (cd.height - a.height) // 2 + 20))
+    top.paste(cd, (a.width + 60, 0))
+    top.save(od / "av_maps_coded.png")
+    m.crop((50, 655, 1725, 1205)).save(od / "av_maps_preferred.png")
+    print("Wrote av_maps_coded.png, av_maps_preferred.png")
 
 
 if __name__ == "__main__":
@@ -318,6 +401,7 @@ if __name__ == "__main__":
     a = ap.parse_args()
     od = Path(a.out_dir)
     mappings(od / "av_mappings.png")
+    fmri_design(od / "av_fmri_design.png")
     circle_line(od / "av_circle_line.png")
     lam(od / "av_lambda.png")
     wiring(od / "av_wiring.png")
