@@ -34,6 +34,9 @@ FMRIPREP_DERIV="${FMRIPREP_DERIV:-fmriprep}"
 SMOOTHED="${SMOOTHED:-0}"
 MODEL="${MODEL:-standard}"
 N_ITERATIONS="${N_ITERATIONS:-1000}"
+export KERAS_BACKEND=tensorflow
+export TMPDIR="/scratch/$USER/tmp/${SLURM_JOB_ID:-manual}"
+mkdir -p "$TMPDIR"
 
 BIDS_FOLDER=/shares/zne.uzh/gdehol/ds-abstractvalue
 REPO=$HOME/git/abstract_values
@@ -47,6 +50,7 @@ ARGS=(
 
 [ "$SMOOTHED" = "1" ] && ARGS+=(--smoothed)
 [ "$MODEL" != "standard" ] && ARGS+=(--model "$MODEL")
+[ -n "${MASK:-}" ] && ARGS+=(--mask "$MASK")
 
 echo "fit_aprf: sub-${PARTICIPANT_LABEL}  deriv=${FMRIPREP_DERIV}  smoothed=${SMOOTHED}  model=${MODEL}"
 echo "Args: ${ARGS[*]}"
