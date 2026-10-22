@@ -20,5 +20,6 @@ export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 cd "$REPO"
 ARGS=("$PARTICIPANT_LABEL" --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue)
 [ "${SMOOTHED:-0}" = "1" ] && ARGS+=(--smoothed)
+[ "${BIDS:-0}" = "1" ] && ARGS+=(--bids)
 exec $HOME/data/conda/envs/abstract_values/bin/python -u -W ignore -m \
     abstract_values.encoding_models.fit_lambda_profile "${ARGS[@]}"

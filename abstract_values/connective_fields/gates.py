@@ -82,7 +82,8 @@ def get_paradigm(sub, sessions):
             for _, r in ev[ev['event_type'] == 'gabor'].iterrows():
                 rows.append({'session': session, 'run': run, 'condition': cond,
                              'orientation': float(r['orientation']),
-                             'value': float(r['value'])})
+                             'value': float(r['value']),
+                             'bid': float(r.get('bid', np.nan))})
     return pd.DataFrame(rows)
 
 
