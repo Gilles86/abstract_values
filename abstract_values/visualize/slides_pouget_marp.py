@@ -176,7 +176,7 @@ def lam(out):
     fig = plt.figure(figsize=(11.5, 4.3))
     V = ftc.V
     # a: one voxel at lambda = 1
-    ax = fig.add_axes([.05, .2, .2, .62])
+    ax = fig.add_axes([.045, .2, .16, .62])
     for m in SES:
         ax.plot(V, ftc.gauss(ftc.x_lam(V, ori, maps[m], 1.)), color=SES_COL[m])
     ax.set_xlim(2, 42)
@@ -189,7 +189,7 @@ def lam(out):
         ax.text(42, 1.0 - .13 * i, SES_NAME[m], color=SES_COL[m], ha="right", fontsize=13)
     despine(ax, left=False)
     # b: predicted preferred values, Aligned vs Misaligned
-    ax = fig.add_axes([.34, .2, .24, .66])
+    ax = fig.add_axes([.28, .2, .2, .66])
     modes = np.linspace(2, 42, 161)
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("l", [VAL_COL, ORI_COL])
     for l in (0., .5, 1.):
@@ -207,63 +207,125 @@ def lam(out):
     ax.set_ylabel("Preferred value,\nMisaligned")
     ax.set_title("Prediction, every voxel", loc="left", fontsize=15)
     despine(ax)
-    # c: data
-    ax = fig.add_axes([.68, .2, .23, .66])
-    ends = {}
+    # c: data, fine lambda profile
+    prof = pd.read_csv(DATA / "lambda_profile.tsv", sep="\t", dtype={"subject": str})
+    prof = prof[prof.smoothed.astype(str) == "True"]
+    hat = pd.read_csv(DATA / "lambda_hat.tsv", sep="\t", dtype={"subject": str})
+    hat = hat[hat.smoothed.astype(str) == "True"]
+    ax = fig.add_axes([.555, .2, .2, .66])
+    rng = np.random.default_rng(0)
+    group = {}
     for roi in ftc.ROIS:
-        p = d[d.roi == roi].pivot(index="subject", columns="lam", values="cvr2")
+        p = prof[prof.roi == roi].pivot(index="subject", columns="lam", values="cvr2")
+        L = p.columns.to_numpy(float)
         p = p.sub(p[0.0], axis=0) * 1e3
         m, se = p.mean(), p.sem()
-        x = p.columns.to_numpy(float)
         ip = roi.startswith("IPS")
-        ax.fill_between(x, m - se, m + se, color=ROI_COL[roi], alpha=.18 if ip else .1,
+        ax.fill_between(L, m - se, m + se, color=ROI_COL[roi], alpha=.18 if ip else .1,
                         lw=0)
-        ax.plot(x, m, color=ROI_COL[roi], lw=2.6 if ip else 1.6)
-        ends[roi] = m.iloc[-1]
+        ax.plot(L, m, color=ROI_COL[roi], lw=2.6 if ip else 1.6)
+        A = p.to_numpy()
+        boot = [L[np.argmax(A[rng.integers(0, len(A), len(A))].mean(0))]
+                for _ in range(1000)]
+        group[roi] = (L[np.argmax(m.to_numpy())], *np.percentile(boot, [2.5, 97.5]))
     ax.axhline(0, color="0.6", lw=1)
     for l, c in ((0, VAL_COL), (1, ORI_COL)):
         ax.axvline(l, color=c, lw=1.2, alpha=.5, zorder=0)
-    ax.set_xlim(-.5, 1.5)
-    ax.set_xticks([-.5, 0, .5, 1, 1.5])
+    ax.set_xlim(-1, 2)
+    ax.set_xticks([-1, 0, 1, 2])
     ax.set_xlabel("λ")
     ax.set_ylabel("Δ cvR² vs λ = 0 (×10⁻³)")
     ax.set_title("Data, n = 35", loc="left", fontsize=15)
-    last = -9
-    for roi, y in sorted(ends.items(), key=lambda kv: kv[1]):
-        y = max(y, last + .5)
-        last = y
-        ax.text(1.55, y, ROI_NAME[roi], color=ROI_COL[roi], va="center", fontsize=13)
+    despine(ax)
+    # d: lambda-hat per ROI: participants (IQR) and group (bootstrap 95% CI)
+    ax = fig.add_axes([.85, .2, .14, .66])
+    for i, roi in enumerate(ftc.ROIS):
+        y = len(ftc.ROIS) - 1 - i
+        h = hat[hat.roi == roi].lam_hat
+        ax.plot(h, y + rng.uniform(-.18, .18, len(h)), "o", ms=3, color=ROI_COL[roi],
+                alpha=.35, mew=0)
+        ax.plot(h.quantile([.25, .75]), [y, y], color=ROI_COL[roi], lw=1.5, alpha=.7)
+        g, lo, hi = group[roi]
+        ax.plot([lo, hi], [y, y], color=ROI_COL[roi], lw=5, solid_capstyle="round")
+        ax.plot(g, y, "o", ms=9, color="w", mec=ROI_COL[roi], mew=2.2)
+    for l, c in ((0, VAL_COL), (1, ORI_COL)):
+        ax.axvline(l, color=c, lw=1.2, alpha=.5, zorder=0)
+    ax.set_yticks(range(len(ftc.ROIS)))
+    ax.set_yticklabels([ROI_NAME[r] for r in ftc.ROIS][::-1])
+    for t, r in zip(ax.get_yticklabels(), ftc.ROIS[::-1]):
+        t.set_color(ROI_COL[r])
+    ax.set_xlim(-1.05, 2.05)
+    ax.set_xticks([-1, 0, 1, 2])
+    ax.set_xlabel("λ")
+    ax.set_title("Estimated λ", loc="left", fontsize=15)
     despine(ax)
     save(fig, out)
+
+
+def network(ax, ori, maps, kind):
+    """V1 orientation units (top) wired to IPS units (bottom), both sessions."""
+    stim = ori[1:-1]
+    for x in stim:                                    # V1 units: oriented bars
+        t = np.deg2rad(x)
+        ax.plot([x - 2.6 * np.cos(t), x + 2.6 * np.cos(t)],
+                [1.0 - .07 * np.sin(t), 1.0 + .07 * np.sin(t)], color="0.25", lw=1.6,
+                solid_capstyle="round")
+    vals = np.linspace(2, 42, 23)
+    hi = 16.
+    if kind == "orientation":
+        for x in stim:
+            w = 3.2 if np.isclose(x, 52.5) else 1.0
+            ax.plot([x, x], [.9, .1], color=ORI_COL, lw=w, alpha=1 if w > 1 else .35)
+        ax.scatter(stim, np.zeros(23), s=36, color=ORI_COL, zorder=3)
+        for i, m in enumerate(SES):
+            ax.text(-4, -.2 - .19 * i, SES_NAME[m], color=SES_COL[m], ha="right",
+                    va="top", fontsize=11)
+            for x in stim[2::5]:
+                v = np.interp(x, ori, maps[m])
+                ax.text(x, -.2 - .19 * i, f"{v:g}", color=SES_COL[m], ha="center",
+                        va="top", fontsize=11)
+    else:
+        xi = (vals - 2) / 40 * 180
+        for m in SES:
+            th = np.interp(vals, maps[m], ori)
+            for x, t, v in zip(xi, th, vals):
+                w = 3.2 if np.isclose(v, hi, atol=.9) else 1.0
+                ax.plot([t, x], [.9, .1], color=SES_COL[m], lw=w,
+                        alpha=1 if w > 1 else .3)
+        ax.scatter(xi, np.zeros(23), s=36, color=VAL_COL, zorder=3)
+        for v in (2, 12, 22, 32, 42):
+            ax.text((v - 2) / 40 * 180, -.2, f"{v}", color=VAL_COL, ha="center",
+                    va="top", fontsize=11)
+        ax.text(182, -.39, "CHF, both sessions", color=VAL_COL, ha="right", va="top",
+                fontsize=11)
+    ax.text(-4, 1.0, "V1", ha="right", va="center", fontsize=14)
+    ax.text(-4, 0.0, "IPS", ha="right", va="center", fontsize=14)
+    ax.set_xlim(-2, 182)
+    ax.set_ylim(-.62, 1.15)
+    ax.axis("off")
 
 
 def wiring(out):
     ori, maps = load_mappings()
     d = ftc.load(DATA / "tuning_connectivity_summary.tsv")
     d = d[d.smoothed & (d.lam == 1.0)]
-    fig = plt.figure(figsize=(11.5, 4.3))
-    qq = (IEM_GRID / 7.5 - .5) / 23
-    for k, (l, col, t) in enumerate(((1., ORI_COL, "Orientation-wired (λ′ = 1)"),
-                                     (0., VAL_COL, "Value-wired (λ′ = 0)"))):
-        ax = fig.add_axes([.05, .58 - .42 * k, .36, .3])
-        for m in SES:
-            xc = (1 - l) * np.interp(IEM_GRID, ori, maps[m]) + l * (2 + 40 * qq)
-            ax.plot(IEM_GRID, ftc.gauss(xc), color=SES_COL[m])
-        ax.set_xlim(0, 180)
-        ax.set_xticks([0, 45, 90, 135, 180])
-        ax.set_xticklabels([] if k == 0 else ["0", "45", "90", "135", "180"])
-        ax.set_title(t, color=col, loc="left", fontsize=15)
-        despine(ax, left=False)
-        if k == 0:
-            ax.text(178, .75, "Same in both sessions", ha="right", fontsize=13,
-                    color="0.4")
-        if k == 1:
-            ax.set_xlabel("V1 orientation channel (°)")
+    fig = plt.figure(figsize=(11.5, 4.6))
+    for k, (kind, col, t, sub) in enumerate((
+            ("orientation", ORI_COL, "Orientation-wired (λ′ = 1)",
+             "Same wiring; value labels move"),
+            ("value", VAL_COL, "Value-wired (λ′ = 0)",
+             "Wiring follows the mapping"))):
+        ax = fig.add_axes([.1 + .32 * k, .08, .26, .7])
+        network(ax, ori, maps, kind)
+        ax.set_title(t, color=col, loc="left", fontsize=15, pad=24)
+        ax.text(0, 1.03, sub, transform=ax.transAxes, fontsize=12, color="0.4")
+        if kind == "value":
             for i, m in enumerate(SES):
-                ax.text(178, .85 - .3 * i, SES_NAME[m], color=SES_COL[m], ha="right",
-                        fontsize=13)
-    fig.text(.015, .5, "Weight on V1", rotation=90, va="center", fontsize=15)
-    ax = fig.add_axes([.56, .2, .32, .66])
+                ax.plot([150, 165], [1.32 - .1 * i] * 2, color=SES_COL[m], lw=2,
+                        clip_on=False)
+                ax.text(168, 1.32 - .1 * i, SES_NAME[m], color=SES_COL[m], fontsize=11,
+                        va="center")
+    ax = fig.add_axes([.8, .2, .14, .62])
     ends = {}
     for roi in ftc.ROIS:
         sel = d[d.roi == roi]
@@ -285,7 +347,7 @@ def wiring(out):
     ax.set_xlim(-.5, 1.5)
     ax.set_xticks([-.5, 0, .5, 1, 1.5])
     ax.set_xlabel("Connectivity axis λ′")
-    ax.set_ylabel("Gain from V1 input\nover shuffle (×10⁻³)")
+    ax.set_ylabel("V1 gain over shuffle (×10⁻³)")
     last = -9
     for roi, y in sorted(ends.items(), key=lambda kv: kv[1]):
         y = max(y, last + .8)
@@ -382,6 +444,7 @@ def crops(od):
     crop(S, (0, 0.019, 1, 0.19), od / "av_maps.png")
     m = Image.open(od / "av_maps.png")
     a = m.crop((0, 95, 530, 335))
+    a.save(od / "av_rois.png")
     cd = m.crop((975, 0, 1812, 420)).copy()
     from PIL import ImageDraw
     ImageDraw.Draw(cd).rectangle([400, 50, 440, 90], fill="white")   # panel letter d
