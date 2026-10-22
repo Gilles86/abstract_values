@@ -96,9 +96,14 @@ def schematic(axes):
         ax.spines["left"].set_visible(False)
         ax.set_xlabel("Presented value (CHF)")
     axes[0].set_ylabel("Predicted response")
+    fig = axes[0].figure
     for i, m in enumerate(("cdf", "inverse_cdf")):
-        axes[2].text(.52, .24 - i * .1, SES_NAME[m], transform=axes[2].transAxes,
-                     color=SES_COL[m], fontsize=6, ha="center")
+        x = .66 + i * .15
+        fig.text(x + .027, .975, SES_NAME[m], color=SES_COL[m], fontsize=6.5,
+                 ha="left", va="center")
+        fig.lines.append(plt.Line2D([x, x + .02], [.975, .975],
+                                    transform=fig.transFigure,
+                                    color=SES_COL[m], lw=1.1))
 
 
 def roi_x(ax, labels):
