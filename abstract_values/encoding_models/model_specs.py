@@ -386,7 +386,7 @@ for _base in ('vonmises-prf', 'null'):
 # so the grid and priors are identical across lambda. lambda is one number for
 # every voxel: each spec fixes it, and the cvR² profile over the lambda grid
 # (summed over an ROI) estimates it per participant x ROI.
-MIX_LAMBDAS = (-0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25)
+MIX_LAMBDAS = (-0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5)
 
 
 def mix_tag(lam):
