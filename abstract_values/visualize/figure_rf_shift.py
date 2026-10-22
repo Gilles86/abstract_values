@@ -52,7 +52,7 @@ IPS = ["IPS0", "IPS12", "IPS345"]
 SES_COL = {"cdf": "#3B5BA5", "inverse_cdf": "#C44E52"}
 SES_NAME = {"cdf": "Misaligned (cdf)", "inverse_cdf": "Aligned (inverse cdf)"}
 FIX_COL, Q_COL, FIT_COL = "0.35", "#D08C2E", "#5D8C3F"
-THETA = np.linspace(7.5, 172.5, 2001)
+THETA = np.linspace(0, 180, 2401)
 LAMS = np.round(np.arange(-0.25, 1.2501, 0.05), 2)
 
 
