@@ -94,6 +94,14 @@ def cv_fit(Y, regs, folds, positive=(0,)):
     per regressor (plus an intercept). Shape chosen per voxel by training SSE;
     coefficients listed in ``positive`` must be > 0. Returns cvR^2 per voxel.
     All shapes are solved at once (batched normal equations)."""
+    pred = cv_predict(Y, regs, folds, positive)
+    ss_res = ((Y - pred) ** 2).sum(0)
+    ss_tot = ((Y - Y.mean(0)) ** 2).sum(0)
+    return 1 - ss_res / ss_tot
+
+
+def cv_predict(Y, regs, folds, positive=(0,)):
+    """Held-out predictions of ``cv_fit`` (n_trials, n_voxels)."""
     n_shapes = regs[0].shape[0]
     pred = np.zeros_like(Y)
     vi = np.arange(Y.shape[1])
@@ -116,9 +124,7 @@ def cv_fit(Y, regs, folds, positive=(0,)):
         Xte = np.stack([np.ones((Y.shape[1], te.sum()))]
                        + [r[k][:, te] for r in regs], -1)                       # V,nte,p
         pred[te] = np.einsum('vnp,vp->nv', Xte, cb)
-    ss_res = ((Y - pred) ** 2).sum(0)
-    ss_tot = ((Y - Y.mean(0)) ** 2).sum(0)
-    return 1 - ss_res / ss_tot
+    return pred
 
 
 def shuffle_within(c, par, rng):
