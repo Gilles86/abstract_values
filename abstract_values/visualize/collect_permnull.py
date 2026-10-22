@@ -40,6 +40,10 @@ CV_MODELS = {
     'session_shift': 'aprf-shift.cv',
     'gauss_session_shift': 'aprf-gauss-shift.cv',
 }
+# fixed-value / quantile mixture axis, one shared lambda per spec (model_specs.MIX_LAMBDAS)
+from abstract_values.encoding_models.model_specs import MIX_LAMBDAS, mix_tag  # noqa: E402
+for _lam in MIX_LAMBDAS:
+    CV_MODELS[f'mix_{mix_tag(_lam)}'] = f'aprf-mix-{mix_tag(_lam)}.cv'
 
 
 def mean_cvr2(subject, model_dir, smoothed, bids_folder):
