@@ -107,6 +107,17 @@ def collect_summary(subject, smoothed, bids_folder, model='session-shift'):
     return rows
 
 
+def swap_selection(vox, sel_fn):
+    """Replace the per-ROI q columns of ``vox`` with those of another collected
+    voxels table (a permnull run on a different model, same ROI-union voxels),
+    so selection can come from one model while modes/cvR² come from another."""
+    sel = pd.read_csv(sel_fn, sep='\t', dtype={'subject': str})
+    qcols = [c for c in sel if c.startswith('q_')]
+    vox = vox.drop(columns=[c for c in qcols if c in vox])
+    return vox.merge(sel[['subject', 'smoothed', 'flat_index'] + qcols],
+                     on=['subject', 'smoothed', 'flat_index'], how='left')
+
+
 def subjects(bids_folder, model='session-shift'):
     d = (Path(bids_folder) / 'derivatives' / 'encoding_models' / 'permnull'
          / get_spec(model).out_subdir)

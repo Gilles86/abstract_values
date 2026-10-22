@@ -40,6 +40,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 
 from abstract_values.visualize import qc_value_shift as q   # house rcParams
+from abstract_values.visualize.collect_permnull import swap_selection
 from abstract_values.visualize import shifted_preferred_value as spv
 
 REPO = Path(__file__).resolve().parents[2]
@@ -170,11 +171,13 @@ def page_npcr(pdf, vox, comp, roi="NPCr"):
     return fig
 
 
-def main(vox_fn, summ_fn, out):
+def main(vox_fn, summ_fn, out, selection_from=None, tag=""):
     vox = pd.read_csv(vox_fn, sep="\t", dtype={"subject": str})
+    if selection_from:
+        vox = swap_selection(vox, selection_from)
     summ = pd.read_csv(summ_fn, sep="\t", dtype={"subject": str})
     comp = per_roi(vox)
-    comp.to_csv(REPO / "notes" / "data" / "permnull_selection_comparison.tsv",
+    comp.to_csv(REPO / "notes" / "data" / f"permnull_selection_comparison{tag}.tsv",
                 sep="\t", index=False)
     agg = (comp.groupby(["smoothed", "roi", "rule"])
            [["frac_selected", "rho", "gain", "n_selected"]]
@@ -204,5 +207,9 @@ if __name__ == "__main__":
     ap.add_argument("--voxels", default=str(REPO / "notes/data/permnull_voxels.tsv.gz"))
     ap.add_argument("--summary", default=str(REPO / "notes/data/permnull_summary.tsv"))
     ap.add_argument("--out", default=str(REPO / "notes/figures/permnull_selection.pdf"))
+    ap.add_argument("--selection-from", default=None,
+                    help="Collected voxels table of another permnull model whose "
+                         "q columns define the permutation selection")
+    ap.add_argument("--tag", default="", help="Suffix for the side TSVs")
     a = ap.parse_args()
-    main(a.voxels, a.summary, a.out)
+    main(a.voxels, a.summary, a.out, a.selection_from, a.tag)

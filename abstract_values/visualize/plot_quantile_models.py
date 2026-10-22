@@ -42,6 +42,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats
 
 from abstract_values.visualize import qc_value_shift as q   # noqa: F401 house rcParams
+from abstract_values.visualize.collect_permnull import swap_selection
 from abstract_values.visualize.plot_permnull_selection import ROIS, Q
 
 REPO = Path(__file__).resolve().parents[2]
@@ -166,10 +167,12 @@ def page_contrasts(pdf, ps, sel):
     return fig, pd.DataFrame(rows)
 
 
-def main(vox_fn, out):
+def main(vox_fn, out, selection_from=None, tag=""):
     vox = pd.read_csv(vox_fn, sep="\t", dtype={"subject": str})
+    if selection_from:
+        vox = swap_selection(vox, selection_from)
     ps = per_subject(vox)
-    ps.to_csv(REPO / "notes" / "data" / "quantile_models_per_subject.tsv",
+    ps.to_csv(REPO / "notes" / "data" / f"quantile_models_per_subject{tag}.tsv",
               sep="\t", index=False)
     out = Path(out)
     figs, stats_rows = [], []
@@ -181,7 +184,7 @@ def main(vox_fn, out):
             for sm in (False, True):
                 figs.append(page_models(pdf, ps, sel, sm))
     st = pd.concat(stats_rows)
-    st.to_csv(REPO / "notes" / "data" / "quantile_models_contrasts.tsv", sep="\t",
+    st.to_csv(REPO / "notes" / "data" / f"quantile_models_contrasts{tag}.tsv", sep="\t",
               index=False)
     with pd.option_context("display.width", 200):
         print(st.round(3).to_string(index=False))
@@ -199,5 +202,9 @@ if __name__ == "__main__":
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--voxels", default=str(REPO / "notes/data/permnull_voxels.tsv.gz"))
     ap.add_argument("--out", default=str(REPO / "notes/figures/quantile_models.pdf"))
+    ap.add_argument("--selection-from", default=None,
+                    help="Collected voxels table of another permnull model whose "
+                         "q columns define the permutation selection")
+    ap.add_argument("--tag", default="", help="Suffix for the side TSVs")
     a = ap.parse_args()
-    main(a.voxels, a.out)
+    main(a.voxels, a.out, a.selection_from, a.tag)
