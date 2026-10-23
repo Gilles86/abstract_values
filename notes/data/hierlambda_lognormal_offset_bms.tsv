@@ -1,0 +1,5 @@
+roi	n	n_quantile_bf3	n_value_bf3	n_quantile_bf20	n_value_bf20	median_logbf_q_vs_v	sum_logbf_q_vs_v	wilcoxon_p	bor	group_logbf_all1_vs_all0	group_logbf_shared_vs_all0	group_logbf_hier_vs_bestfixed	freq_lam0	xp_lam0	pxp_lam0	freq_lam1	xp_lam1	pxp_lam1	freq_free	xp_free	pxp_free	freq2_quantile	xp2_quantile	pxp2_quantile	bor2
+IPS	35	13	10	9	4	0.3236	11.22	0.3101	0.107	11.22	9.924	27.95	0.08065	0	0.03568	0.07032	0	0.03568	0.849	1	0.9286	0.606	0.9056	0.5997	0.7542
+IPS0	35	12	4	4	0	0.3278	25.84	0.04946	0.4587	25.84	26.15	8.572	0.07095	0	0.1529	0.1517	1.5e-05	0.1529	0.7773	1	0.6942	0.7856	0.9998	0.8028	0.3942
+IPS12	35	13	8	1	3	0.402	3.74	0.4128	0.2258	3.74	2.558	19.59	0.07501	0	0.07526	0.08283	0	0.07526	0.8422	1	0.8495	0.6109	0.9149	0.5983	0.7631
+IPS345	35	6	8	1	3	0.2128	-8.09	0.7896	0.4066	-8.09	-0.965	13.44	0.08768	0	0.1355	0.08466	0	0.1355	0.8277	1	0.7289	0.5031	0.5147	0.5025	0.8282
