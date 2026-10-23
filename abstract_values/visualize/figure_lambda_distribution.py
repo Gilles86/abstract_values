@@ -88,7 +88,7 @@ def main(in_dir, out, param="lambda"):
             fa.spines["left"].set_visible(False)
             ex0 = int(((h.ci_hi < 0) | (h.ci_lo > 0)).sum())
             ex1 = int(((h.ci_hi < 1) | (h.ci_lo > 1)).sum())
-            fa.text(.02, .99, f"Median {med:.2f}\nCI ∌ 0: {ex0}/{len(h)}\nCI ∌ 1: {ex1}/{len(h)}",
+            fa.text(.02, .99, f"Median {med:.2f}\nCI excl. 0: {ex0}/{len(h)}\nCI excl. 1: {ex1}/{len(h)}",
                     transform=fa.transAxes, fontsize=5.5, va="top", color="0.3")
             summary.append(dict(smoothed=sm, roi=roi, median=med, n=len(h),
                                 ci_excl0=ex0, ci_excl1=ex1,
