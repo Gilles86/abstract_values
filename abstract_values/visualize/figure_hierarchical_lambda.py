@@ -7,9 +7,7 @@ with the no-pooling estimate; d-f: the per-participant IPS lambda against the
 same model fitted to each hemisphere separately, against the cvR^2-profile
 lambda-hat (``fit_lambda_profile``, voxel-weighted mean over IPS0/1-2/3-5) and
 against behavioural lambda (the mix axis that best predicts the bids).
-Correlations are Spearman rho integrated over the hierarchical posterior
-(one draw of every participant's lambda per sample; 95% interval of rho over
-draws). Unsmoothed, log-Gaussian session-shift fits.
+Correlations are Spearman rho on the posterior means. Unsmoothed, log-Gaussian session-shift fits.
 
 Input: ``encoding_models/hierarchical_lambda.py`` outputs in notes/data.
 
@@ -37,7 +35,6 @@ GROUPS = ["IPS", "IPS0", "IPS12", "IPS345", "V3ab"]
 COL = {**ROI_COL, "IPS": "k"}
 NAME = {**ROI_NAME, "IPS": "IPS (pooled)"}
 IPS_C = "#2E5E73"
-N_DRAWS = 4000
 
 
 def sid(s):
@@ -52,26 +49,17 @@ def refs(ax, labels=False):
                     transform=ax.get_xaxis_transform())
 
 
-def draw_rho(post, lam, x, rng):
-    """Spearman rho between lambda draws (rows of post over lam) and x."""
-    cdf = np.cumsum(post, 1)
-    cdf /= cdf[:, -1:]
-    u = rng.random((N_DRAWS, len(post), 1))
-    draws = lam[(u > cdf[None]).sum(-1).clip(max=len(lam) - 1)]
-    r = np.array([stats.spearmanr(d, x)[0] for d in draws])
-    return r.mean(), *np.percentile(r, [2.5, 97.5])
-
-
-def fmt_rho(m, lo, hi):
-    return f"ρ = {m:.2f} [{lo:.2f}, {hi:.2f}]".replace("-", "−")
+def fmt_rho(x, y):
+    r, p = stats.spearmanr(x, y)
+    return f"ρ = {r:.2f}, p = {p:.2g}".replace("-", "−")
 
 
 def scatter(ax, x, h, xlab, rho, col=IPS_C):
+    """rho: the label text."""
     ax.vlines(x, h.lo, h.hi, color=col, lw=.5, alpha=.35)
     ax.plot(x, h["mean"], "o", ms=3, color=col, mew=0)
     ax.set_xlabel(xlab)
-    m, lo, hi = rho
-    ax.text(.03, .97, fmt_rho(m, lo, hi), transform=ax.transAxes,
+    ax.text(.03, .97, rho, transform=ax.transAxes,
             fontsize=6.5, va="top", color="0.2")
 
 
@@ -80,7 +68,7 @@ def main(out=REPO / "notes/figures/fig_hierarchical_lambda.pdf"):
     grp = pd.read_csv(DATA / "hierlambda_lognormal_group.tsv", sep="\t").set_index("roi")
     sub = pd.read_csv(DATA / "hierlambda_lognormal_subjects.tsv", sep="\t", dtype={"subject": str})
     pop = np.load(DATA / "hierlambda_lognormal_population.npz")
-    MU, TAU, LAM = pop["MU"], pop["TAU"], pop["LAM"]
+    MU, TAU = pop["MU"], pop["TAU"]
 
     fig = plt.figure(figsize=(7.25, 5.0))
     gs = fig.add_gridspec(2, 3, left=.07, right=.98, top=.93, bottom=.09, hspace=.55,
@@ -143,17 +131,12 @@ def main(out=REPO / "notes/figures/fig_hierarchical_lambda.pdf"):
     # d-f: validity
     h = sub[sub.roi == "IPS"].copy()
     h["sid"] = h.subject.map(sid)
-    post = np.stack(h.posterior.str.split().map(lambda v: np.array(v, float)).to_list())
-    post = post / post.sum(1, keepdims=True)
     # d: hemispheres (normal approximation to each hemisphere's posterior)
     ax = fig.add_subplot(gs[1, 0])
-    dl = rng.normal(h.L_mean, h.L_sd, (N_DRAWS, len(h)))
-    dr = rng.normal(h.R_mean, h.R_sd, (N_DRAWS, len(h)))
-    r = np.array([stats.spearmanr(a, b)[0] for a, b in zip(dl, dr)])
     ax.plot([-1, 2], [-1, 2], color="0.8", lw=.6, zorder=0)
     ax.errorbar(h.L_mean, h.R_mean, xerr=h.L_sd, yerr=h.R_sd, fmt="o", ms=3, color=IPS_C,
                 mew=0, elinewidth=.5, alpha=.8, ecolor=(*matplotlib.colors.to_rgb(IPS_C), .35))
-    ax.text(.03, .97, fmt_rho(r.mean(), *np.percentile(r, [2.5, 97.5])),
+    ax.text(.03, .97, fmt_rho(h.L_mean, h.R_mean),
             transform=ax.transAxes, fontsize=6.5, va="top", color="0.2")
     ax.set_xlim(-1.1, 2.1)
     ax.set_ylim(-1.1, 2.6)
@@ -170,7 +153,7 @@ def main(out=REPO / "notes/figures/fig_hierarchical_lambda.pdf"):
     ax = fig.add_subplot(gs[1, 1], sharey=None)
     keep = h.sid.isin(lh.index).to_numpy()
     xe = lh.loc[h.sid[keep]].to_numpy()
-    scatter(ax, xe, h[keep], "cvR²-profile λ̂ (IPS)", draw_rho(post[keep], LAM, xe, rng))
+    scatter(ax, xe, h[keep], "cvR²-profile λ̂ (IPS)", fmt_rho(xe, h["mean"][keep]))
     ax.set_ylabel("Hierarchical λ (IPS)")
     ax.set_title("e  vs cvR² profile", loc="left", fontweight="bold")
     # f: behaviour
@@ -180,7 +163,7 @@ def main(out=REPO / "notes/figures/fig_hierarchical_lambda.pdf"):
     keep = h.sid.isin(lb.index).to_numpy()
     xb = lb.loc[h.sid[keep]].to_numpy()
     xj = xb + rng.uniform(-.012, .012, len(xb))                 # lam_b is on a 0.05 grid
-    scatter(ax, xj, h[keep], "Behavioural λ (bids)", draw_rho(post[keep], LAM, xb, rng))
+    scatter(ax, xj, h[keep], "Behavioural λ (bids)", fmt_rho(xb, h["mean"][keep]))
     ax.set_ylabel("Hierarchical λ (IPS)")
     ax.set_title("f  vs behaviour", loc="left", fontweight="bold")
     for a in fig.axes[-2:]:
