@@ -31,7 +31,8 @@ hemisphere estimates are then reported separately as a reliability check.
 
     python -m abstract_values.encoding_models.hierarchical_lambda \
         [--tsv notes/data/session_modes_voxels.tsv.gz] [--model lognormal] [--smoothed]
-    -> notes/data/hierlambda_<model>{_smoothed}_{subjects,group}.tsv
+    -> notes/data/hierlambda_<model>{_smoothed}_{subjects,group}.tsv, _population.npz
+       (marginal grid posteriors of mu and tau per ROI group)
 """
 from __future__ import annotations
 
@@ -163,7 +164,7 @@ def main(tsv, model, smoothed, groups):
     d = load(tsv, model, smoothed)
     M = mode_table()
     tag = f'{model}{"_smoothed" if smoothed else ""}'
-    subj_rows, grp_rows = [], []
+    subj_rows, grp_rows, pop = [], [], {}
     for gname in groups:
         g = d[d[[f'in_{r}' for r in GROUPS[gname]]].any(axis=1)]
         print(f'{gname}: {len(g)} voxels, {g.subject.nunique()} participants', flush=True)
@@ -183,6 +184,7 @@ def main(tsv, model, smoothed, groups):
                 'R': [curve(x, T) if x is not None else flat for x in SR]}
         post, subj = population(curves)
         pm, pt = post.sum(1), post.sum(0)
+        pop[f'{gname}_mu'], pop[f'{gname}_tau'] = pm, pt
         cm, ct = np.cumsum(pm), np.cumsum(pt)
         grp_rows.append(dict(roi=gname, temperature=T, n_subjects=len(subs), n_voxels=len(g),
                              mu=(pm * MU).sum(), mu_lo=MU[np.searchsorted(cm, .025)],
@@ -213,6 +215,7 @@ def main(tsv, model, smoothed, groups):
                                    index=False, float_format='%.4g')
     pd.DataFrame(grp_rows).to_csv(out / f'hierlambda_{tag}_group.tsv', sep='\t',
                                   index=False, float_format='%.4g')
+    np.savez_compressed(out / f'hierlambda_{tag}_population.npz', MU=MU, TAU=TAU, LAM=LAM, **pop)
     print(pd.DataFrame(grp_rows).round(3).to_string(index=False))
 
 
