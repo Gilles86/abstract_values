@@ -32,6 +32,7 @@ hemisphere estimates are then reported separately as a reliability check.
     python -m abstract_values.encoding_models.hierarchical_lambda \
         [--tsv notes/data/session_modes_voxels.tsv.gz] [--model lognormal] [--smoothed]
     -> notes/data/hierlambda_<model>{_smoothed}_{subjects,group}.tsv, _population.npz
+       (with --select/--min-gain: notes/data/hierlambda_selection/..._sel-<select><gain>_...)
        (marginal grid posteriors of mu and tau per ROI group)
 """
 from __future__ import annotations
@@ -77,27 +78,36 @@ def mode_table():
     return out
 
 
-def obs_loglik(obs, sig, m):
-    """log p(obs | pred = V, sig), censored at mapping m's presented range: (n, len(V))."""
-    lo, hi = min(VALUES[m]), max(VALUES[m])
+def obs_loglik(obs, sig, m, shift=0.):
+    """log p(obs | pred = V, sig), censored at mapping m's presented range: (n, len(V)).
+    obs has already had ``shift`` subtracted, so the censoring bounds move with it."""
+    lo, hi = min(VALUES[m]) - shift, max(VALUES[m]) - shift
     t = stats.t(NU, loc=V[None, :], scale=sig)
     o = obs[:, None]
     return np.where(o <= lo, t.logcdf(lo), np.where(o >= hi, t.logsf(hi), t.logpdf(o)))
 
 
-def subject_S(m_cdf, m_inv, M):
-    """(n_sigma, n_lambda): voxel-summed log-likelihood per sigma (x integrated)."""
+OFFSETS = np.zeros(1)   # per-participant session offset grid (CHF); --offset widens it
+
+
+def subject_S(m_cdf, m_inv, M, offsets=None):
+    """(n_sigma * n_offset, n_lambda): voxel-summed log-likelihood per (sigma,
+    offset) (x integrated). The offset delta shifts every inverse-cdf
+    preferred value of the participant: m_inv = pred + delta + noise."""
+    offsets = OFFSETS if offsets is None else offsets
     out = []
     for sig in SIG:
-        a, b = obs_loglik(m_cdf, sig, 'cdf'), obs_loglik(m_inv, sig, 'inv')          # n, V
-        ll = a[:, M[0]] + b[:, M[1]]                                    # n, L, X
-        out.append((logsumexp(ll, -1) - np.log(len(X))).sum(0))
+        a = obs_loglik(m_cdf, sig, 'cdf')                                # n, V
+        for dlt in offsets:
+            b = obs_loglik(m_inv - dlt, sig, 'inv', shift=dlt)
+            ll = a[:, M[0]] + b[:, M[1]]                                # n, L, X
+            out.append((logsumexp(ll, -1) - np.log(len(X))).sum(0))
     return np.stack(out)
 
 
 def curve(S, temp=1.):
     """log-likelihood over LAM, voxel evidence tempered by T, sigma integrated."""
-    return logsumexp(S / temp, 0) - np.log(len(SIG))
+    return logsumexp(S / temp, 0) - np.log(len(S))
 
 
 def grid_post(curve):
@@ -171,20 +181,32 @@ def calibrate_temperature(SL, SR, temps=np.geomspace(1, 128, 22)):
     return T, r
 
 
-def load(tsv, model, smoothed):
+SELECT = {   # voxel gate: cvR^2 of which aPRF over the null model
+    'std': lambda d: d.cv_std,                          # fixed preferred value (favours lambda 0?)
+    'neutral': lambda d: np.maximum(d.cv_std, d.cv_quant),  # best of value / quantile axis
+    'shift': lambda d: d.cv_shift}                      # the session-shift fit the modes come from
+
+
+def load(tsv, model, smoothed, select='std', min_gain=0.):
     d = pd.read_csv(tsv, sep='\t', dtype={'subject': str})
-    d = d[(d.smoothed.astype(str) == str(smoothed)) & (d.cv_std > d.cv_null)].copy()
+    d = d[d.smoothed.astype(str) == str(smoothed)]
+    d = d[SELECT[select](d) - d.cv_null > min_gain].copy()
     d['m_cdf'], d['m_inv'] = d[f'{model}_cdf'], d[f'{model}_inv']
     return d[np.isfinite(d.m_cdf) & np.isfinite(d.m_inv)]
 
 
-def main(tsv, model, smoothed, groups):
-    d = load(tsv, model, smoothed)
+def main(tsv, model, smoothed, groups, select='std', min_gain=0., min_voxels=10):
+    d = load(tsv, model, smoothed, select, min_gain)
     M = mode_table()
     tag = f'{model}{"_smoothed" if smoothed else ""}'
+    if select != 'std' or min_gain > 0:
+        tag += f'_sel-{select}{min_gain:g}'
+    if len(OFFSETS) > 1:
+        tag += '_offset'
     subj_rows, grp_rows, pop = [], [], {}
     for gname in groups:
         g = d[d[[f'in_{r}' for r in GROUPS[gname]]].any(axis=1)]
+        g = g[g.groupby('subject').subject.transform('size') >= min_voxels]
         print(f'{gname}: {len(g)} voxels, {g.subject.nunique()} participants', flush=True)
         subs = sorted(g.subject.unique())
         S, SL, SR = [], [], []
@@ -232,7 +254,8 @@ def main(tsv, model, smoothed, groups):
               f'[{grp_rows[-1]["tau_lo"]:.2f}, {grp_rows[-1]["tau_hi"]:.2f}]; '
               f'L-R rho = {rLR[0]:.2f} (p = {rLR[1]:.3f})', flush=True)
         grp_rows[-1].update(rho_LR=rLR[0], p_LR=rLR[1])
-    out = REPO / 'notes' / 'data'
+    out = REPO / 'notes' / 'data' / ('hierlambda_selection' if '_sel-' in tag else '')
+    out.mkdir(exist_ok=True)
     pd.DataFrame(subj_rows).to_csv(out / f'hierlambda_{tag}_subjects.tsv', sep='\t',
                                    index=False, float_format='%.10g')
     pd.DataFrame(grp_rows).to_csv(out / f'hierlambda_{tag}_group.tsv', sep='\t',
@@ -272,12 +295,22 @@ if __name__ == '__main__':
     ap.add_argument('--model', default='lognormal', choices=['lognormal', 'gauss'])
     ap.add_argument('--smoothed', action='store_true')
     ap.add_argument('--groups', nargs='+', default=list(GROUPS))
+    ap.add_argument('--select', default='std', choices=list(SELECT))
+    ap.add_argument('--min-gain', type=float, default=0.,
+                    help='keep voxels whose selection cvR^2 exceeds the null by more than this')
+    ap.add_argument('--min-voxels', type=int, default=10,
+                    help='drop participants with fewer selected voxels in the ROI group')
+    ap.add_argument('--offset', action='store_true',
+                    help='integrate a per-participant additive offset between the sessions '
+                         '(uniform on -12..12 CHF)')
     ap.add_argument('--recover', action='store_true',
                     help='parameter recovery on simulated, independent voxels')
     a = ap.parse_args()
+    if a.offset:
+        OFFSETS = np.arange(-12., 12.01, 1.)
     if a.recover:
         for nv, sg in ((300, 6.), (300, 10.), (100, 10.)):
             print(f'{nv} voxels, sigma {sg}:')
             recover(n_voxels=nv, sigma=sg)
     else:
-        main(a.tsv, a.model, a.smoothed, a.groups)
+        main(a.tsv, a.model, a.smoothed, a.groups, a.select, a.min_gain, a.min_voxels)
