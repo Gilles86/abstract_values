@@ -17,6 +17,12 @@ coarser grid (lambda -0.5 to 1.5, step 0.25), written as NIfTIs:
   sub-<S>{_smoothed}_desc-lambdahat_pe.nii.gz    argmax (parabola through the peak)
   sub-<S>{_smoothed}_desc-lambdagain_pe.nii.gz   max cvR^2 - cvR^2(lambda = 0)
 
+With --power: the same profile over a power (Box-Cox) value axis instead,
+x = b_gamma(v) rescaled so that 2 and 42 CHF map to 2 and 42, with
+b_gamma(v) = (v^gamma - 1) / gamma and b_0 = log v. gamma = 1 is the linear
+value axis (= mix lambda 0), gamma = 0 a log (Weber) axis, gamma < 0 more
+compressive still. Output sub-<S>{_smoothed}_gammaprofile.tsv / _gammahat.tsv.
+
 With --bids: reported value instead. Only trials with a valid bid, and the
 same Gaussian coding model on five stimulus axes:
   value      objective value (= mix lambda 0)
@@ -59,6 +65,12 @@ def lam_hat(prof):
         off = .5 * (y0 - y2) / den if den < 0 else 0.
         return LAMBDAS[k] + off * (LAMBDAS[1] - LAMBDAS[0])
     return LAMBDAS[k]
+
+
+def power_axis(v, gamma, lo=2., hi=42.):
+    """Box-Cox value axis, rescaled so ``lo`` and ``hi`` keep their CHF position."""
+    b = (lambda x: np.log(x)) if abs(gamma) < 1e-9 else (lambda x: (x ** gamma - 1) / gamma)
+    return lo + (hi - lo) * (b(np.asarray(v, float)) - b(lo)) / (b(hi) - b(lo))
 
 
 def bid_axes(par):
@@ -178,7 +190,7 @@ def main_bids(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
 
 
 def main(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
-         n_boot=1000, seed=0):
+         n_boot=1000, seed=0, power=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -186,10 +198,14 @@ def main(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
     betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=smoothed)
     folds = [((par['session'] == s) & (par['run'] == r)).to_numpy()
              for (s, r), _ in par.groupby(['session', 'run'])]
-    code = {lam: tc.coding_regressor(stimulus_axis(par['value'].to_numpy(),
-                                                   par['session'].to_numpy(),
-                                                   f'mix:{lam}'))
-            for lam in LAMBDAS}
+    if power:
+        code = {g: tc.coding_regressor(power_axis(par['value'].to_numpy(), g))
+                for g in LAMBDAS}
+    else:
+        code = {lam: tc.coding_regressor(stimulus_axis(par['value'].to_numpy(),
+                                                       par['session'].to_numpy(),
+                                                       f'mix:{lam}'))
+                for lam in LAMBDAS}
     rng = np.random.default_rng(seed)
     boot = rng.integers(0, len(folds), (n_boot, len(folds)))
     tag = '_smoothed' if smoothed else ''
@@ -211,7 +227,7 @@ def main(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
         prof = np.mean(1 - res.sum(1) / tot.sum(0), -1)                  # L
         bp = np.stack([np.mean(1 - res[:, b].sum(1) / tot[b].sum(0), -1) for b in boot])
         bh = np.array([lam_hat(p) for p in bp])
-        k0 = int(np.argmin(np.abs(LAMBDAS)))
+        k0 = int(np.argmin(np.abs(LAMBDAS - (1 if power else 0))))   # linear value axis
         hat_rows.append(dict(roi=roi, lam_hat=lam_hat(prof),
                              ci_lo=np.percentile(bh, 2.5), ci_hi=np.percentile(bh, 97.5),
                              boot_sd=bh.std(), depth=prof.max() - prof[k0],
@@ -221,10 +237,13 @@ def main(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
         print(f'  {roi}: {Y.shape[1]} voxels; lambda-hat {h["lam_hat"]:+.2f} '
               f'[{h["ci_lo"]:+.2f}, {h["ci_hi"]:+.2f}]', flush=True)
     meta = dict(subject=subject, smoothed=smoothed)
-    pd.DataFrame(prof_rows).assign(**meta).to_csv(out / f'sub-{subject}{tag}_profile.tsv',
-                                                  sep='\t', index=False)
-    pd.DataFrame(hat_rows).assign(**meta).to_csv(out / f'sub-{subject}{tag}_lamhat.tsv',
-                                                 sep='\t', index=False)
+    prof, hat = pd.DataFrame(prof_rows).assign(**meta), pd.DataFrame(hat_rows).assign(**meta)
+    if power:       # same columns, gamma in place of lambda; depth is relative to gamma = 1
+        prof = prof.rename(columns={'lam': 'gamma'})
+        hat = hat.rename(columns={'lam_hat': 'gamma_hat'})
+    kind = ('gammaprofile', 'gammahat') if power else ('profile', 'lamhat')
+    prof.to_csv(out / f'sub-{subject}{tag}_{kind[0]}.tsv', sep='\t', index=False)
+    hat.to_csv(out / f'sub-{subject}{tag}_{kind[1]}.tsv', sep='\t', index=False)
     print(f'saved to {out}')
 
 
@@ -238,11 +257,14 @@ if __name__ == '__main__':
     p.add_argument('--n-boot', type=int, default=1000)
     p.add_argument('--bids', action='store_true',
                    help='reported-value axes instead of the lambda profile')
+    p.add_argument('--power', action='store_true',
+                   help='profile over a power (Box-Cox) value axis instead of mix lambda')
     p.add_argument('--whole-brain', action='store_true',
                    help='per-voxel lambda profile in the whole brain mask (NIfTIs)')
     a = p.parse_args()
     if a.whole_brain:
         main_brain(a.subject, a.bids_folder, a.smoothed)
+    elif a.bids:
+        main_bids(a.subject, a.bids_folder, a.smoothed, a.targets, a.n_boot)
     else:
-        (main_bids if a.bids else main)(a.subject, a.bids_folder, a.smoothed, a.targets,
-                                        a.n_boot)
+        main(a.subject, a.bids_folder, a.smoothed, a.targets, a.n_boot, power=a.power)
