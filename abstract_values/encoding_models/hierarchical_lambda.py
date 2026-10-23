@@ -116,20 +116,38 @@ TAU = np.linspace(.01, 2., 200)
 
 
 def population(curves):
-    """Exact grid posterior over (mu, tau), and per-participant posteriors."""
+    """Exact grid posterior over (mu, tau), per-participant posteriors, log evidence."""
     C = np.stack(curves)                                         # S, L
     logprior_lam = stats.norm.logpdf(LAM[None, None, :], MU[:, None, None], TAU[None, :, None])
     logprior_lam -= logsumexp(logprior_lam, -1, keepdims=True)    # normalised on the grid
     # log p(data | mu, tau) = sum_s logsumexp_l (C_sl + log p(l | mu, tau))
     lp = logsumexp(C[:, None, None, :] + logprior_lam[None], -1).sum(0)        # MU, TAU
-    lp += stats.halfnorm.logpdf(TAU, scale=.5)[None, :]
+    logprior_tau = stats.halfnorm.logpdf(TAU, scale=.5)
+    logprior_tau -= logsumexp(logprior_tau)                       # prior mass on the TAU grid
+    lp += logprior_tau[None, :]
     post = np.exp(lp - lp.max())
     post /= post.sum()
     # per participant: sum over (mu, tau) of post * p(l | data_s, mu, tau)
     cond = C[:, None, None, :] + logprior_lam[None]
     cond = np.exp(cond - logsumexp(cond, -1, keepdims=True))                    # S, MU, TAU, L
     subj = np.einsum('mt,smtl->sl', post, cond)
-    return post, subj
+    log_ev = logsumexp(lp) - np.log(len(MU))                      # flat prior mass on MU
+    return post, subj, log_ev
+
+
+def evidence(curves):
+    """Log marginal likelihoods, per participant and for the group.
+
+    Per participant: lambda fixed at 0 (value code), at 1 (quantile code), or free
+    (uniform prior over the LAM grid). Group: all participants at 0, all at 1,
+    one shared lambda (uniform prior), and the hierarchical model."""
+    C = np.stack(curves)
+    i0, i1 = np.flatnonzero(LAM == 0)[0], np.flatnonzero(LAM == 1)[0]
+    subj = dict(logev_lam0=C[:, i0], logev_lam1=C[:, i1],
+                logev_free=logsumexp(C, 1) - np.log(len(LAM)))
+    group = dict(logev_all0=C[:, i0].sum(), logev_all1=C[:, i1].sum(),
+                 logev_shared=logsumexp(C.sum(0)) - np.log(len(LAM)))
+    return subj, group
 
 
 def calibrate_temperature(SL, SR, temps=np.geomspace(1, 128, 22)):
@@ -182,7 +200,9 @@ def main(tsv, model, smoothed, groups):
         flat = np.zeros(len(LAM))
         hemi = {'L': [curve(x, T) if x is not None else flat for x in SL],
                 'R': [curve(x, T) if x is not None else flat for x in SR]}
-        post, subj = population(curves)
+        post, subj, log_ev = population(curves)
+        ev_s, ev_g = evidence(curves)
+        ev_g['logev_hier'] = log_ev
         pm, pt = post.sum(1), post.sum(0)
         pop[f'{gname}_mu'], pop[f'{gname}_tau'] = pm, pt
         cm, ct = np.cumsum(pm), np.cumsum(pt)
@@ -191,9 +211,10 @@ def main(tsv, model, smoothed, groups):
                              mu_hi=MU[np.searchsorted(cm, .975)],
                              tau=(pt * TAU).sum(), tau_lo=TAU[np.searchsorted(ct, .025)],
                              tau_hi=TAU[np.searchsorted(ct, .975)],
-                             p_mu_gt_0=pm[MU > 0].sum(), p_mu_gt_half=pm[MU > .5].sum()))
-        _, sub_L = population(hemi['L'])
-        _, sub_R = population(hemi['R'])
+                             p_mu_gt_0=pm[MU > 0].sum(), p_mu_gt_half=pm[MU > .5].sum(),
+                             **ev_g))
+        _, sub_L, _ = population(hemi['L'])
+        _, sub_R, _ = population(hemi['R'])
         for k, s in enumerate(subs):
             row = dict(roi=gname, subject=s, n_voxels=int((g.subject == s).sum()),
                        **{f'{key}': v for key, v in summarize(subj[k]).items()},
@@ -201,6 +222,7 @@ def main(tsv, model, smoothed, groups):
                        **{f'R_{key}': v for key, v in summarize(sub_R[k]).items()},
                        **{f'nopool_{key}': v for key, v in
                           summarize(grid_post(curves[k])).items()})
+            row.update({key: v[k] for key, v in ev_s.items()})
             row['posterior'] = ' '.join(f'{x:.4g}' for x in subj[k])
             subj_rows.append(row)
         h = pd.DataFrame([r for r in subj_rows if r['roi'] == gname])
@@ -212,9 +234,9 @@ def main(tsv, model, smoothed, groups):
         grp_rows[-1].update(rho_LR=rLR[0], p_LR=rLR[1])
     out = REPO / 'notes' / 'data'
     pd.DataFrame(subj_rows).to_csv(out / f'hierlambda_{tag}_subjects.tsv', sep='\t',
-                                   index=False, float_format='%.4g')
+                                   index=False, float_format='%.10g')
     pd.DataFrame(grp_rows).to_csv(out / f'hierlambda_{tag}_group.tsv', sep='\t',
-                                  index=False, float_format='%.4g')
+                                  index=False, float_format='%.10g')
     np.savez_compressed(out / f'hierlambda_{tag}_population.npz', MU=MU, TAU=TAU, LAM=LAM, **pop)
     print(pd.DataFrame(grp_rows).round(3).to_string(index=False))
 
@@ -234,7 +256,7 @@ def recover(n_subjects=35, n_voxels=300, mu=.8, tau=.3, sigma=6., seed=0):
         SL.append(subject_S(obs[0, h], obs[1, h], M))
         SR.append(subject_S(obs[0, ~h], obs[1, ~h], M))
     T, _ = calibrate_temperature(SL, SR)
-    post, subj = population([curve(x, T) for x in S])
+    post, subj, _ = population([curve(x, T) for x in S])
     est = np.array([summarize(p)['mean'] for p in subj])
     pm, pt = post.sum(1), post.sum(0)
     print(f'true mu {mu}, tau {tau}; recovered mu {(pm * MU).sum():.2f}, '
