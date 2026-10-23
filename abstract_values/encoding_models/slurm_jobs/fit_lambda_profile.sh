@@ -21,7 +21,7 @@ cd "$REPO"
 ARGS=("$PARTICIPANT_LABEL" --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue)
 [ "${SMOOTHED:-0}" = "1" ] && ARGS+=(--smoothed)
 [ "${BIDS:-0}" = "1" ] && ARGS+=(--bids)
-[ "" = "1" ] && ARGS+=(--whole-brain)
-[ "" = "1" ] && ARGS+=(--power)
+[ "${WHOLE_BRAIN:-0}" = "1" ] && ARGS+=(--whole-brain)
+[ "${POWER:-0}" = "1" ] && ARGS+=(--power)
 exec $HOME/data/conda/envs/abstract_values/bin/python -u -W ignore -m \
     abstract_values.encoding_models.fit_lambda_profile "${ARGS[@]}"
