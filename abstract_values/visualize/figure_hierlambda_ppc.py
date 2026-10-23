@@ -37,7 +37,7 @@ import pandas as pd
 from scipy.special import logsumexp
 
 from abstract_values.encoding_models import hierarchical_lambda as hl
-from abstract_values.visualize.figure_tuning_connectivity import ORI_COL, VAL_COL
+ORI_COL, VAL_COL = "#8172B2", "#D08C2E"     # as figure_tuning_connectivity
 
 REPO = Path(__file__).resolve().parents[2]
 RANGE = {m: (min(v), max(v)) for m, v in hl.VALUES.items()}
@@ -244,7 +244,9 @@ if __name__ == "__main__":
     a = ap.parse_args()
     sfx = "_offset" if a.offset else ""
     cache = REPO / f"notes/data/hierlambda_ppc{sfx}_{a.roi}.npz"
-    if a.simulate_only or not cache.exists():
+    if a.simulate_only:
         replicate(a.roi, a.n_rep, a.offset, cache)
+    elif not cache.exists():
+        raise SystemExit(f"{cache} missing: run with --simulate-only on the cluster first")
     if not a.simulate_only:
         main(a.roi, a.out or str(REPO / f"notes/figures/fig_hierlambda_ppc{sfx}.pdf"), cache)
