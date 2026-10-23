@@ -3,7 +3,9 @@
 Group distance matrices per mapping (each participant's RDM normalised by its
 mean, then averaged); 2-D metric MDS on sqrt(distance); every solution
 Procrustes-aligned (rotation/reflection/scale) to the V1 or parietal solution
-pooled over both mappings, so the four maps share a frame. Gabors mark the
+pooled over both mappings, then rotated so 90 deg points straight up and
+reflected so the orientations below 90 deg sit on the right, so all four maps
+share one frame. Gabors mark the
 orientations; the number next to each is its value (CHF) under that mapping.
 
     python -m abstract_values.geometry.figure_mds_by_mapping      # pycortex2 env
@@ -38,6 +40,17 @@ def align(Y, ref):
     return Y @ Rm * (np.linalg.norm(ref) / np.linalg.norm(Y))
 
 
+def canonical(Y, oris, up=90.):
+    """Rotate so the ``up`` orientation points straight up from the centroid;
+    reflect so orientations below ``up`` lie on the right."""
+    v = Y[int(np.argmin(np.abs(np.asarray(oris) - up)))]
+    a = np.pi / 2 - np.arctan2(v[1], v[0])
+    Y = Y @ np.array([[np.cos(a), np.sin(a)], [-np.sin(a), np.cos(a)]])
+    if Y[np.asarray(oris) < up, 0].mean() < 0:
+        Y = Y * [-1, 1]
+    return Y
+
+
 def main():
     d = load()
     plt.rcParams.update({"font.family": "Helvetica", "font.size": 7, "pdf.fonttype": 42})
@@ -48,7 +61,7 @@ def main():
         for j, m in enumerate(("cdf", "inverse_cdf")):
             dm_ = d[d.mapping == m]
             rd, _ = subject_rdms(dm_, rois)
-            Y = align(embed(np.mean(list(rd.values()), 0)), ref)
+            Y = canonical(align(embed(np.mean(list(rd.values()), 0)), ref), oris)
             val = (dm_.groupby("ori_i").val_i.first()
                    .reindex(oris).fillna(dm_.groupby("ori_j").val_j.first()).to_numpy())
             ax = axes[i, j]
@@ -70,8 +83,8 @@ def main():
             ax.set_title(f"{name}, {'CDF' if m == 'cdf' else 'inverse-CDF'} sessions",
                          loc="left", fontsize=7.5, color=col, fontweight="bold")
     fig.text(0.01, 0.005, "Gabors on discs coloured by orientation (circular colour scale): the 23 orientations; numbers: their value (CHF) under "
-             "that session's mapping; dashed: the step from 172.5° back to 7.5°. Each map is "
-             "aligned to the region's pooled solution.", fontsize=6, color="0.4")
+             "that session's mapping;\n dashed: the step from 172.5° back to 7.5°. Each map is "
+             "aligned to the region's pooled solution, with 90° pointing up.", fontsize=6, color="0.4")
     out = REPO / "notes/figures/fig_mds_by_mapping.pdf"
     fig.savefig(out, dpi=300)
     fig.savefig(out.with_suffix(".png"), dpi=200)
