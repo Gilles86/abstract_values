@@ -5,7 +5,9 @@ width/amplitude/baseline shared): log-Gaussian ('lognormal',
 aprf-session-shift) and Gaussian ('gauss', aprf-gauss-session-shift). One row
 per (subject, smoothed, voxel in any ROI): both models' preferred value under
 the Misaligned (cdf) and Aligned (inverse cdf) mapping, the standard aPRF and
-null mean leave-one-run-out cvR^2 (the gate), the voxel's world x coordinate
+null mean leave-one-run-out cvR^2 (the gate), plus the session-shift (cv_shift)
+and quantile-axis (cv_quant) aPRF cvR^2 for selection that does not favour
+either code, the voxel's world x coordinate
 and hemisphere (x relative to the brain-mask centroid), ROI membership.
 
     python -m abstract_values.visualize.collect_session_modes \
@@ -48,7 +50,8 @@ def collect(subject, smoothed, bids):
     for m in MODELS:
         m1, m2 = (on(nib.load(str(fn(m, f'mode_{k}'))), ref)[union] for k in (1, 2))
         cols[f'{m}_cdf'], cols[f'{m}_inv'] = (m1, m2) if first == 'cdf' else (m2, m1)
-    for key, cvdir in (('cv_std', 'aprf.cv'), ('cv_null', 'aprf-null.cv')):
+    for key, cvdir in (('cv_std', 'aprf.cv'), ('cv_null', 'aprf-null.cv'),
+                       ('cv_shift', 'aprf-shift.cv'), ('cv_quant', 'aprf-quantile.cv')):
         files = find_per_run_cvr2(subject, cvdir, smoothed, bids)
         if not files:
             return None
