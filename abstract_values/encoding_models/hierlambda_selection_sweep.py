@@ -8,7 +8,8 @@ Spearman correlations of the per-participant posterior means with the left/right
 hemisphere estimates, the cvR^2-profile lambda-hat, behavioural lambda and the
 cognitive model's value noise and mapping shrinkage (shrink + motor-tail fit).
 
-    python -m abstract_values.encoding_models.hierlambda_selection_sweep [--run]
+    python -m abstract_values.encoding_models.hierlambda_selection_sweep --run --run-only   # cluster
+    python -m abstract_values.encoding_models.hierlambda_selection_sweep                    # local
     -> notes/data/hierlambda_selection/summary.tsv
 """
 from __future__ import annotations
@@ -34,12 +35,15 @@ GAINS = [0., .002, .005, .01, .02]
 GROUPS = ["IPS", "IPS0", "IPS12", "IPS345"]
 
 
-def tag(sel, gain):
-    return f"lognormal_sel-{sel}{gain:g}"
+def path(sel, gain, kind):
+    """std at 0 is the default fit in notes/data; everything else in OUT."""
+    if sel == "std" and gain == 0:
+        return DATA / f"hierlambda_lognormal_{kind}.tsv"
+    return OUT / f"hierlambda_lognormal_sel-{sel}{gain:g}_{kind}.tsv"
 
 
 def run_one(sel, gain):
-    if (OUT / f"hierlambda_{tag(sel, gain)}_group.tsv").exists():
+    if path(sel, gain, "group").exists():
         return
     subprocess.run([sys.executable, "-m", "abstract_values.encoding_models.hierarchical_lambda",
                     "--select", sel, "--min-gain", str(gain), "--groups", *GROUPS],
@@ -76,9 +80,9 @@ def summarise():
     ext = externals()
     rows = []
     for sel, gain in itertools.product(SELECTS, GAINS):
-        g = pd.read_csv(OUT / f"hierlambda_{tag(sel, gain)}_group.tsv", sep="\t").set_index("roi")
-        s = pd.read_csv(OUT / f"hierlambda_{tag(sel, gain)}_subjects.tsv", sep="\t",
-                        dtype={"subject": str})
+        g = pd.read_csv(path(sel, gain, "group"), sep="\t").set_index("roi")
+        s = pd.read_csv(path(sel, gain, "subjects"), sep="\t", dtype={"subject": str})
+        s = s[s.roi.isin(GROUPS)]
         for roi, d in s.groupby("roi", sort=False):
             d = d.set_index(d.subject.map(sid))
             m = d["mean"]
@@ -107,10 +111,13 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", action="store_true", help="run the missing fits first")
-    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--jobs", type=int, default=2)
+    ap.add_argument("--run-only", action="store_true",
+                    help="fits only (on the cluster); summarise locally")
     a = ap.parse_args()
     if a.run:
         OUT.mkdir(exist_ok=True)
         with ThreadPoolExecutor(a.jobs) as ex:
             list(ex.map(lambda x: run_one(*x), itertools.product(SELECTS, GAINS)))
-    summarise()
+    if not a.run_only:
+        summarise()

@@ -56,22 +56,25 @@ def softmax_draw(logp, rng):
     return np.minimum((u > c).sum(-1), p.shape[-1] - 1)
 
 
-def simulate(a, b, lam_post, T, n_rep, rng, M):
+def simulate(a, b, lam_post, T, n_rep, rng, M, offsets=np.zeros(1)):
     """Replicate (n_rep, 2, n_voxels) preferred values for one participant.
-    lam_post: probability over hl.LAM to draw lambda from."""
-    A = np.stack([hl.obs_loglik(a, s, "cdf") for s in hl.SIG])          # SIG, n, V
-    B = np.stack([hl.obs_loglik(b, s, "inv") for s in hl.SIG])
+    lam_post: probability over hl.LAM to draw lambda from; offsets: the grid of
+    the per-participant session offset (one zero = no offset)."""
+    A = np.stack([hl.obs_loglik(a, s, "cdf") for s in hl.SIG]).astype(np.float32)
+    B = np.stack([hl.obs_loglik(b - d, s, "inv", shift=d) for s in hl.SIG
+                  for d in offsets]).astype(np.float32)                   # SIG*OFF, n, V
+    A = np.repeat(A, len(offsets), 0)
     out = np.empty((n_rep, 2, len(a)))
     js = rng.choice(len(hl.LAM), n_rep, p=lam_post)
     for r, j in enumerate(js):
-        ll = A[:, :, M[0, j]] + B[:, :, M[1, j]]                          # SIG, n, X
-        S = (logsumexp(ll, -1) - np.log(len(hl.X))).sum(1)                # SIG
+        ll = A[:, :, M[0, j]] + B[:, :, M[1, j]]                          # SIG*OFF, n, X
+        S = (logsumexp(ll, -1) - np.log(len(hl.X))).sum(1)
         k = softmax_draw(S / T, rng)
         x = softmax_draw(ll[k] / T, rng)                                  # n
-        sig = hl.SIG[k]
+        sig, dlt = hl.SIG[k // len(offsets)], offsets[k % len(offsets)]
         noise = sig * rng.standard_t(hl.NU, (2, len(a)))
         out[r, 0] = censor(hl.V[M[0, j, x]] + noise[0], "cdf")
-        out[r, 1] = censor(hl.V[M[1, j, x]] + noise[1], "inv")
+        out[r, 1] = censor(hl.V[M[1, j, x]] + dlt + noise[1], "inv")
     return out
 
 
@@ -99,14 +102,16 @@ def quantile_line():
     return v, w
 
 
-def main(roi, n_rep, out):
+def main(roi, n_rep, out, offset=False):
+    tag = "lognormal_offset" if offset else "lognormal"
+    offsets = np.arange(-12., 12.01, 1.) if offset else np.zeros(1)
     rng = np.random.default_rng(0)
     d = hl.load(REPO / "notes/data/session_modes_voxels.tsv.gz", "lognormal", False)
     d = d[d[[f"in_{r}" for r in hl.GROUPS[roi]]].any(axis=1)]
-    sub = pd.read_csv(REPO / "notes/data/hierlambda_lognormal_subjects.tsv", sep="\t",
+    sub = pd.read_csv(REPO / f"notes/data/hierlambda_{tag}_subjects.tsv", sep="\t",
                       dtype={"subject": str})
     sub = sub[sub.roi == roi].set_index("subject")
-    T = pd.read_csv(REPO / "notes/data/hierlambda_lognormal_group.tsv", sep="\t"
+    T = pd.read_csv(REPO / f"notes/data/hierlambda_{tag}_group.tsv", sep="\t"
                     ).set_index("roi").loc[roi, "temperature"]
     M = hl.mode_table()
     onehot = lambda l: (hl.LAM == l).astype(float)                          # noqa: E731
@@ -119,7 +124,7 @@ def main(roi, n_rep, out):
         subj.append(np.full(len(a), s))
         post = np.array(sub.loc[s, "posterior"].split(), float)
         for m, lp in zip(MODEL_COL, (onehot(0), onehot(1), post / post.sum())):
-            rep[m].append(simulate(a, b, lp, T, n_rep, rng, M))
+            rep[m].append(simulate(a, b, lp, T, n_rep, rng, M, offsets))
         print(f"  {s}", end="", flush=True)
     print()
     obs_c, obs_i, subj = map(np.concatenate, (obs_c, obs_i, subj))
@@ -173,7 +178,7 @@ def main(roi, n_rep, out):
     for k, m in enumerate(MODEL_COL):
         ax = fig.add_subplot(gs[2, k])
         lo, hi = np.percentile([s[1] for s in r_stats[m]], [2.5, 97.5], 0)
-        ax.fill_between(dc, lo, hi, step="mid", color=MODEL_COL[m], alpha=.35, lw=0)
+        ax.fill_between(dc, lo, hi, color=MODEL_COL[m], alpha=.35, lw=0)
         ax.step(dc, o_dh, where="mid", color="k", lw=.9)
         ax.set_xlim(-38, 38)
         ax.set_title(m, loc="left", fontweight="bold", color=MODEL_COL[m])
@@ -219,6 +224,9 @@ if __name__ == "__main__":
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--roi", default="IPS")
     ap.add_argument("--n-rep", type=int, default=100)
-    ap.add_argument("--out", default=str(REPO / "notes/figures/fig_hierlambda_ppc.pdf"))
+    ap.add_argument("--offset", action="store_true",
+                    help="the model with a per-participant session offset")
+    ap.add_argument("--out")
     a = ap.parse_args()
-    main(a.roi, a.n_rep, a.out)
+    main(a.roi, a.n_rep, a.out or str(REPO / "notes/figures/fig_hierlambda_ppc"
+                                      f"{'_offset' if a.offset else ''}.pdf"), a.offset)
