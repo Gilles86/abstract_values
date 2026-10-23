@@ -18,7 +18,9 @@ bins of the cdf preferred value, and the sorted per-participant median shift
 (inverse cdf - cdf). Bottom: distribution of the voxel shift. Bands: 95%
 predictive intervals across replicate datasets.
 
-    python -m abstract_values.visualize.figure_hierlambda_ppc [--roi IPS]
+    python -m abstract_values.visualize.figure_hierlambda_ppc [--roi IPS] [--offset]
+    (cluster: --simulate-only writes notes/data/hierlambda_ppc[_offset]_<roi>.npz;
+     a local run then only plots)
     -> notes/figures/fig_hierlambda_ppc.pdf
 """
 from __future__ import annotations
@@ -35,7 +37,6 @@ import pandas as pd
 from scipy.special import logsumexp
 
 from abstract_values.encoding_models import hierarchical_lambda as hl
-from abstract_values.visualize import qc_value_shift as q   # noqa: F401 house rcParams
 from abstract_values.visualize.figure_tuning_connectivity import ORI_COL, VAL_COL
 
 REPO = Path(__file__).resolve().parents[2]
@@ -102,7 +103,8 @@ def quantile_line():
     return v, w
 
 
-def main(roi, n_rep, out, offset=False):
+def replicate(roi, n_rep, offset, cache):
+    """Simulate replicate datasets for the three models; save to ``cache``."""
     tag = "lognormal_offset" if offset else "lognormal"
     offsets = np.arange(-12., 12.01, 1.) if offset else np.zeros(1)
     rng = np.random.default_rng(0)
@@ -128,7 +130,17 @@ def main(roi, n_rep, out, offset=False):
         print(f"  {s}", end="", flush=True)
     print()
     obs_c, obs_i, subj = map(np.concatenate, (obs_c, obs_i, subj))
-    rep = {m: np.concatenate(v, -1) for m, v in rep.items()}               # R, 2, N
+    rep = {m: np.concatenate(v, -1).astype(np.float32) for m, v in rep.items()}  # R, 2, N
+    np.savez_compressed(cache, obs_c=obs_c, obs_i=obs_i, subj=subj,
+                        **{f"rep{k}": v for k, v in enumerate(rep.values())})
+    print(f"Wrote {cache}")
+
+
+def main(roi, out, cache):
+    from abstract_values.visualize import qc_value_shift  # noqa: F401 house rcParams
+    z = np.load(cache)
+    obs_c, obs_i, subj = z["obs_c"], z["obs_i"], z["subj"]
+    rep = {m: z[f"rep{k}"] for k, m in enumerate(MODEL_COL)}
     o_med, _, o_shift = stats_of(obs_c, obs_i, subj)
     r_stats = {m: [stats_of(r[0], r[1], subj) for r in v] for m, v in rep.items()}
 
@@ -227,6 +239,12 @@ if __name__ == "__main__":
     ap.add_argument("--offset", action="store_true",
                     help="the model with a per-participant session offset")
     ap.add_argument("--out")
+    ap.add_argument("--simulate-only", action="store_true",
+                    help="write the replicate cache only (cluster); plot locally")
     a = ap.parse_args()
-    main(a.roi, a.n_rep, a.out or str(REPO / "notes/figures/fig_hierlambda_ppc"
-                                      f"{'_offset' if a.offset else ''}.pdf"), a.offset)
+    sfx = "_offset" if a.offset else ""
+    cache = REPO / f"notes/data/hierlambda_ppc{sfx}_{a.roi}.npz"
+    if a.simulate_only or not cache.exists():
+        replicate(a.roi, a.n_rep, a.offset, cache)
+    if not a.simulate_only:
+        main(a.roi, a.out or str(REPO / f"notes/figures/fig_hierlambda_ppc{sfx}.pdf"), cache)
