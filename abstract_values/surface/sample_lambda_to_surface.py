@@ -11,8 +11,10 @@ array (n_lambda, n_vertices L + R):
 
 Then ``--collect`` reduces all subjects to a group file (small; plot locally):
 mean profile per vertex, the group lambda-hat (argmax of the mean profile),
-the mean and SD of the per-participant lambda-hat, and the mean / t of the
-gain over lambda = 0.
+the mean and SD of the per-participant lambda-hat, the participant t of cvR^2 at
+every lambda and of cvR^2(lambda = 1) - cvR^2(lambda = 0). (The gain over
+lambda = 0 is a max over the grid, so >= 0 by construction: its t is not a
+test.)
 
     python -m abstract_values.surface.sample_lambda_to_surface 05
     python -m abstract_values.surface.sample_lambda_to_surface --collect \
@@ -84,6 +86,8 @@ def collect(bids, out):
         n = np.isfinite(gain).sum(0)
         key = 'smoothed' if smoothed else 'unsmoothed'
         mean = np.nanmean(P, 0)
+        tstat = lambda x: np.nanmean(x, 0) / (np.nanstd(x, 0, ddof=1) / np.sqrt(n))
+        k1 = int(np.argmin(np.abs(LAMBDAS_BRAIN - 1)))
         res.update({
             f'{key}_mean_profile': mean.astype(np.float32),
             f'{key}_group_hat': argmax_parabola(mean).astype(np.float32),
@@ -93,6 +97,9 @@ def collect(bids, out):
             f'{key}_gain_mean': np.nanmean(gain, 0).astype(np.float32),
             f'{key}_gain_t': (np.nanmean(gain, 0) / (np.nanstd(gain, 0, ddof=1)
                                                      / np.sqrt(n))).astype(np.float32),
+            # unbiased (no per-subject max): cvR^2 > 0 per lambda, and quantile vs value
+            f'{key}_profile_t': tstat(P).astype(np.float32),
+            f'{key}_quantile_vs_value_t': tstat(P[:, k1] - P[:, k0]).astype(np.float32),
             f'{key}_maxcvr2_mean': np.nanmean(P.max(1), 0).astype(np.float32),
             f'{key}_n': n.astype(np.int16),
             f'{key}_subjects': np.array([f.name.split('_')[0][4:] for f in fs]),
