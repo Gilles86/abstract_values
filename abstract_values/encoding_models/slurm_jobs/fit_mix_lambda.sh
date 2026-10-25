@@ -11,6 +11,7 @@
 # Array: 7 conditions x N participants; task t -> participant (t-1) % N,
 # condition (t-1) / N: observed; simulated lambda {0, 1} x noise {1, 2, 3}.
 #   sbatch --array=1-245 --exclude=u24-chaihm0-651 fit_mix_lambda.sh
+# MODEL=width: separate position / width mixing (lam_mu, lam_sigma).
 set -eo pipefail
 export PYTHONUNBUFFERED=1
 export KERAS_BACKEND=tensorflow
@@ -25,6 +26,7 @@ t=$(( SLURM_ARRAY_TASK_ID - 1 ))
 SUB=${SUBS[$(( t % N ))]}
 c=$(( t / N ))
 ARGS=("$SUB" --bids-folder "$BIDS_FOLDER")
+[ -n "${MODEL:-}" ] && ARGS+=(--model "$MODEL")
 if [ $c -gt 0 ]; then
     LAMS=(x 0 0 0 1 1 1); NOISE=(x 1 2 3 1 2 3)
     ARGS+=(--sim-lam "${LAMS[$c]}" --noise-scale "${NOISE[$c]}")

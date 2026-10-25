@@ -133,6 +133,59 @@ class MixLambdaLogGaussianPRF(GaussianPRF):
         return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
 
 
+class MixPositionWidthGaussianPRF(GaussianPRF):
+    """Gaussian tuning whose POSITION and WIDTH follow the quantile code separately.
+
+    Two mixing parameters:
+      lam_mu    — where the tuning curve sits: the preferred position lives on the
+                  mix axis x = (1 - lam_mu) v + lam_mu q (q = 2 + 40 F_session(v)),
+                  so lam_mu = 0 keeps the preferred value fixed in CHF and
+                  lam_mu = 1 keeps its quantile.
+      lam_sigma — how wide it is: the local width in CHF scales with
+                  1 / ((1 - lam_sigma) + lam_sigma J), J = dq/dv the local slope of
+                  the session's quantile function (high where values are dense).
+                  lam_sigma = 0: same width in CHF everywhere; lam_sigma = 1: same
+                  width in quantile units (narrow where values are dense).
+    Distance from the preferred position, locally linearised:
+        d = (x - mode) * J_sigma / J_mu,  J_l = (1 - l) + l J,
+    and response = amplitude * exp(-d^2 / (2 sigma^2)) + baseline, sigma from fwhm.
+    lam_mu = lam_sigma = lam is a plain Gaussian on the mix axis.
+
+    Parameters: mode, fwhm, amplitude, baseline, lam_mu, lam_sigma.
+    Paradigm: DataFrame ``['x', 'q', 'J']`` (value, rescaled quantile, local slope).
+    """
+
+    parameter_labels = ['mode', 'fwhm', 'amplitude', 'baseline', 'lam_mu', 'lam_sigma']
+
+    def __init__(self, allow_neg_amplitudes=True, **kwargs):
+        self.transformations = ['softplus', 'softplus',
+                                'identity' if allow_neg_amplitudes else 'softplus',
+                                'identity', 'identity', 'identity']
+        self._basis_predictions_without_amplitude = self._mixw_predict
+        self._basis_predictions_with_amplitude = self._mixw_predict
+        GaussianPRF.__init__(self, allow_neg_amplitudes=allow_neg_amplitudes,
+                             model_stimulus_amplitude=True, **kwargs)
+
+    def _mixw_predict(self, paradigm, parameters):
+        v = paradigm[..., None, 0]
+        q = paradigm[..., None, 1]
+        J = paradigm[..., None, 2]
+        mode = parameters[:, None, :, 0]
+        sigma = parameters[:, None, :, 1] * _FWHM_TO_SIGMA_MIX
+        amplitude = parameters[:, None, :, 2]
+        baseline = parameters[:, None, :, 3]
+        lm = parameters[:, None, :, 4]
+        ls = parameters[:, None, :, 5]
+        x = (1. - lm) * v + lm * q
+        j_mu = ops.maximum((1. - lm) + lm * J, 0.05)
+        j_sigma = ops.maximum((1. - ls) + ls * J, 0.05)
+        d = (x - mode) * j_sigma / j_mu
+        return amplitude * ops.exp(-.5 * (d / sigma) ** 2) + baseline
+
+
+_FWHM_TO_SIGMA_MIX = 1.0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))
+
+
 # ── Symmetric Gaussian variants ─────────────────────────────────────────────
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))  # ≈ 0.4247

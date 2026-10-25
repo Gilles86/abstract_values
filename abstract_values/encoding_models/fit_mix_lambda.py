@@ -21,7 +21,13 @@ With --sim-lam / --noise-scale: the same on betas simulated with a known lambda
 (``simulate_lambda_pipeline.simulated_betas``), for recovery.
 
     python -m abstract_values.encoding_models.fit_mix_lambda <subject> [--sim-lam 0 --noise-scale 2]
-    -> derivatives/encoding_models/mix_lambda/sub-<S>/sub-<S>{_sim-lam<l>-noise<k>}_mixlambda.tsv
+    -> derivatives/encoding_models/mix_lambda/sub-<S>/sub-<S>{_sim-lam<l>-noise<k>}{_width}_mixlambda.tsv
+
+--model width: position and width follow the quantile code separately (lam_mu, lam_sigma,
+``models.MixPositionWidthGaussianPRF``; Gaussian tuning), both shared across the ROI;
+fixed corners (lam_mu, lam_sigma) in {(0,0), (1,0), (0,1), (1,1), (.5,.5)}. The
+simulations (simulate_lambda_pipeline) move only the preferred value, so their lambda = 1
+is (lam_mu, lam_sigma) = (1, 0).
 """
 from __future__ import annotations
 
@@ -35,47 +41,72 @@ from braincoder.optimize import ParameterFitter
 
 from abstract_values.connective_fields.gates import demean_runs, get_paradigm, load_roi
 from abstract_values.encoding_models.model_specs import value_quantiles
-from abstract_values.encoding_models.models import MixLambdaLogGaussianPRF
+from abstract_values.encoding_models.models import (MixLambdaLogGaussianPRF,
+                                                     MixPositionWidthGaussianPRF)
 from abstract_values.utils.data import BIDS_FOLDER, Subject
 
 TARGETS = {'V1': 'BensonV1ecc075-375', 'IPS0': 'IPS0', 'IPS12': 'IPS12', 'IPS345': 'IPS345',
            'V3ab': 'V3ab', 'hV4': 'hV4'}
 FIXED = (0., .5, 1.)
+# --model width: (lam_mu, lam_sigma) fixed corners; shared fit starts from the best
+FIXED_W = ((0., 0.), (1., 0.), (0., 1.), (1., 1.), (.5, .5))
+SHARED = {'mix': ['lam'], 'width': ['lam_mu', 'lam_sigma']}
+
+
+def quantile_slope(values, sessions):
+    """J = dq/dv per trial, q = 2 + 40 F_session(v): slope of the session's quantile
+    function at the trial's value (central differences over the presented values)."""
+    out = np.empty(len(values))
+    for s in np.unique(sessions):
+        i = sessions == s
+        u = np.unique(values[i])
+        F = pd.Series(value_quantiles(values[i], sessions[i])).groupby(values[i]).first()
+        J = np.gradient(2 + 40 * F.loc[u].to_numpy(), u)
+        out[i] = J[np.searchsorted(u, values[i])]
+    return out
 MODES = np.linspace(2, 42, 15).astype(np.float32)
 FWHMS = np.linspace(2, 40, 10).astype(np.float32)
 
 
-def fit(Y, par, n_iter, lam=None, init=None):
-    """lam given: fixed-lambda fit (grid + Adam). Else: shared lambda from ``init``."""
-    model = MixLambdaLogGaussianPRF()
+def fit(Y, par, n_iter, lam=None, init=None, kind='mix'):
+    """lam given (a number, or (lam_mu, lam_sigma) for kind 'width'): fixed fit
+    (grid + Adam). Else: the shared mixing parameter(s), from ``init``."""
+    model = MixLambdaLogGaussianPRF() if kind == 'mix' else MixPositionWidthGaussianPRF()
     f = ParameterFitter(model, Y, par)
     if lam is not None:
+        lams = [np.array([l], np.float32) for l in np.atleast_1d(lam)]
         g = f.fit_grid(MODES, FWHMS, np.array([1.], np.float32), np.array([0.], np.float32),
-                       np.array([lam], np.float32), use_correlation_cost=True)
+                       *lams, use_correlation_cost=True)
         g = f.refine_baseline_and_amplitude(g)
-        p = f.fit(max_n_iterations=n_iter, init_pars=g, fixed_pars=['lam'], progressbar=False)
+        p = f.fit(max_n_iterations=n_iter, init_pars=g, fixed_pars=SHARED[kind],
+                  progressbar=False)
     else:
-        p = f.fit(max_n_iterations=n_iter, init_pars=init, shared_pars=['lam'],
+        p = f.fit(max_n_iterations=n_iter, init_pars=init, shared_pars=SHARED[kind],
                   progressbar=False)
     return p, model
 
 
-def fit_all(Y, par, n_iter):
-    """Fixed fits at FIXED and the shared-lambda fit; {name: (pars, model)}."""
-    out = {f'fixed{l:g}': fit(Y, par, n_iter, lam=l) for l in FIXED}
+def fixed_name(l):
+    return 'fixed' + '_'.join(f'{x:g}' for x in np.atleast_1d(l))
+
+
+def fit_all(Y, par, n_iter, kind='mix'):
+    """Fixed fits (FIXED or FIXED_W) and the shared fit; {name: (pars, model)}."""
+    out = {fixed_name(l): fit(Y, par, n_iter, lam=l, kind=kind)
+           for l in (FIXED if kind == 'mix' else FIXED_W)}
 
     def r2(name):
         p, m = out[name]
         pred = m.predict(parameters=p, paradigm=par).values
         return 1 - ((Y.values - pred) ** 2).sum() / ((Y.values - Y.values.mean(0)) ** 2).sum()
     best = max(out, key=r2)
-    out['shared'] = fit(Y, par, n_iter, init=out[best][0])
+    out['shared'] = fit(Y, par, n_iter, init=out[best][0], kind=kind)
     out['shared_init'] = best
     return out
 
 
 def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
-         sim_lam=None, noise_scale=1.):
+         sim_lam=None, noise_scale=1., kind='mix'):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -86,8 +117,12 @@ def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
         from abstract_values.encoding_models.simulate_lambda_pipeline import simulated_betas
         betas = simulated_betas(subject, sim_lam, bids_folder, noise_scale=noise_scale)
     v = par_all['value'].to_numpy()
-    par = pd.DataFrame({'x': v, 'q': 2 + 40 * value_quantiles(v, par_all['session'].to_numpy())}
-                       ).astype(np.float32)
+    ses = par_all['session'].to_numpy()
+    par = pd.DataFrame({'x': v, 'q': 2 + 40 * value_quantiles(v, ses)})
+    if kind == 'width':
+        par['J'] = quantile_slope(v, ses)
+    par = par.astype(np.float32)
+    shared = SHARED[kind]
     runs = np.sort(par_all['run'].unique())
     folds = [(par_all['run'] == r).to_numpy() for r in runs]      # run k of both sessions
     rows = []
@@ -99,37 +134,44 @@ def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
             print(f'  {roi}: skipped ({e})')
             continue
         Y = pd.DataFrame(demean_runs(y, par_all).astype(np.float32))
-        full = fit_all(Y, par, n_iter)
-        names = [f'fixed{l:g}' for l in FIXED] + ['shared']
+        full = fit_all(Y, par, n_iter, kind)
+        names = [fixed_name(l) for l in (FIXED if kind == 'mix' else FIXED_W)] + ['shared']
         sse = {n: np.zeros(Y.shape[1]) for n in names}
         sst = np.zeros(Y.shape[1])
-        fold_lam = []
+        fold_lam = {k: [] for k in shared}
         for k, te in enumerate(folds):
             tr = ~te
-            m = fit_all(Y[tr].reset_index(drop=True), par[tr].reset_index(drop=True), n_iter)
+            m = fit_all(Y[tr].reset_index(drop=True), par[tr].reset_index(drop=True), n_iter, kind)
             yt = Y.values[te]
             sst += ((yt - yt.mean(0)) ** 2).sum(0)
             for n in names:
                 p, model = m[n]
                 pred = model.predict(parameters=p, paradigm=par[te].reset_index(drop=True)).values
                 sse[n] += ((yt - pred) ** 2).sum(0)
-            fold_lam.append(float(m['shared'][0]['lam'].iloc[0]))
-            print(f'  {roi} fold {k + 1}/{len(folds)}: shared lambda {fold_lam[-1]:+.2f}',
-                  flush=True)
+            for key in shared:
+                fold_lam[key].append(float(m['shared'][0][key].iloc[0]))
+            print(f'  {roi} fold {k + 1}/{len(folds)}: shared '
+                  + ', '.join(f'{key} {fold_lam[key][-1]:+.2f}' for key in shared), flush=True)
         cv = {n: 1 - sse[n] / sst for n in names}
-        row = dict(roi=roi, n_voxels=Y.shape[1], lam_shared=float(full['shared'][0]['lam'].iloc[0]),
-                   shared_init=full['shared_init'], lam_fold_mean=np.mean(fold_lam),
-                   lam_fold_sd=np.std(fold_lam),
-                   lam_folds=' '.join(f'{x:.3f}' for x in fold_lam))
+        row = dict(roi=roi, n_voxels=Y.shape[1], shared_init=full['shared_init'])
+        for key in shared:
+            row.update({f'{key}_shared': float(full['shared'][0][key].iloc[0]),
+                        f'{key}_fold_mean': np.mean(fold_lam[key]),
+                        f'{key}_fold_sd': np.std(fold_lam[key]),
+                        f'{key}_folds': ' '.join(f'{x:.3f}' for x in fold_lam[key])})
         for n in names:
             row[f'cvr2_{n}'] = float(np.mean(cv[n]))
             row[f'cvr2pooled_{n}'] = float(1 - sse[n].sum() / sst.sum())
-        row['frac_vox_quantile_better'] = float(np.mean(cv['fixed1'] > cv['fixed0']))
+        best_q, best_v = (('fixed1', 'fixed0') if kind == 'mix' else ('fixed1_1', 'fixed0_0'))
+        row['frac_vox_quantile_better'] = float(np.mean(cv[best_q] > cv[best_v]))
         rows.append(row)
-        print(f'  {roi}: {Y.shape[1]} voxels; shared lambda {row["lam_shared"]:+.2f} '
-              f'(folds {row["lam_fold_mean"]:+.2f} ± {row["lam_fold_sd"]:.2f}); cvR2 x1e3 '
-              + ', '.join(f'{n} {1e3 * row[f"cvr2_{n}"]:+.2f}' for n in names), flush=True)
+        print(f'  {roi}: {Y.shape[1]} voxels; shared '
+              + ', '.join(f'{key} {row[f"{key}_shared"]:+.2f} (folds {row[f"{key}_fold_mean"]:+.2f}'
+                          f' ± {row[f"{key}_fold_sd"]:.2f})' for key in shared)
+              + '; cvR2 x1e3 ' + ', '.join(f'{n} {1e3 * row[f"cvr2_{n}"]:+.2f}' for n in names),
+              flush=True)
     tag = '' if sim_lam is None else f'_sim-lam{sim_lam:g}-noise{noise_scale:g}'
+    tag += '_width' if kind == 'width' else ''
     out = bids_folder / 'derivatives' / 'encoding_models' / 'mix_lambda' / f'sub-{subject}'
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).assign(subject=subject, sim_lam=sim_lam, noise_scale=noise_scale).to_csv(
@@ -146,5 +188,8 @@ if __name__ == '__main__':
     ap.add_argument('--n-iterations', type=int, default=500)
     ap.add_argument('--sim-lam', type=float, default=None)
     ap.add_argument('--noise-scale', type=float, default=1.)
+    ap.add_argument('--model', default='mix', choices=['mix', 'width'],
+                    help="'mix': one lambda (log-Gaussian on the mix axis); 'width': separate "
+                         "lam_mu (position) and lam_sigma (width) (MixPositionWidthGaussianPRF)")
     a = ap.parse_args()
-    main(a.subject, a.bids_folder, a.targets, a.n_iterations, a.sim_lam, a.noise_scale)
+    main(a.subject, a.bids_folder, a.targets, a.n_iterations, a.sim_lam, a.noise_scale, a.model)
