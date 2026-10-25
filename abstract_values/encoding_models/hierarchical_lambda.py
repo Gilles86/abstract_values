@@ -105,6 +105,13 @@ def subject_S(m_cdf, m_inv, M, offsets=None):
     return np.stack(out)
 
 
+def offset_post(S, temp=1.):
+    """No-pooling posterior over OFFSETS (sigma and lambda integrated, flat prior)."""
+    lp = logsumexp((S / temp).reshape(len(SIG), len(OFFSETS), -1), axis=(0, 2))
+    p = np.exp(lp - lp.max())
+    return p / p.sum()
+
+
 def curve(S, temp=1.):
     """log-likelihood over LAM, voxel evidence tempered by T, sigma integrated."""
     return logsumexp(S / temp, 0) - np.log(len(S))
@@ -195,7 +202,7 @@ def load(tsv, model, smoothed, select='std', min_gain=0.):
     return d[np.isfinite(d.m_cdf) & np.isfinite(d.m_inv)]
 
 
-def main(tsv, model, smoothed, groups, select='std', min_gain=0., min_voxels=10):
+def main(tsv, model, smoothed, groups, select='std', min_gain=0., min_voxels=10, suffix=''):
     d = load(tsv, model, smoothed, select, min_gain)
     M = mode_table()
     tag = f'{model}{"_smoothed" if smoothed else ""}'
@@ -203,6 +210,7 @@ def main(tsv, model, smoothed, groups, select='std', min_gain=0., min_voxels=10)
         tag += f'_sel-{select}{min_gain:g}'
     if len(OFFSETS) > 1:
         tag += '_offset'
+    tag += suffix
     subj_rows, grp_rows, pop = [], [], {}
     for gname in groups:
         g = d[d[[f'in_{r}' for r in GROUPS[gname]]].any(axis=1)]
@@ -245,6 +253,10 @@ def main(tsv, model, smoothed, groups, select='std', min_gain=0., min_voxels=10)
                        **{f'nopool_{key}': v for key, v in
                           summarize(grid_post(curves[k])).items()})
             row.update({key: v[k] for key, v in ev_s.items()})
+            if len(OFFSETS) > 1:
+                po = offset_post(S[k], T)
+                row['offset_mean'] = (po * OFFSETS).sum()
+                row['offset_sd'] = np.sqrt((po * OFFSETS ** 2).sum() - row['offset_mean'] ** 2)
             row['posterior'] = ' '.join(f'{x:.4g}' for x in subj[k])
             subj_rows.append(row)
         h = pd.DataFrame([r for r in subj_rows if r['roi'] == gname])
@@ -254,7 +266,8 @@ def main(tsv, model, smoothed, groups, select='std', min_gain=0., min_voxels=10)
               f'[{grp_rows[-1]["tau_lo"]:.2f}, {grp_rows[-1]["tau_hi"]:.2f}]; '
               f'L-R rho = {rLR[0]:.2f} (p = {rLR[1]:.3f})', flush=True)
         grp_rows[-1].update(rho_LR=rLR[0], p_LR=rLR[1])
-    out = REPO / 'notes' / 'data' / ('hierlambda_selection' if '_sel-' in tag else '')
+    out = REPO / 'notes' / 'data' / ('hierlambda_selection' if '_sel-' in tag and not suffix
+                                     else 'hierlambda_default' if suffix else '')
     out.mkdir(exist_ok=True)
     pd.DataFrame(subj_rows).to_csv(out / f'hierlambda_{tag}_subjects.tsv', sep='\t',
                                    index=False, float_format='%.10g')
@@ -288,6 +301,47 @@ def recover(n_subjects=35, n_voxels=300, mu=.8, tau=.3, sigma=6., seed=0):
     return lam, est
 
 
+def recover_offset(n_subjects=35, n_voxels=140, mu=.8, tau=.8, sigma=6., delta=8., seed=0):
+    """Recovery for the offset model: per-participant lambda ~ N(mu, tau) and a
+    session offset delta ~ U(-delta, delta) added to every inverse-cdf preferred
+    value; independent voxels. Returns one row per simulated participant."""
+    rng = np.random.default_rng(seed)
+    M = mode_table()
+    lam = np.clip(rng.normal(mu, tau, n_subjects), LAM[0], LAM[-1])
+    dl = rng.uniform(-delta, delta, n_subjects)
+    S, SL, SR = [], [], []
+    for l, d in zip(lam, dl):
+        j = np.argmin(np.abs(LAM - l))
+        k = rng.integers(0, len(X), n_voxels)
+        obs = V[M[:, j, k]] + sigma * rng.standard_t(NU, (2, n_voxels))
+        obs[1] += d
+        S.append(subject_S(obs[0], obs[1], M))
+        h = rng.random(n_voxels) < .5
+        SL.append(subject_S(obs[0, h], obs[1, h], M))
+        SR.append(subject_S(obs[0, ~h], obs[1, ~h], M))
+    T, _ = calibrate_temperature(SL, SR)
+    post, subj, _ = population([curve(x, T) for x in S])
+    pm, pt = post.sum(1), post.sum(0)
+    rows = pd.DataFrame(dict(lam_true=lam, delta_true=dl,
+                             lam_est=[summarize(p)['mean'] for p in subj],
+                             lam_sd=[summarize(p)['sd'] for p in subj],
+                             delta_est=[(offset_post(x, T) * OFFSETS).sum() for x in S]))
+    rows = rows.assign(mu_true=mu, tau_true=tau, sigma=sigma, n_voxels=n_voxels, T=T,
+                       mu_est=(pm * MU).sum(), mu_lo=MU[np.searchsorted(np.cumsum(pm), .025)],
+                       mu_hi=MU[np.searchsorted(np.cumsum(pm), .975)], tau_est=(pt * TAU).sum())
+    err = rows.lam_est - rows.lam_true
+    print(f'mu {mu} tau {tau} sigma {sigma}: mu_est {rows.mu_est[0]:.2f} '
+          f'[{rows.mu_lo[0]:.2f}, {rows.mu_hi[0]:.2f}], tau_est {rows.tau_est[0]:.2f}, T {T:.1f}; '
+          f'r(lam) {np.corrcoef(rows.lam_true, rows.lam_est)[0, 1]:.2f}, '
+          f'r(delta) {np.corrcoef(rows.delta_true, rows.delta_est)[0, 1]:.2f}, '
+          f'r(lam error, delta) {np.corrcoef(err, rows.delta_true)[0, 1]:.2f}', flush=True)
+    return rows
+
+
+RECOVERY = [   # (mu, tau, sigma): heterogeneous, noisier, all value code, all quantile code
+    (.8, .8, 6.), (.8, .8, 10.), (0., .01, 6.), (1., .01, 6.)]
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -305,12 +359,20 @@ if __name__ == '__main__':
                          '(uniform on -12..12 CHF)')
     ap.add_argument('--recover', action='store_true',
                     help='parameter recovery on simulated, independent voxels')
+    ap.add_argument('--suffix', default='',
+                    help='appended to the output tag; written to notes/data/hierlambda_default/')
     a = ap.parse_args()
     if a.offset:
         OFFSETS = np.arange(-12., 12.01, 1.)
-    if a.recover:
+    if a.recover and a.offset:
+        out = pd.concat([recover_offset(mu=m, tau=t, sigma=sg).assign(condition=c)
+                         for c, (m, t, sg) in enumerate(RECOVERY)])
+        out.to_csv(REPO / 'notes/data/hierlambda_offset_recovery.tsv', sep='\t', index=False,
+                   float_format='%.6g')
+    elif a.recover:
         for nv, sg in ((300, 6.), (300, 10.), (100, 10.)):
             print(f'{nv} voxels, sigma {sg}:')
             recover(n_voxels=nv, sigma=sg)
     else:
-        main(a.tsv, a.model, a.smoothed, a.groups, a.select, a.min_gain, a.min_voxels)
+        main(a.tsv, a.model, a.smoothed, a.groups, a.select, a.min_gain, a.min_voxels,
+             a.suffix)

@@ -13,6 +13,10 @@ and hemisphere (x relative to the brain-mask centroid), ROI membership.
     python -m abstract_values.visualize.collect_session_modes \
         --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue \
         --out notes/data/session_modes_voxels.tsv.gz
+
+With --split odd|even: the log-Gaussian session-shift fit on half the runs
+(``aprf-session-shift.runs-<half>``, unsmoothed), with the full-data cvR^2
+columns as the gate, for the split-half reliability test.
 """
 import argparse
 from pathlib import Path
@@ -34,7 +38,7 @@ def on(img, ref):
                                   copy_header=True).get_fdata()
 
 
-def collect(subject, smoothed, bids):
+def collect(subject, smoothed, bids, MODELS=MODELS):
     sub = Subject(subject, bids_folder=bids)
     tag = '_smoothed' if smoothed else ''
     em = bids / 'derivatives' / 'encoding_models'
@@ -66,15 +70,16 @@ def collect(subject, smoothed, bids):
     return df.assign(subject=subject, smoothed=smoothed, first=first)
 
 
-def main(bids, out):
+def main(bids, out, split=None):
     bids = Path(bids)
+    models = MODELS if split is None else {'lognormal': f'{MODELS["lognormal"]}.runs-{split}'}
     subs = sorted(p.name[4:] for p in (bids / 'derivatives' / 'encoding_models'
-                                       / MODELS['lognormal']).glob('sub-*'))
+                                       / models['lognormal']).glob('sub-*'))
     rows = []
     for s in subs:
-        for sm in (False, True):
+        for sm in ((False, True) if split is None else (False,)):
             try:
-                d = collect(s, sm, bids)
+                d = collect(s, sm, bids, models)
             except Exception as e:
                 print(f'  {s} {sm}: {e}')
                 continue
@@ -90,5 +95,6 @@ if __name__ == '__main__':
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     ap.add_argument('--out', default='notes/data/session_modes_voxels.tsv.gz')
+    ap.add_argument('--split', default=None, choices=['odd', 'even'])
     a = ap.parse_args()
-    main(a.bids_folder, a.out)
+    main(a.bids_folder, a.out, a.split)
