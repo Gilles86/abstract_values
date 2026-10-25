@@ -11,7 +11,7 @@
 # voxel's real session-shift fit, refit (simulate_lambda_pipeline.py).
 # Array: 4 conditions x N participants; task t -> participant (t-1) % N,
 # condition (t-1) / N in: lambda 0 all runs, lambda 0 odd runs,
-# lambda 1 all runs, lambda 1 odd runs.
+# lambda 1 all runs, lambda 1 odd runs; 4-7: noise x2 / x3 for lambda 0, 1 (all runs).
 #   sbatch --array=1-140 --exclude=u24-chaihm0-651 simulate_lambda_pipeline.sh
 set -eo pipefail
 
@@ -32,6 +32,10 @@ case $(( t / N )) in
     1) ARGS=(--lam 0 --runs odd) ;;
     2) ARGS=(--lam 1) ;;
     3) ARGS=(--lam 1 --runs odd) ;;
+    4) ARGS=(--lam 0 --noise-scale 2) ;;
+    5) ARGS=(--lam 0 --noise-scale 3) ;;
+    6) ARGS=(--lam 1 --noise-scale 2) ;;
+    7) ARGS=(--lam 1 --noise-scale 3) ;;
 esac
 
 exec "$HOME/data/conda/envs/abstract_values/bin/python" -u \

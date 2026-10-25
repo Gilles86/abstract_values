@@ -14,7 +14,11 @@ any departure of its estimate from the true lambda is a bias of the pipeline
 
     python -m abstract_values.encoding_models.simulate_lambda_pipeline <subject> \
         --lam 0 [--runs odd|even] [--bids-folder ...]
-    -> derivatives/encoding_models/sim-lam<lam>/aprf-session-shift[.runs-<half>]/sub-<S>/func/
+    -> derivatives/encoding_models/sim-lam<lam>[-noise<k>]/aprf-session-shift[.runs-<half>]/sub-<S>/func/
+
+--noise-scale k multiplies the noise SD: Gaussian noise at the residual SD gives
+preferred values that scatter much less than the observed ones (real noise is
+structured over runs and sessions), so k = 2, 3 bracket the observed scatter.
 """
 from __future__ import annotations
 
@@ -41,7 +45,8 @@ def aligned_mode(v, lam):
     return hl.V[np.argmin(np.abs(ax[None, :] - pos[:, None]), 1)]
 
 
-def main(subject, lam, runs=None, bids_folder=BIDS_FOLDER, seed=0, n_iterations=1000):
+def main(subject, lam, runs=None, bids_folder=BIDS_FOLDER, seed=0, n_iterations=1000,
+         noise_scale=1.):
     bids = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids)
     sessions = sorted(sub.get_sessions())
@@ -69,14 +74,15 @@ def main(subject, lam, runs=None, bids_folder=BIDS_FOLDER, seed=0, n_iterations=
     truth[k_cdf], truth[k_inv] = v, aligned_mode(v, lam)
     rng = np.random.default_rng([seed, int(''.join(c for c in subject if c.isdigit()))])
     sim = model.predict(parameters=truth, paradigm=paradigm).values
-    sim = pd.DataFrame((sim + rng.standard_normal(sim.shape) * resid_sd).astype(np.float32))
+    sim = pd.DataFrame((sim + rng.standard_normal(sim.shape) * resid_sd * noise_scale).astype(np.float32))
     keep = np.ones(len(run), bool) if runs is None else run % 2 == (runs == 'odd')
     sim, par = sim[keep].reset_index(drop=True), paradigm[keep].reset_index(drop=True)
     print(f'sub-{subject} lambda {lam:g} runs {runs or "all"}: {len(par)} trials, '
           f'{sim.shape[1]} voxels', flush=True)
     fit, r2 = fit_one_model(spec, sim, par, float(par.x.min()), float(par.x.max()),
                             n_iterations=n_iterations)
-    out = (em / f'sim-lam{lam:g}' / (spec.out_subdir + (f'.runs-{runs}' if runs else ''))
+    tag = f'sim-lam{lam:g}' + (f'-noise{noise_scale:g}' if noise_scale != 1 else '')
+    out = (em / tag / (spec.out_subdir + (f'.runs-{runs}' if runs else ''))
            / f'sub-{subject}' / 'func')
     out.mkdir(parents=True, exist_ok=True)
     fn = f'sub-{subject}_task-abstractvalue_space-T1w_desc-{{}}_pe.nii.gz'
@@ -96,5 +102,8 @@ if __name__ == '__main__':
     ap.add_argument('--runs', default=None, choices=['odd', 'even'])
     ap.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     ap.add_argument('--n-iterations', type=int, default=1000)
+    ap.add_argument('--noise-scale', type=float, default=1.,
+                    help='multiply the residual SD (output dir sim-lam<lam>-noise<scale>)')
     a = ap.parse_args()
-    main(a.subject, a.lam, a.runs, a.bids_folder, n_iterations=a.n_iterations)
+    main(a.subject, a.lam, a.runs, a.bids_folder, n_iterations=a.n_iterations,
+         noise_scale=a.noise_scale)

@@ -284,7 +284,7 @@ def checks():
     ax.text(.03, .97, f"r = {rr:.2f}", transform=ax.transAxes, fontsize=6.5, va="top")
     ax.set_xlabel("True λ")
     ax.set_ylabel("Recovered λ")
-    title(ax, "d  Recovery: participants")
+    title(ax, "d  Recovery (model): participants")
 
     ax = fig.add_subplot(gs[1, 1])
     ax.plot([-.2, 1.2], [-.2, 1.2], color="0.8", lw=.6, zorder=0)
@@ -299,7 +299,7 @@ def checks():
                 va="center", ha="right" if left else "left", color="0.35")
     ax.set_xlabel("True group μ")
     ax.set_ylabel("Recovered μ, 95% CrI")
-    title(ax, "e  Recovery: group")
+    title(ax, "e  Recovery (model): group")
 
     ax = fig.add_subplot(gs[1, 2])
     ax.plot([-9, 9], [-9, 9], color="0.8", lw=.6, zorder=0)
@@ -310,8 +310,77 @@ def checks():
             .replace("-", "−"), transform=ax.transAxes, fontsize=6.2, va="top")
     ax.set_xlabel("True session offset (CHF)")
     ax.set_ylabel("Recovered offset (CHF)")
-    title(ax, "f  Recovery: offset")
+    title(ax, "f  Recovery (model): offset")
     finish(fig, "checks")
+
+
+# ── end-to-end pipeline check ──────────────────────────────────────────────────
+SIM = "hierlambda_default/hierlambda_lognormal_sel-shift0_offset_sim-{}"
+
+
+def density(ax, tsv, label):
+    d = hl.load(DATA / tsv, "lognormal", False, "shift")
+    d = d[d[[f"in_{r}" for r in hl.GROUPS["IPS"]]].any(axis=1)]
+    (lc, hc), (li, hi) = [(min(hl.VALUES[m]), max(hl.VALUES[m])) for m in ("cdf", "inv")]
+    inside = d.m_cdf.between(lc, hc) & d.m_inv.between(li, hi)
+    ex, ey = np.linspace(lc, hc, 34), np.linspace(li, hi, 40)
+    h = gaussian_filter(np.histogram2d(d.m_cdf[inside], d.m_inv[inside], (ex, ey))[0], 1)
+    ax.pcolormesh(ex, ey, h.T, cmap="Greys", vmin=0, vmax=np.percentile(h, 99.5),
+                  rasterized=True)
+    for lam, c in ((0, VAL_COL), (1, ORI_COL)):
+        ax.plot(*pairs(lam), color=c, lw=1)
+    ax.set_xlim(2, 42)
+    ax.set_ylim(2, 42)
+    ax.set_aspect("equal")
+    ax.set_xlabel("Preferred value, Misaligned (CHF)")
+    title(ax, label)
+
+
+def pipeline():
+    fig = plt.figure(figsize=(7.25, 2.75))
+    gs = fig.add_gridspec(1, 4, left=.06, right=.99, top=.86, bottom=.18, wspace=.42,
+                          width_ratios=[1, 1, 1, 1.6])
+    for k, (tsv, lab) in enumerate((("session_modes_voxels.tsv.gz", "a  Observed"),
+                                    ("session_modes_voxels_sim-lam0.tsv.gz", "b  Simulated, λ = 0"),
+                                    ("session_modes_voxels_sim-lam1.tsv.gz", "c  Simulated, λ = 1"))):
+        ax = fig.add_subplot(gs[k])
+        density(ax, tsv, lab)
+        if k == 0:
+            ax.set_ylabel("Preferred value, Aligned (CHF)")
+    ax = fig.add_subplot(gs[3])
+    rois = ["IPS", "IPS0", "IPS12", "IPS345"]
+    for l, c in ((0, VAL_COL), (1, ORI_COL)):                  # refs over the rows only
+        ax.plot([l, l], [-.6, len(rois) - .5], color=c, lw=.7, alpha=.7, zorder=0)
+    rows = [("Simulated λ = 0, all runs", SIM.format("lam0"), VAL_COL, "o"),
+            ("Simulated λ = 0, half the runs", SIM.format("lam0.runs-odd"), VAL_COL, "s"),
+            ("Simulated λ = 1, all runs", SIM.format("lam1"), ORI_COL, "o"),
+            ("Simulated λ = 1, half the runs", SIM.format("lam1.runs-odd"), ORI_COL, "s"),
+            ("Observed, all runs", DEFAULT, "k", "o"),
+            ("Observed, odd runs", HALF.format("odd"), "k", "s"),
+            ("Observed, even runs", HALF.format("even"), "k", "D")]
+    n = len(rows)
+    for k, (lab, f, c, mk) in enumerate(rows):
+        p = DATA / f"{f}_group.tsv"
+        y0 = -n * .27 - .5 + k * .27                       # key, above the rows
+        ax.plot([-.95, -.75], [y0, y0], color=c, lw=1, alpha=.5 if "half" in lab else 1)
+        ax.plot(-.85, y0, mk, color=c, ms=2.8, mew=0, mfc=c if "all" in lab else "white",
+                mec=c)
+        ax.text(-.68, y0, lab, fontsize=5.6, color=c, va="center")
+        if not p.exists():
+            continue
+        g = pd.read_csv(p, sep="\t").set_index("roi")
+        for i, r in enumerate(rois):
+            y = i + (k - (n - 1) / 2) * .1
+            ax.plot([g.loc[r, "mu_lo"], g.loc[r, "mu_hi"]], [y, y], color=c, lw=.9,
+                    alpha=.5 if "half" in lab else 1)
+            ax.plot(g.loc[r, "mu"], y, mk, color=c, ms=2.8, mew=.6,
+                    mfc=c if "all" in lab else "white", mec=c)
+    ax.set_yticks(range(len(rois)), [NAME[r] for r in rois])
+    ax.set_ylim(len(rois) - .5, -n * .27 - .8)
+    ax.set_xlim(-1.05, 2.05)
+    ax.set_xlabel("Recovered group μ, 95% CrI")
+    title(ax, "d  Recovered after refitting")
+    finish(fig, "pipeline")
 
 
 # ── individual differences ────────────────────────────────────────────────────
@@ -368,5 +437,5 @@ def individual():
 
 
 if __name__ == "__main__":
-    for name in sys.argv[1:] or ["concept", "group", "checks", "individual"]:
+    for name in sys.argv[1:] or ["concept", "group", "checks", "pipeline", "individual"]:
         globals()[name]()
