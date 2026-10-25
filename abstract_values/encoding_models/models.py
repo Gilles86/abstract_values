@@ -94,6 +94,45 @@ class SessionShiftedLogGaussianPRF(GaussianPRF):
         return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
 
 
+class MixLambdaLogGaussianPRF(GaussianPRF):
+    """Log-Gaussian tuning on the value/quantile mix axis, with lambda a parameter.
+
+    The stimulus axis is x_lambda = (1 - lambda) * v + lambda * q, where v is the
+    objective value (CHF) and q = 2 + 40 * F_session(v) is the value's mid-rank
+    quantile within its session, rescaled to the same 2-42 range. lambda = 0 is a
+    fixed-value code (the standard aPRF), lambda = 1 a quantile code (preferred
+    position moves with the session's value distribution; here = orientation rank).
+
+    Parameters (per voxel): mode, fwhm (on the mix axis), amplitude, baseline,
+    lam. Fit with ``fixed_pars=['lam']`` for a fixed code or ``shared_pars=['lam']``
+    for one lambda shared across the voxels being fitted (neural_priors style).
+
+    Paradigm: DataFrame with columns ``['x', 'q']`` (value, rescaled quantile).
+    """
+
+    parameter_labels = ['mode', 'fwhm', 'amplitude', 'baseline', 'lam']
+
+    def __init__(self, allow_neg_amplitudes=True, **kwargs):
+        self.transformations = ['softplus', 'softplus',
+                                'identity' if allow_neg_amplitudes else 'softplus',
+                                'identity', 'identity']
+        self._basis_predictions_without_amplitude = self._mix_predict
+        self._basis_predictions_with_amplitude = self._mix_predict
+        GaussianPRF.__init__(self, allow_neg_amplitudes=allow_neg_amplitudes,
+                             model_stimulus_amplitude=True, **kwargs)
+
+    def _mix_predict(self, paradigm, parameters):
+        v = paradigm[..., None, 0]
+        q = paradigm[..., None, 1]
+        mode = parameters[:, None, :, 0]
+        fwhm = parameters[:, None, :, 1]
+        amplitude = parameters[:, None, :, 2]
+        baseline = parameters[:, None, :, 3]
+        lam = parameters[:, None, :, 4]
+        x = ops.maximum((1. - lam) * v + lam * q, 0.1)     # > 0 for lambda in [-1, 2]
+        return lognormal_pdf_mode_fwhm(x, mode, fwhm) * amplitude + baseline
+
+
 # ── Symmetric Gaussian variants ─────────────────────────────────────────────
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))  # ≈ 0.4247
