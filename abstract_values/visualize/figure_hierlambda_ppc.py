@@ -103,17 +103,20 @@ def quantile_line():
     return v, w
 
 
-def replicate(roi, n_rep, offset, cache):
-    """Simulate replicate datasets for the three models; save to ``cache``."""
-    tag = "lognormal_offset" if offset else "lognormal"
+def replicate(roi, n_rep, offset, cache, fit=None, select="std"):
+    """Simulate replicate datasets for the three models; save to ``cache``.
+    fit: the fit's output prefix relative to notes/data (default: the std-gate fit);
+    select: its voxel gate (``hierarchical_lambda.SELECT``)."""
+    fit = fit or ("hierlambda_lognormal_offset" if offset else "hierlambda_lognormal")
     offsets = np.arange(-12., 12.01, 1.) if offset else np.zeros(1)
     rng = np.random.default_rng(0)
-    d = hl.load(REPO / "notes/data/session_modes_voxels.tsv.gz", "lognormal", False)
+    d = hl.load(REPO / "notes/data/session_modes_voxels.tsv.gz", "lognormal", False, select)
     d = d[d[[f"in_{r}" for r in hl.GROUPS[roi]]].any(axis=1)]
-    sub = pd.read_csv(REPO / f"notes/data/hierlambda_{tag}_subjects.tsv", sep="\t",
+    sub = pd.read_csv(REPO / f"notes/data/{fit}_subjects.tsv", sep="\t",
                       dtype={"subject": str})
     sub = sub[sub.roi == roi].set_index("subject")
-    T = pd.read_csv(REPO / f"notes/data/hierlambda_{tag}_group.tsv", sep="\t"
+    d = d[d.subject.isin(sub.index)]                       # min-voxels as in the fit
+    T = pd.read_csv(REPO / f"notes/data/{fit}_group.tsv", sep="\t"
                     ).set_index("roi").loc[roi, "temperature"]
     M = hl.mode_table()
     onehot = lambda l: (hl.LAM == l).astype(float)                          # noqa: E731
@@ -239,13 +242,16 @@ if __name__ == "__main__":
     ap.add_argument("--offset", action="store_true",
                     help="the model with a per-participant session offset")
     ap.add_argument("--out")
+    ap.add_argument("--fit", help="fit output prefix relative to notes/data")
+    ap.add_argument("--select", default="std", help="that fit's voxel gate")
+    ap.add_argument("--name", default="", help="cache / figure name suffix")
     ap.add_argument("--simulate-only", action="store_true",
                     help="write the replicate cache only (cluster); plot locally")
     a = ap.parse_args()
-    sfx = "_offset" if a.offset else ""
+    sfx = ("_offset" if a.offset else "") + a.name
     cache = REPO / f"notes/data/hierlambda_ppc{sfx}_{a.roi}.npz"
     if a.simulate_only:
-        replicate(a.roi, a.n_rep, a.offset, cache)
+        replicate(a.roi, a.n_rep, a.offset, cache, a.fit, a.select)
     elif not cache.exists():
         raise SystemExit(f"{cache} missing: run with --simulate-only on the cluster first")
     if not a.simulate_only:
