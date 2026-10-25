@@ -12,12 +12,20 @@ pandoc notes/lambda_executive_summary.md --resource-path=notes --pdf-engine=xela
     -o notes/figures/lambda_executive_summary.pdf
 Figures: python -m abstract_values.visualize.figure_lambda_summary -->
 
-**Bottom line.** At the group level, IPS seemed to lean towards a quantile ("efficient") code: the
-group mean λ in IPS is 0.93 [−0.25, 1.90]. But an end-to-end simulation shows that **at the noise
-level of our data, this estimator returns λ ≈ 1.8 whether the true code is value (λ = 0) or quantile
-(λ = 1)**. The preferred-value route therefore can't decide between the codes. Per-participant λ is
-fairly stable across odd and even runs (ρ = .65), but it is unrelated to behaviour or to the
-cognitive model's value noise.
+**Bottom line.** Two ways to estimate λ were put through the same end-to-end simulation (real
+voxel fits, known λ, refit).
+
+- **Hierarchical λ from fitted preferred values fails.** It works post hoc on the per-voxel fits. At
+  realistic noise it returns λ ≈ 1.8 whether the truth is 0 or 1, so its IPS estimate
+  (0.93 [−0.25, 1.90]) is uninformative (sections 2–5).
+- **The cvR² λ-profile works.** It fits the coding model directly to the betas, with one λ per
+  participant and ROI, cross-validated over runs. It separates the codes at every noise level: λ = 0
+  stays at about 0, and λ = 1 is recovered as 0.4–0.7, so its bias is conservative, towards the value
+  code. The observed IPS profile peaks at 0.75–0.95, beyond the simulated quantile code (section 6).
+- **Caveat.** Here the quantile is orientation rank, so "λ ≈ 1" means tuning that follows orientation
+  rank rather than CHF.
+- **Individual differences.** Per participant, the profile λ̂ is too noisy, and the hierarchical λ is
+  unrelated to behaviour.
 
 # 1. Question and approach
 
@@ -52,7 +60,7 @@ cognitive model's value noise.
   participant, a group μ of 0 gives 0.03 and 1 gives 1.02. The offset is recovered at r = .98 and
   does not trade off against λ (r = .09).
 
-# 4. The decisive check: through the whole fitting pipeline
+# 4. End-to-end check of the preferred-value route
 
 ![](figures/fig_lambda_summary_pipeline.pdf)
 
@@ -78,18 +86,41 @@ cognitive model's value noise.
 - **b–c.** λ is unrelated to behavioural λ (ρ = .02) and to the cognitive model's value noise
   σ_rep (ρ = −.13).
 
-# 6. What this means and what next
+# 6. Fitting the model directly to the voxel data: the cvR² λ-profile
 
-- Don't report the hierarchical λ from preferred values as evidence for quantile coding. At our
-  noise level its group estimate isn't informative, and the half-run "reliability" comes from a
-  regime where the estimator is biased.
-- The same simulated datasets are a ready-made test bed. Next, run the cross-validated cvR²-profile
-  λ̂ (prediction-based, so it may not suffer this bias) on them. If it recovers λ = 0 vs 1 at noise ×3,
-  that becomes the primary analysis.
-- The simulations use independent Gaussian noise. Real noise is structured over runs and sessions,
-  and part of the observed scatter may be real. The noise ×3 condition matches the scatter, not
-  necessarily the mechanism behind it.
+![](figures/fig_lambda_summary_profile.pdf)
 
-*Code:* `abstract_values/encoding_models/{hierarchical_lambda, simulate_lambda_pipeline}.py`,
+- **Method.** The same coding model is fitted to the betas on a fine λ grid: a Gaussian on the mix
+  axis x_λ(v), shape chosen per voxel on the training runs, leave-one-run-out, all ROI voxels. λ̂ is
+  the peak of the participant's ROI-mean cvR² profile. This is the analogue of the neural_priors
+  approach, where the condition effect is one parameter shared across a participant's voxels and is
+  judged by cross-validated fit, never read off per-voxel estimates.
+- **Tested on the same simulated betas as section 4.** λ = 0 gives a group profile peak at 0–0.1
+  (noise ×1–2) and −0.15 to −0.45 (×3); per-participant medians are near 0. λ = 1 gives peaks at
+  0.55–0.70 (×1) and 0.30–0.70 (×3). Noise lowers the estimate rather than raising it.
+- **Which noise level is realistic.** The observed ROI-mean cvR² (−0.7 to −2.8 × 10⁻³, all
+  voxels) lies between the ×1 and ×2 simulations. That differs from the ×3 that matched the scatter
+  of preferred values.
+- **Observed** peaks: IPS0 0.75, IPS1–2 0.95, IPS3–5 0.95 (V3a/b 0.85, hV4 0.70). These are above
+  every λ = 1 simulation, and the codes are well separated at this noise level.
+- **Why the simulated λ = 1 lands below 1.** Only the preferred value follows the quantile there;
+  the tuning width stays fixed in CHF, so it is not a pure quantile code.
+
+# 7. What this means and what next
+
+- **Lead with the cvR² λ-profile:** a direct, validated fit. The group result is that IPS tuning
+  follows the value's quantile (equivalently, orientation rank) at least as much as a simulated
+  quantile code does.
+- **Drop the hierarchical λ from preferred values** as an estimator. It can stay as an
+  illustration of what goes wrong.
+- **Next: a closer neural_priors analogue.** Fit the log-Gaussian aPRF in braincoder on the mix
+  axis, with λ (and optionally a width scale) shared across a participant's voxels and fitted by
+  gradient descent. Then compare fixed λ = 0, fixed λ = 1 and shared λ by cvR², and recover it on
+  these simulations.
+- **The confound remains.** With uniform orientations and monotone mappings, a quantile code
+  cannot be told apart from orientation coding.
+
+*Code:* `abstract_values/encoding_models/{hierarchical_lambda, simulate_lambda_pipeline, fit_lambda_profile}.py`,
 `fit_aprf.py --runs`, `visualize/{collect_session_modes, figure_hierlambda_ppc, figure_lambda_summary}.py`.
-*Data:* `notes/data/hierlambda_default/`, `notes/data/hierlambda_offset_recovery.tsv`.
+*Data:* `notes/data/hierlambda_default/`, `notes/data/hierlambda_offset_recovery.tsv`,
+`notes/data/lambda_profile_sim_{group,subjects}.tsv`.

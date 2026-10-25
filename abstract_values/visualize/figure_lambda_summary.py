@@ -396,6 +396,72 @@ def pipeline():
     finish(fig, "pipeline")
 
 
+# ── the cvR^2 lambda profile, validated on the same simulations ──────────────
+PROF_COND = [   # condition, label, colour, linestyle
+    ("sim-lam0-noise1", "λ = 0, noise ×1", VAL_COL, "-"),
+    ("sim-lam0-noise3", "λ = 0, noise ×3", VAL_COL, "--"),
+    ("sim-lam1-noise1", "λ = 1, noise ×1", ORI_COL, "-"),
+    ("sim-lam1-noise3", "λ = 1, noise ×3", ORI_COL, "--"),
+    ("observed", "Observed", "k", "-")]
+
+
+def profile():
+    g = pd.read_csv(DATA / "lambda_profile_sim_group.tsv", sep="\t")
+    h = pd.read_csv(DATA / "lambda_profile_sim_subjects.tsv", sep="\t")
+    rois = ["IPS0", "IPS12", "IPS345"]
+    fig = plt.figure(figsize=(7.25, 2.85))
+    gs = fig.add_gridspec(1, 3, left=.07, right=.64, top=.76, bottom=.16, wspace=.12)
+    gb = fig.add_gridspec(1, 1, left=.79, right=.99, top=.76, bottom=.16)
+    for i, r in enumerate(rois):
+        ax = fig.add_subplot(gs[i], sharey=fig.axes[0] if i else None)
+        lam_refs(ax)
+        for c, lab, col, ls in PROF_COND:
+            x = g[(g.cond == c) & (g.roi == r)].sort_values("lam")
+            y = (x.cvr2 - x.cvr2.min()) / (x.cvr2.max() - x.cvr2.min())
+            ax.plot(x.lam, y, color=col, ls=ls, lw=1.6 if c == "observed" else 1)
+            k = int(np.argmax(y.to_numpy()))
+            ax.plot(x.lam.iloc[k], 1.04, "v", color=col, ms=3.5, mew=0, clip_on=False)
+        ax.set_xlim(-1, 2)
+        ax.set_ylim(0, 1.08)
+        ax.set_xlabel("λ of the coding axis")
+        ax.set_title(NAME[r], fontsize=7)
+        if i == 0:
+            ax.set_ylabel("Group cvR², rescaled 0–1")
+        else:
+            ax.tick_params(labelleft=False)
+    for k, (c, lab, col, ls) in enumerate(PROF_COND):          # key, one row above
+        x0 = .07 + .118 * k
+        fig.lines.append(plt.Line2D([x0, x0 + .025], [.88, .88], color=col, ls=ls,
+                                    lw=1.6 if c == "observed" else 1, transform=fig.transFigure))
+        fig.text(x0 + .03, .88, lab, color=col, fontsize=5.8, va="center")
+    fig.lines.append(plt.Line2D([.665], [.88], marker="v", color="0.3", ms=3.5, mew=0,
+                                transform=fig.transFigure))
+    fig.text(.675, .88, "Peak", color="0.3", fontsize=5.8, va="center")
+    fig.text(.07, .95, "a  Group cvR² profile over the coding axis", fontweight="bold",
+             fontsize=8)
+    ax = fig.add_subplot(gb[0])
+    lam_refs(ax)
+    conds = [c for c in PROF_COND]
+    for k, (c, lab, col, ls) in enumerate(conds):
+        for i, r in enumerate(rois):
+            x = h[(h.cond == c) & (h.roi == r)].lam_hat
+            y = k + (i - 1) * .22
+            q1, q2, q3 = np.percentile(x, [25, 50, 75])
+            ax.plot([q1, q3], [y, y], color=col, lw=1, alpha=.8)
+            ax.plot(q2, y, "osD"[i], color=col, ms=3, mew=0)
+    ax.set_yticks(range(len(conds)), [c[1] for c in conds])
+    for t, c in zip(ax.get_yticklabels(), conds):
+        t.set_color(c[2])
+    ax.set_ylim(len(conds) - .5, -.9)
+    for i, r in enumerate(rois):
+        ax.plot(-.9 + .85 * i, -.7, "osD"[i], color="0.4", ms=3, mew=0)
+        ax.text(-.82 + .85 * i, -.7, NAME[r], fontsize=5.6, va="center", color="0.4")
+    ax.set_xlim(-1.05, 2.05)
+    ax.set_xlabel("Per-participant λ̂, median and IQR")
+    ax.set_title("b  Per participant", loc="left", fontweight="bold", pad=10)
+    finish(fig, "profile")
+
+
 # ── individual differences ────────────────────────────────────────────────────
 def externals():
     lb = pd.read_csv(DATA / "lambda_behaviour.tsv", sep="\t", dtype={"subject": str})
@@ -450,5 +516,5 @@ def individual():
 
 
 if __name__ == "__main__":
-    for name in sys.argv[1:] or ["concept", "group", "checks", "pipeline", "individual"]:
+    for name in sys.argv[1:] or ["concept", "group", "checks", "pipeline", "profile", "individual"]:
         globals()[name]()
