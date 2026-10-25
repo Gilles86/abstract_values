@@ -45,8 +45,9 @@ def aligned_mode(v, lam):
     return hl.V[np.argmin(np.abs(ax[None, :] - pos[:, None]), 1)]
 
 
-def main(subject, lam, runs=None, bids_folder=BIDS_FOLDER, seed=0, n_iterations=1000,
-         noise_scale=1.):
+def simulate(subject, lam, bids_folder=BIDS_FOLDER, seed=0, noise_scale=1.):
+    """Simulated betas (all trials, ROI-union voxels) with a known lambda.
+    Returns sim (trials x voxels), paradigm (x, session), run, masker, truth, (k_cdf, k_inv)."""
     bids = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids)
     sessions = sorted(sub.get_sessions())
@@ -58,8 +59,7 @@ def main(subject, lam, runs=None, bids_folder=BIDS_FOLDER, seed=0, n_iterations=
     masker = NiftiMasker(mask_img=str(mask)).fit()
     data = pd.DataFrame(masker.transform(
         sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=False)).astype(np.float32))
-    em = bids / 'derivatives' / 'encoding_models'
-    real = em / spec.out_subdir / f'sub-{subject}' / 'func'
+    real = bids / 'derivatives' / 'encoding_models' / spec.out_subdir / f'sub-{subject}' / 'func'
     pars = pd.DataFrame({p: masker.transform(str(
         real / f'sub-{subject}_task-abstractvalue_space-T1w_desc-{p}_pe.nii.gz')).ravel()
         for p in spec.save_params}).astype(np.float32)
@@ -74,7 +74,25 @@ def main(subject, lam, runs=None, bids_folder=BIDS_FOLDER, seed=0, n_iterations=
     truth[k_cdf], truth[k_inv] = v, aligned_mode(v, lam)
     rng = np.random.default_rng([seed, int(''.join(c for c in subject if c.isdigit()))])
     sim = model.predict(parameters=truth, paradigm=paradigm).values
-    sim = pd.DataFrame((sim + rng.standard_normal(sim.shape) * resid_sd * noise_scale).astype(np.float32))
+    sim = pd.DataFrame((sim + rng.standard_normal(sim.shape) * resid_sd * noise_scale)
+                       .astype(np.float32))
+    return sim, paradigm, run, masker, truth, (k_cdf, k_inv)
+
+
+def simulated_betas(subject, lam, bids_folder=BIDS_FOLDER, seed=0, noise_scale=1.):
+    """The simulated betas as a 4-D image (zeros outside the ROI-union mask), in GLMsingle
+    beta order, as a drop-in for ``Subject.get_single_trial_estimates``."""
+    sim, _, _, masker, _, _ = simulate(subject, lam, bids_folder, seed, noise_scale)
+    return masker.inverse_transform(sim.to_numpy())
+
+
+def main(subject, lam, runs=None, bids_folder=BIDS_FOLDER, seed=0, n_iterations=1000,
+         noise_scale=1.):
+    bids = Path(bids_folder)
+    em = bids / 'derivatives' / 'encoding_models'
+    spec = get_spec('session-shift')
+    sim, paradigm, run, masker, truth, (k_cdf, k_inv) = simulate(subject, lam, bids, seed,
+                                                                  noise_scale)
     keep = np.ones(len(run), bool) if runs is None else run % 2 == (runs == 'odd')
     sim, par = sim[keep].reset_index(drop=True), paradigm[keep].reset_index(drop=True)
     print(f'sub-{subject} lambda {lam:g} runs {runs or "all"}: {len(par)} trials, '

@@ -190,12 +190,16 @@ def main_bids(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
 
 
 def main(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
-         n_boot=1000, seed=0, power=False):
+         n_boot=1000, seed=0, power=False, sim_lam=None, noise_scale=1.):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
     par = get_paradigm(sub, sessions)
-    betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=smoothed)
+    if sim_lam is None:
+        betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=smoothed)
+    else:       # betas simulated with a known lambda (simulate_lambda_pipeline), unsmoothed
+        from abstract_values.encoding_models.simulate_lambda_pipeline import simulated_betas
+        betas = simulated_betas(subject, sim_lam, bids_folder, noise_scale=noise_scale)
     folds = [((par['session'] == s) & (par['run'] == r)).to_numpy()
              for (s, r), _ in par.groupby(['session', 'run'])]
     if power:
@@ -209,6 +213,8 @@ def main(subject, bids_folder=BIDS_FOLDER, smoothed=False, targets=TARGETS,
     rng = np.random.default_rng(seed)
     boot = rng.integers(0, len(folds), (n_boot, len(folds)))
     tag = '_smoothed' if smoothed else ''
+    if sim_lam is not None:
+        tag += f'_sim-lam{sim_lam:g}-noise{noise_scale:g}'
     out = bids_folder / 'derivatives' / 'encoding_models' / 'lambda_profile' / f'sub-{subject}'
     out.mkdir(parents=True, exist_ok=True)
     prof_rows, hat_rows = [], []
@@ -261,10 +267,15 @@ if __name__ == '__main__':
                    help='profile over a power (Box-Cox) value axis instead of mix lambda')
     p.add_argument('--whole-brain', action='store_true',
                    help='per-voxel lambda profile in the whole brain mask (NIfTIs)')
+    p.add_argument('--sim-lam', type=float, default=None,
+                   help='profile of betas simulated with this lambda (simulate_lambda_pipeline); '
+                        'output sub-<S>_sim-lam<lam>-noise<k>_{profile,lamhat}.tsv')
+    p.add_argument('--noise-scale', type=float, default=1.)
     a = p.parse_args()
     if a.whole_brain:
         main_brain(a.subject, a.bids_folder, a.smoothed)
     elif a.bids:
         main_bids(a.subject, a.bids_folder, a.smoothed, a.targets, a.n_boot)
     else:
-        main(a.subject, a.bids_folder, a.smoothed, a.targets, a.n_boot, power=a.power)
+        main(a.subject, a.bids_folder, a.smoothed, a.targets, a.n_boot, power=a.power,
+             sim_lam=a.sim_lam, noise_scale=a.noise_scale)
