@@ -329,57 +329,70 @@ def density(ax, tsv, label):
                   rasterized=True)
     for lam, c in ((0, VAL_COL), (1, ORI_COL)):
         ax.plot(*pairs(lam), color=c, lw=1)
+    shift = d.m_inv - d.m_cdf
+    ax.text(.97, .03, f"Scatter {np.median(np.abs(shift - shift.median())):.1f} CHF",
+            transform=ax.transAxes, fontsize=5.8, ha="right", color="0.3")
     ax.set_xlim(2, 42)
     ax.set_ylim(2, 42)
     ax.set_aspect("equal")
-    ax.set_xlabel("Preferred value, Misaligned (CHF)")
+    ax.set_xlabel("Preferred value, Misaligned")
     title(ax, label)
 
 
+SIM_ROWS = [   # label, fit prefix, colour, filled
+    ("λ = 0, noise ×1", SIM.format("lam0"), VAL_COL, True),
+    ("λ = 0, noise ×1, half the runs", SIM.format("lam0.runs-odd"), VAL_COL, False),
+    ("λ = 0, noise ×2", SIM.format("lam0-noise2"), VAL_COL, True),
+    ("λ = 0, noise ×3 (matches data)", SIM.format("lam0-noise3"), VAL_COL, True),
+    ("λ = 1, noise ×1", SIM.format("lam1"), ORI_COL, True),
+    ("λ = 1, noise ×1, half the runs", SIM.format("lam1.runs-odd"), ORI_COL, False),
+    ("λ = 1, noise ×2", SIM.format("lam1-noise2"), ORI_COL, True),
+    ("λ = 1, noise ×3 (matches data)", SIM.format("lam1-noise3"), ORI_COL, True),
+    ("Observed, all runs", DEFAULT, "k", True),
+    ("Observed, odd runs", HALF.format("odd"), "k", False),
+    ("Observed, even runs", HALF.format("even"), "k", False)]
+
+
 def pipeline():
-    fig = plt.figure(figsize=(7.25, 2.75))
-    gs = fig.add_gridspec(1, 4, left=.06, right=.99, top=.86, bottom=.18, wspace=.42,
-                          width_ratios=[1, 1, 1, 1.6])
-    for k, (tsv, lab) in enumerate((("session_modes_voxels.tsv.gz", "a  Observed"),
-                                    ("session_modes_voxels_sim-lam0.tsv.gz", "b  Simulated, λ = 0"),
-                                    ("session_modes_voxels_sim-lam1.tsv.gz", "c  Simulated, λ = 1"))):
-        ax = fig.add_subplot(gs[k])
-        density(ax, tsv, lab)
+    fig = plt.figure(figsize=(7.25, 5.4))
+    top = fig.add_gridspec(1, 4, left=.07, right=.99, top=.94, bottom=.6, wspace=.35)
+    for k, (tsv, lab) in enumerate((
+            ("session_modes_voxels.tsv.gz", "a  Observed"),
+            ("session_modes_voxels_sim-lam0.tsv.gz", "b  λ = 0, noise ×1"),
+            ("session_modes_voxels_sim-lam0-noise3.tsv.gz", "c  λ = 0, noise ×3"),
+            ("session_modes_voxels_sim-lam1-noise3.tsv.gz", "d  λ = 1, noise ×3"))):
+        ax = fig.add_subplot(top[k])
+        if (DATA / tsv).exists():
+            density(ax, tsv, lab)
         if k == 0:
-            ax.set_ylabel("Preferred value, Aligned (CHF)")
-    ax = fig.add_subplot(gs[3])
+            ax.set_ylabel("Preferred value, Aligned")
+    bot = fig.add_gridspec(1, 4, left=.27, right=.99, top=.47, bottom=.08, wspace=.12)
     rois = ["IPS", "IPS0", "IPS12", "IPS345"]
-    for l, c in ((0, VAL_COL), (1, ORI_COL)):                  # refs over the rows only
-        ax.plot([l, l], [-.6, len(rois) - .5], color=c, lw=.7, alpha=.7, zorder=0)
-    rows = [("Simulated λ = 0, all runs", SIM.format("lam0"), VAL_COL, "o"),
-            ("Simulated λ = 0, half the runs", SIM.format("lam0.runs-odd"), VAL_COL, "s"),
-            ("Simulated λ = 1, all runs", SIM.format("lam1"), ORI_COL, "o"),
-            ("Simulated λ = 1, half the runs", SIM.format("lam1.runs-odd"), ORI_COL, "s"),
-            ("Observed, all runs", DEFAULT, "k", "o"),
-            ("Observed, odd runs", HALF.format("odd"), "k", "s"),
-            ("Observed, even runs", HALF.format("even"), "k", "D")]
-    n = len(rows)
-    for k, (lab, f, c, mk) in enumerate(rows):
-        p = DATA / f"{f}_group.tsv"
-        y0 = -n * .27 - .5 + k * .27                       # key, above the rows
-        ax.plot([-.95, -.75], [y0, y0], color=c, lw=1, alpha=.5 if "half" in lab else 1)
-        ax.plot(-.85, y0, mk, color=c, ms=2.8, mew=0, mfc=c if "all" in lab else "white",
-                mec=c)
-        ax.text(-.68, y0, lab, fontsize=5.6, color=c, va="center")
-        if not p.exists():
-            continue
-        g = pd.read_csv(p, sep="\t").set_index("roi")
-        for i, r in enumerate(rois):
-            y = i + (k - (n - 1) / 2) * .1
-            ax.plot([g.loc[r, "mu_lo"], g.loc[r, "mu_hi"]], [y, y], color=c, lw=.9,
-                    alpha=.5 if "half" in lab else 1)
-            ax.plot(g.loc[r, "mu"], y, mk, color=c, ms=2.8, mew=.6,
-                    mfc=c if "all" in lab else "white", mec=c)
-    ax.set_yticks(range(len(rois)), [NAME[r] for r in rois])
-    ax.set_ylim(len(rois) - .5, -n * .27 - .8)
-    ax.set_xlim(-1.05, 2.05)
-    ax.set_xlabel("Recovered group μ, 95% CrI")
-    title(ax, "d  Recovered after refitting")
+    y = np.arange(len(SIM_ROWS)) + np.repeat([0, .6, 1.2], [4, 4, 3])
+    for i, r in enumerate(rois):
+        ax = fig.add_subplot(bot[i], sharey=fig.axes[-1] if i else None)
+        for l, c in ((0, VAL_COL), (1, ORI_COL)):
+            ax.axvline(l, color=c, lw=.7, alpha=.6, zorder=0)
+        for yy, (lab, f, c, filled) in zip(y, SIM_ROWS):
+            p = DATA / f"{f}_group.tsv"
+            if not p.exists():
+                continue
+            g = pd.read_csv(p, sep="\t").set_index("roi").loc[r]
+            ax.plot([g.mu_lo, g.mu_hi], [yy, yy], color=c, lw=1)
+            ax.plot(g.mu, yy, "o", ms=3.2, mew=.8, color=c, mfc=c if filled else "white", mec=c)
+        ax.set_xlim(-1.05, 2.05)
+        ax.set_xticks([-1, 0, 1, 2])
+        ax.set_title(NAME[r], fontsize=7)
+        if i == 0:
+            ax.set_yticks(y, [s[0] for s in SIM_ROWS])
+            for t, (_, _, c, _) in zip(ax.get_yticklabels(), SIM_ROWS):
+                t.set_color(c)
+            ax.set_ylim(y[-1] + .7, -.7)
+        else:
+            ax.tick_params(labelleft=False)
+        ax.set_xlabel("Group μ, 95% CrI")
+    fig.text(.01, .5, "e  Simulate a known λ from each voxel's real fit, refit, re-estimate",
+             fontweight="bold", fontsize=8, va="bottom")
     finish(fig, "pipeline")
 
 
