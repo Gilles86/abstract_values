@@ -56,7 +56,7 @@ def save_f32(img, path):
 
 
 def get_value_paradigm(sub, sessions, needs_session: bool,
-                       space: str = 'value'):
+                       space: str = 'value', with_run: bool = False):
     """Return paradigm DataFrame with column 'x' and, if ``needs_session``,
     a 'session' column (0-based session index).
 
@@ -81,24 +81,27 @@ def get_value_paradigm(sub, sessions, needs_session: bool,
             for _, row in run_ev[run_ev['event_type'] == 'gabor'].iterrows():
                 stim = (np.deg2rad(float(row['orientation'])) % np.pi
                         if space == 'orientation' else float(row['value']))
-                rows.append((stim, float(ses_idx)))
+                rows.append((stim, float(ses_idx), float(run)))
     arr = np.asarray(rows, dtype=np.float32)
+    run_col = arr[:, 2]
+    arr = arr[:, :2]
     if space in ('quantile', 'quantile-wrapped') or space.startswith('mix:'):
         arr[:, 0] = stimulus_axis(arr[:, 0], arr[:, 1], space)
+    extra = {'run': run_col} if with_run else {}
     if not needs_session:
-        return pd.DataFrame({'x': arr[:, 0]})
+        return pd.DataFrame({'x': arr[:, 0], **extra})
     unique = set(np.unique(arr[:, 1]).tolist())
     if not unique <= {0.0, 1.0}:
         raise ValueError(
             "Session column must contain only 0 and 1, got "
             f"{unique}. SessionShifted* models use session=0 for the "
             "first sorted session and session=1 for the second.")
-    return pd.DataFrame({'x': arr[:, 0], 'session': arr[:, 1]})
+    return pd.DataFrame({'x': arr[:, 0], 'session': arr[:, 1], **extra})
 
 
 def main(subject, mask=None, n_iterations=1000, model_type='standard',
          bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep',
-         smoothed=False, debug=False, allow_incomplete=False):
+         smoothed=False, debug=False, allow_incomplete=False, runs=None):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
@@ -116,7 +119,12 @@ def main(subject, mask=None, n_iterations=1000, model_type='standard',
 
     # ── paradigm ─────────────────────────────────────────────────────────────
     paradigm = get_value_paradigm(sub, sessions, spec.needs_session,
-                                  space=spec.stimulus_space)
+                                  space=spec.stimulus_space, with_run=True)
+    # --runs odd|even: half the runs of every session (by run number), for a
+    # split-half reliability test; quantile axes stay those of the full session
+    keep = (np.ones(len(paradigm), bool) if runs is None
+            else (paradigm['run'].to_numpy() % 2 == (1 if runs == 'odd' else 0)))
+    paradigm = paradigm.drop(columns='run')
     value_min = float(paradigm['x'].min())
     value_max = float(paradigm['x'].max())
     print(f"  {len(paradigm)} trials  value range: "
@@ -134,6 +142,11 @@ def main(subject, mask=None, n_iterations=1000, model_type='standard',
         mask = sub.get_brain_mask(sessions[0])
     masker = NiftiMasker(mask_img=mask).fit()
     data = pd.DataFrame(masker.transform(betas_img).astype(np.float32))
+    if runs is not None:
+        data = data[keep].reset_index(drop=True)
+        paradigm = paradigm[keep].reset_index(drop=True)
+        value_min, value_max = float(paradigm['x'].min()), float(paradigm['x'].max())
+        print(f"  --runs {runs}: {len(paradigm)} trials kept")
     print(f"  {data.shape[1]} voxels in mask")
 
     _skip_save = False
@@ -154,8 +167,9 @@ def main(subject, mask=None, n_iterations=1000, model_type='standard',
 
     # ── save NIfTIs ──────────────────────────────────────────────────────────
     smooth_label = '_smoothed' if smoothed else ''
+    out_sub = spec.out_subdir + (f'.runs-{runs}' if runs else '')
     out_dir = (bids_folder / 'derivatives' / 'encoding_models'
-               / spec.out_subdir / f'sub-{subject}' / 'func')
+               / out_sub / f'sub-{subject}' / 'func')
     out_dir.mkdir(parents=True, exist_ok=True)
     fn = (f"sub-{subject}_task-abstractvalue"
           f"_space-T1w_desc-{{desc}}{smooth_label}_pe.nii.gz")
@@ -196,10 +210,13 @@ if __name__ == '__main__':
                          help='Fast smoke test: 50 iters, 1000 voxels, small grid')
     parser.add_argument('--allow-incomplete', action='store_true',
                          help='Skip the all-MRI-sessions-present check.')
+    parser.add_argument('--runs', default=None, choices=['odd', 'even'],
+                         help='Fit only the odd- or even-numbered runs of every '
+                              'session (output dir <model>.runs-<odd|even>).')
     args = parser.parse_args()
 
     main(args.subject, mask=args.mask,
          n_iterations=args.n_iterations, model_type=args.model,
          bids_folder=args.bids_folder, fmriprep_deriv=args.fmriprep_deriv,
          smoothed=args.smoothed, debug=args.debug,
-         allow_incomplete=args.allow_incomplete)
+         allow_incomplete=args.allow_incomplete, runs=args.runs)
