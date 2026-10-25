@@ -70,9 +70,11 @@ def collect(subject, smoothed, bids, MODELS=MODELS):
     return df.assign(subject=subject, smoothed=smoothed, first=first)
 
 
-def main(bids, out, split=None):
+def main(bids, out, split=None, model_dir=None):
     bids = Path(bids)
     models = MODELS if split is None else {'lognormal': f'{MODELS["lognormal"]}.runs-{split}'}
+    if model_dir:                       # e.g. sim-lam0/aprf-session-shift (simulations)
+        models, split = {'lognormal': model_dir}, split or 'all'
     subs = sorted(p.name[4:] for p in (bids / 'derivatives' / 'encoding_models'
                                        / models['lognormal']).glob('sub-*'))
     rows = []
@@ -96,5 +98,8 @@ if __name__ == '__main__':
     ap.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     ap.add_argument('--out', default='notes/data/session_modes_voxels.tsv.gz')
     ap.add_argument('--split', default=None, choices=['odd', 'even'])
+    ap.add_argument('--model-dir', default=None,
+                    help='log-Gaussian session-shift fits under encoding_models/ to read '
+                         'instead (unsmoothed only), e.g. sim-lam0/aprf-session-shift')
     a = ap.parse_args()
-    main(a.bids_folder, a.out, a.split)
+    main(a.bids_folder, a.out, a.split, a.model_dir)

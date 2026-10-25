@@ -184,11 +184,13 @@ def group():
             y = i + (k - 1.5) * .17
             ax.plot([g.loc[r, "mu_lo"], g.loc[r, "mu_hi"]], [y, y], color=vcol[k], lw=1.1)
             ax.plot(g.loc[r, "mu"], y, "o", color=vcol[k], ms=3, mew=0)
-    for k, lab in enumerate(VARIANTS):
-        ax.text(1.02, 1. - .075 * k, lab, transform=ax.transAxes, fontsize=5.8, color=vcol[k],
-                va="top", ha="right")
+    for k, lab in enumerate(VARIANTS):                       # key, above the rows
+        y = -2.05 + .3 * k
+        ax.plot([-.95, -.75], [y, y], color=vcol[k], lw=1.1)
+        ax.plot(-.85, y, "o", color=vcol[k], ms=3, mew=0)
+        ax.text(-.68, y, lab, fontsize=5.8, color=vcol[k], va="center")
     ax.set_yticks(range(len(rois)), [NAME[r] for r in rois])
-    ax.set_ylim(len(rois) - .5, -1.6)
+    ax.set_ylim(len(rois) - .5, -2.3)
     ax.set_xlim(-1.05, 2.05)
     ax.set_xlabel("Group mean λ (μ), 95% CrI")
     title(ax, "b  Robust to gate and model")
@@ -210,7 +212,8 @@ def group():
     ax.text(g.mu, len(h) - .2, "Group μ", fontsize=6, color="0.45", ha="center", va="bottom")
     title(ax, "c  Per participant")
     fig.text(.07, .965, f"Default model (session-shift gate + offset): IPS μ = {g.mu:.2f} "
-             f"[{g.mu_lo:.2f}, {g.mu_hi:.2f}], τ = {g.tau:.2f}, {int(g.n_subjects)} participants",
+             f"[{g.mu_lo:.2f}, {g.mu_hi:.2f}], τ = {g.tau:.2f}, {int(g.n_subjects)} participants"
+             .replace("[-", "[−"),
              fontsize=6.5, color="0.3")
     finish(fig, "group")
 
@@ -253,8 +256,21 @@ def checks():
             ax.text(.14, .78, "Observed", fontsize=6, va="center", transform=ax.transAxes)
 
     p = DATA / "hierlambda_offset_recovery.tsv"
-    ax_text = fig.add_subplot(gs[0, 2])
-    ax_text.axis("off")
+    ax = fig.add_subplot(gs[0, 2])                             # offsets on the real data
+    z = DATA / "hierlambda_ppc_offset_default_IPS.npz"
+    sub = pd.read_csv(DATA / f"{DEFAULT}_subjects.tsv", sep="\t", dtype={"subject": str})
+    sub = sub[sub.roi == "IPS"].set_index("subject")
+    if z.exists() and "offset_mean" in sub:
+        z = np.load(z)
+        med = pd.Series(z["obs_i"] - z["obs_c"]).groupby(z["subj"]).median()
+        o = sub.offset_mean.reindex(med.index)
+        ax.plot([-15, 15], [-15, 15], color="0.8", lw=.6, zorder=0)
+        ax.errorbar(med, o, yerr=sub.offset_sd.reindex(med.index), fmt="o", ms=2.6, color="0.3",
+                    mew=0, elinewidth=.5, ecolor=(.3, .3, .3, .35))
+        rho_text(ax, med, o)
+    ax.set_xlabel("Observed median voxel shift (CHF)")
+    ax.set_ylabel("Estimated session offset (CHF)")
+    title(ax, "c  Offsets absorb the shifts")
     if not p.exists():
         finish(fig, "checks")
         return
@@ -268,7 +284,7 @@ def checks():
     ax.text(.03, .97, f"r = {rr:.2f}", transform=ax.transAxes, fontsize=6.5, va="top")
     ax.set_xlabel("True λ")
     ax.set_ylabel("Recovered λ")
-    title(ax, "c  Recovery: participants")
+    title(ax, "d  Recovery: participants")
 
     ax = fig.add_subplot(gs[1, 1])
     ax.plot([-.2, 1.2], [-.2, 1.2], color="0.8", lw=.6, zorder=0)
@@ -278,10 +294,12 @@ def checks():
         jit = (c - 1.5) * .03
         ax.plot([x.mu_true + jit] * 2, [x.mu_lo, x.mu_hi], color=IPS_C, lw=1)
         ax.plot(x.mu_true + jit, x.mu_est, "o", color=IPS_C, ms=3.2, mew=0)
-        ax.text(x.mu_true + jit + .05, x.mu_est, lab[c], fontsize=5.8, va="center", color="0.35")
+        left = c == 0
+        ax.text(x.mu_true + jit + (-.05 if left else .05), x.mu_est, lab[c], fontsize=5.8,
+                va="center", ha="right" if left else "left", color="0.35")
     ax.set_xlabel("True group μ")
     ax.set_ylabel("Recovered μ, 95% CrI")
-    title(ax, "d  Recovery: group")
+    title(ax, "e  Recovery: group")
 
     ax = fig.add_subplot(gs[1, 2])
     ax.plot([-9, 9], [-9, 9], color="0.8", lw=.6, zorder=0)
@@ -292,7 +310,7 @@ def checks():
             .replace("-", "−"), transform=ax.transAxes, fontsize=6.2, va="top")
     ax.set_xlabel("True session offset (CHF)")
     ax.set_ylabel("Recovered offset (CHF)")
-    title(ax, "e  Recovery: offset")
+    title(ax, "f  Recovery: offset")
     finish(fig, "checks")
 
 
