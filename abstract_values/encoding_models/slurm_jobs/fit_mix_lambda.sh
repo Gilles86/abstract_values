@@ -32,8 +32,16 @@ SUB=${SUBS[$(( t % N ))]}
 c=$(( t / N ))
 ARGS=("$SUB" --bids-folder "$BIDS_FOLDER")
 [ -n "${ROI:-}" ] && ARGS+=(--targets "$ROI")
-[ -n "${MODEL:-}" ] && ARGS+=(--model "$MODEL")
-if [ "${MODEL:-mix}" = "width" ]; then
+[ -n "${MODEL:-}" ] && [ "$MODEL" != "grid" ] && ARGS+=(--model "$MODEL")
+if [ "${MODEL:-mix}" = "grid" ]; then
+    # (lam_mu, lam_sigma) cvR2 surface; observed + corners at noise 2:
+    #   sbatch -p standard,lowprio --time=12:00:00 --array=1-1050 --export=ALL,MODEL=grid,PER_ROI=1 ...
+    ARGS+=(--grid)
+    if [ $c -gt 0 ]; then
+        LM=(x 0 1 0 1); LS=(x 0 0 1 1)
+        ARGS+=(--sim-corner "${LM[$c]}" "${LS[$c]}" --noise-scale 2)
+    fi
+elif [ "${MODEL:-mix}" = "width" ]; then
     # observed; corners (lam_mu, lam_sigma) (0,0) (1,0) (0,1) (1,1) x noise {1, 2}:
     #   sbatch --array=1-315 --export=ALL,MODEL=width ...
     #   per ROI (6x the tasks, ~30-60 min each):

@@ -51,6 +51,7 @@ FIXED = (0., .5, 1.)
 # --model width: (lam_mu, lam_sigma) fixed corners; shared fit starts from the best
 FIXED_W = ((0., 0.), (1., 0.), (0., 1.), (1., 1.), (.5, .5))
 SHARED = {'mix': ['lam'], 'width': ['lam_mu', 'lam_sigma']}
+GRID = np.round(np.arange(0, 1.0001, .1), 2)      # --grid: (lam_mu, lam_sigma) on GRID x GRID
 MODES = np.linspace(2, 42, 15).astype(np.float32)
 FWHMS = np.linspace(2, 40, 10).astype(np.float32)
 
@@ -92,8 +93,57 @@ def fit_all(Y, par, n_iter, kind='mix'):
     return out
 
 
+def grid_profile(Y, par, folds, n_iter, n_iter_grid=200):
+    """cvR^2 surface of the position/width model over (lam_mu, lam_sigma) on GRID x GRID,
+    then gradient-descent refinement of the shared (lam_mu, lam_sigma).
+
+    Per fold: a fixed fit at every grid point (grid search + ``n_iter_grid`` Adam steps)
+    on the training runs, scored on the held-out run. Refinement, also per fold: start at
+    the grid point with the best TRAINING R^2 (so the held-out run never chooses it), free
+    the two lambdas (shared across voxels) and continue with ``n_iter`` Adam steps; its
+    held-out SSE gives the refined model's cvR^2. Full data: the same refinement from the
+    peak of the cvR^2 surface. Returns (surface rows, refinement summary)."""
+    pts = [(a, b) for a in GRID for b in GRID]
+    sse = np.zeros((len(pts), Y.shape[1]))
+    sse_ref = np.zeros(Y.shape[1])
+    sst = np.zeros(Y.shape[1])
+    ref = []
+    for k, te in enumerate(folds):
+        tr = ~te
+        Ytr, ptr = Y[tr].reset_index(drop=True), par[tr].reset_index(drop=True)
+        yt, pte = Y.values[te], par[te].reset_index(drop=True)
+        sst += ((yt - yt.mean(0)) ** 2).sum(0)
+        best, best_ss = None, np.inf
+        for i, l in enumerate(pts):
+            p, model = fit(Ytr, ptr, n_iter_grid, lam=l, kind='width')
+            sse[i] += ((yt - model.predict(parameters=p, paradigm=pte).values) ** 2).sum(0)
+            ss_tr = ((Ytr.values - model.predict(parameters=p, paradigm=ptr).values) ** 2).sum()
+            if ss_tr < best_ss:
+                best, best_ss = p, ss_tr
+        p, model = fit(Ytr, ptr, n_iter, init=best, kind='width')
+        sse_ref += ((yt - model.predict(parameters=p, paradigm=pte).values) ** 2).sum(0)
+        ref.append((float(p['lam_mu'].iloc[0]), float(p['lam_sigma'].iloc[0])))
+        print(f'    fold {k + 1}/{len(folds)}: refined lam_mu {ref[-1][0]:+.2f}, '
+              f'lam_sigma {ref[-1][1]:+.2f}', flush=True)
+    rows = [dict(lam_mu=a, lam_sigma=b, cvr2=float(np.mean(1 - sse[i] / sst)),
+                 cvr2pooled=float(1 - sse[i].sum() / sst.sum()))
+            for i, (a, b) in enumerate(pts)]
+    peak = max(rows, key=lambda r: r['cvr2'])
+    p0, _ = fit(Y, par, n_iter_grid, lam=(peak['lam_mu'], peak['lam_sigma']), kind='width')
+    p, _ = fit(Y, par, n_iter, init=p0, kind='width')
+    ref = np.array(ref)
+    summary = dict(peak_lam_mu=peak['lam_mu'], peak_lam_sigma=peak['lam_sigma'],
+                   peak_cvr2=peak['cvr2'],
+                   refined_lam_mu=float(p['lam_mu'].iloc[0]),
+                   refined_lam_sigma=float(p['lam_sigma'].iloc[0]),
+                   fold_lam_mu_mean=ref[:, 0].mean(), fold_lam_mu_sd=ref[:, 0].std(),
+                   fold_lam_sigma_mean=ref[:, 1].mean(), fold_lam_sigma_sd=ref[:, 1].std(),
+                   cvr2_refined=float(np.mean(1 - sse_ref / sst)))
+    return rows, summary
+
+
 def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
-         sim_lam=None, noise_scale=1., kind='mix', sim_corner=None):
+         sim_lam=None, noise_scale=1., kind='mix', sim_corner=None, grid=False):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
@@ -122,6 +172,12 @@ def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
             print(f'  {roi}: skipped ({e})')
             continue
         Y = pd.DataFrame(demean_runs(y, par_all).astype(np.float32))
+        if grid:
+            g, summ = grid_profile(Y, par, folds, n_iter)
+            rows += [dict(roi=roi, n_voxels=Y.shape[1], **r, **summ) for r in g]
+            print(f'  {roi}: {Y.shape[1]} voxels; ' + ', '.join(
+                f'{k} {v:+.3f}' for k, v in summ.items()), flush=True)
+            continue
         full = fit_all(Y, par, n_iter, kind)
         names = [fixed_name(l) for l in (FIXED if kind == 'mix' else FIXED_W)] + ['shared']
         sse = {n: np.zeros(Y.shape[1]) for n in names}
@@ -161,7 +217,7 @@ def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
     tag = '' if sim_lam is None else f'_sim-lam{sim_lam:g}-noise{noise_scale:g}'
     if sim_corner is not None:
         tag = f'_sim-corner{sim_corner[0]:g}_{sim_corner[1]:g}-noise{noise_scale:g}'
-    tag += '_width' if kind == 'width' else ''
+    tag += '_grid' if grid else '_width' if kind == 'width' else ''
     if len(targets) == 1:                 # one task per ROI (SLURM array)
         tag += f'_roi-{targets[0]}'
     out = bids_folder / 'derivatives' / 'encoding_models' / 'mix_lambda' / f'sub-{subject}'
@@ -185,9 +241,12 @@ if __name__ == '__main__':
     ap.add_argument('--model', default='mix', choices=['mix', 'width'],
                     help="'mix': one lambda (log-Gaussian on the mix axis); 'width': separate "
                          "lam_mu (position) and lam_sigma (width) (MixPositionWidthGaussianPRF)")
+    ap.add_argument('--grid', action='store_true',
+                    help='position/width model: cvR^2 surface over a (lam_mu, lam_sigma) grid '
+                         'instead of the corners + shared fit (output _grid)')
     ap.add_argument('--sim-corner', type=float, nargs=2, default=None,
                     metavar=('LAM_MU', 'LAM_SIGMA'),
                     help='betas simulated from the position/width model with these values')
     a = ap.parse_args()
-    main(a.subject, a.bids_folder, a.targets, a.n_iterations, a.sim_lam, a.noise_scale, a.model,
-         a.sim_corner)
+    main(a.subject, a.bids_folder, a.targets, a.n_iterations, a.sim_lam, a.noise_scale,
+         'width' if a.grid else a.model, a.sim_corner, a.grid)
