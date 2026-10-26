@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=04:00:00
+#SBATCH --time=03:00:00
 
 # Shared-lambda mix-axis aPRF, cross-validated (fit_mix_lambda.py).
 # Array: 7 conditions x N participants; task t -> participant (t-1) % N,
@@ -23,13 +23,21 @@ mapfile -t SUBS < <(ls "$BIDS_FOLDER/derivatives/encoding_models/aprf-session-sh
                     | grep '^sub-' | sed 's/^sub-//' | sort)
 N=${#SUBS[@]}
 t=$(( SLURM_ARRAY_TASK_ID - 1 ))
+ROIS=(V1 IPS0 IPS12 IPS345 V3ab hV4)
+if [ "${PER_ROI:-0}" = "1" ]; then   # one task per ROI: index = (cond * N + subject) * 6 + roi
+    ROI=${ROIS[$(( t % 6 ))]}
+    t=$(( t / 6 ))
+fi
 SUB=${SUBS[$(( t % N ))]}
 c=$(( t / N ))
 ARGS=("$SUB" --bids-folder "$BIDS_FOLDER")
+[ -n "${ROI:-}" ] && ARGS+=(--targets "$ROI")
 [ -n "${MODEL:-}" ] && ARGS+=(--model "$MODEL")
 if [ "${MODEL:-mix}" = "width" ]; then
     # observed; corners (lam_mu, lam_sigma) (0,0) (1,0) (0,1) (1,1) x noise {1, 2}:
     #   sbatch --array=1-315 --export=ALL,MODEL=width ...
+    #   per ROI (6x the tasks, ~30-60 min each):
+    #   sbatch -p lowprio --array=1-1890 --export=ALL,MODEL=width,PER_ROI=1 ...
     if [ $c -gt 0 ]; then
         LM=(x 0 1 0 1 0 1 0 1); LS=(x 0 0 1 1 0 0 1 1); NOISE=(x 1 1 1 1 2 2 2 2)
         ARGS+=(--sim-corner "${LM[$c]}" "${LS[$c]}" --noise-scale "${NOISE[$c]}")

@@ -162,6 +162,8 @@ def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
     if sim_corner is not None:
         tag = f'_sim-corner{sim_corner[0]:g}_{sim_corner[1]:g}-noise{noise_scale:g}'
     tag += '_width' if kind == 'width' else ''
+    if len(targets) == 1:                 # one task per ROI (SLURM array)
+        tag += f'_roi-{targets[0]}'
     out = bids_folder / 'derivatives' / 'encoding_models' / 'mix_lambda' / f'sub-{subject}'
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).assign(subject=subject, sim_lam=sim_lam, noise_scale=noise_scale,
