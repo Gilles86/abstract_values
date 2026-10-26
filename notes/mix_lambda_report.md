@@ -47,8 +47,8 @@ mixing parameter(s) are shared by all voxels of a participant's ROI. Fitting is 
 followed by gradient descent. The comparison uses leave-one-run-out cvR² (8 folds; run k of both
 sessions), on run-demeaned betas of all ROI voxels, with no selection. The fixed models are:
 
-- λ ∈ {0, .5, 1} for the single-λ model;
-- the corners (λ_μ, λ_σ) ∈ {(0,0), (1,0), (0,1), (1,1), (.5,.5)} for the position/width model;
+- λ in {0, .5, 1} for the single-λ model;
+- the corners (λ_μ, λ_σ) in {(0,0), (1,0), (0,1), (1,1), (.5,.5)} for the position/width model;
 - plus the shared, freely estimated version of each.
 
 ![](figures/fig_mix_lambda.pdf)
