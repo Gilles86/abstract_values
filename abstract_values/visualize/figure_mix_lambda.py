@@ -86,8 +86,8 @@ def main(out=REPO / "notes/figures/fig_mix_lambda.pdf"):
     fig.text(.01, .965, "a  Four ways a voxel's tuning can respond to the change in mapping "
              "(preferred value 16 CHF in the Misaligned session)", fontweight="bold", fontsize=8)
 
-    bot = fig.add_gridspec(1, 3, left=.08, right=.99, top=.58, bottom=.09, wspace=.38,
-                           width_ratios=[1.25, 1.15, .8])
+    bot = fig.add_gridspec(1, 3, left=.07, right=.99, top=.58, bottom=.09, wspace=.75,
+                           width_ratios=[1.1, 1, .75])
     ax = fig.add_subplot(bot[0])
     o = d[d.cond == "observed"]
     for j, k in enumerate(("1_0", "0_1", "1_1")):
@@ -113,7 +113,9 @@ def main(out=REPO / "notes/figures/fig_mix_lambda.pdf"):
     ips = d[d.roi.isin(["IPS0", "IPS12", "IPS345"])].groupby(["cond", "subject"])[
         ["d1_0", "d0_1", "d1_1"]].mean().reset_index()
     conds = [("observed", "Observed")] + [
-        (f"sim-corner{k}-noise{n}", f"{CORNERS[k][0]}, ×{n}") for n in (1, 2) for k in CORNERS]
+        (f"sim-corner{k}-noise{n}", f"Sim. {CORNERS[k][0].lower()}, ×{n}")
+        for n in (1, 2) for k in CORNERS]
+    conds = [c for c in conds if (ips.cond == c[0]).any()]
     for i, (c, lab) in enumerate(conds):
         for j, k in enumerate(("1_0", "0_1", "1_1")):
             x = ips[ips.cond == c][f"d{k}"]
@@ -124,13 +126,10 @@ def main(out=REPO / "notes/figures/fig_mix_lambda.pdf"):
             col = CORNERS[k][1]
             ax.plot([m - se, m + se], [y, y], color=col, lw=1.2)
             ax.plot(m, y, "o", color=col, ms=3.4, mew=0)
-            if len(x) < 30:
-                ax.text(max(m + se, 0) + .3, y, f"n = {len(x)}", fontsize=5.3, va="center",
-                        color="0.5")
     ax.axvline(0, color=VAL_COL, lw=.7)
     ax.set_yticks(range(len(conds)), [c[1] for c in conds])
     ax.set_ylim(len(conds) - .5, -.6)
-    ax.set_xlim(-25, 8)
+    ax.set_xlim(-3, 3.5)
     ax.set_xlabel("cvR² relative to the value code (×10⁻³)")
     ax.set_title("c  IPS: observed vs simulated codes", loc="left", fontweight="bold")
 
