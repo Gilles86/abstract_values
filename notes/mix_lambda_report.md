@@ -17,7 +17,8 @@ of that helps on its own (position +1.3 to +1.6, width +0.9 to +1.1 × 10⁻³ c
 together help most (+1.6 to +2.5).
 
 On betas simulated with a known code at realistic noise, this model comparison picks the right
-code (61–79% of participants × ROIs; the pure quantile simulation is still running). The
+code: value 61%, position-only 79%, width-only 65%, quantile 86% of participants × ROIs. In IPS
+the observed contrasts closely resemble the simulated quantile code. The
 **estimated** mixing parameters are a different story: at realistic noise they do not recover, so
 the conclusion rests on the comparison between fixed models.
 
@@ -51,7 +52,7 @@ sessions), on run-demeaned betas of all ROI voxels, with no selection. The fixed
 - the corners (λ_μ, λ_σ) in {(0,0), (1,0), (0,1), (1,1), (.5,.5)} for the position/width model;
 - plus the shared, freely estimated version of each.
 
-![](figures/fig_mix_lambda.pdf)
+![](figures/fig_quantile_model_comparison.pdf)
 
 # 2. Position and width separately (figure)
 
@@ -67,13 +68,15 @@ sessions), on run-demeaned betas of all ROI voxels, with no selection. The fixed
   - The full code beats each half in IPS1–2 (vs position +1.16, p = .005; vs width +1.55,
     p = .007) and IPS3–5 (vs width +1.30, p = .007).
   - V1 shows the same ranking (both +2.36, p < 10⁻⁵), as do V3a/b and hV4.
-- **c–d. Recovery** at noise ×2, which matches the observed cvR² level. Each simulation reproduces
+- **c.** The share of participants whose best code is each of the four.
+- **d–e. Recovery** at noise ×2, which matches the observed cvR² level. Each simulation reproduces
   each voxel's real Misaligned preferred value, width and signal level.
-  - Every simulated code wins its own corner: value code 61%, position-only 79%, width-only 62%
-    (24 of 35 participants done).
-  - The observed data look like none of the single-component simulations. All three contrasts are
-    positive, and the full quantile code wins 50% of cells.
-  - Still running: the pure quantile simulation (1,1), and every simulation at noise ×1.
+  - Every simulated code wins its own corner: value 61%, position-only 79%, width-only 65%,
+    quantile 86%.
+  - Observed IPS contrasts (position +1.4, width +1.0, both +2.2) match the simulated quantile
+    code (+1.5, +1.1, +3.3) much better than any other simulation. The simulated value code gives
+    all three negative.
+  - The noise ×1 simulations are still running and are not shown.
 
 # 3. Single λ (log-Gaussian on the mix axis)
 
@@ -113,8 +116,8 @@ code give the opposite sign.
   included; the comparison is relative.
 - **The noise in the simulations** is independent Gaussian at 1–2× each voxel's residual SD. Real
   noise is structured over runs and sessions.
-- **Pending.** The pure-quantile (1,1) simulation, and all noise ×1 simulations, are still running
-  on the cluster (`lowprio`). When they finish, the numbers in section 2c will be updated.
+- **Pending.** A finer estimate of (λ_μ, λ_σ) per participant and ROI is running: a cvR²
+  surface over a 0.1-step grid, followed by gradient descent from its peak.
 
 *Code:* `abstract_values/encoding_models/{models, fit_mix_lambda, simulate_lambda_pipeline}.py`,
 `visualize/figure_mix_lambda.py`. *Data:* `notes/data/mix_lambda_{mix,width}.tsv`.
