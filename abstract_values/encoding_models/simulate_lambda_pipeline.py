@@ -79,10 +79,67 @@ def simulate(subject, lam, bids_folder=BIDS_FOLDER, seed=0, noise_scale=1.):
     return sim, paradigm, run, masker, truth, (k_cdf, k_inv)
 
 
-def simulated_betas(subject, lam, bids_folder=BIDS_FOLDER, seed=0, noise_scale=1.):
+def simulate_corner(subject, lam_mu, lam_sigma, bids_folder=BIDS_FOLDER, seed=0,
+                    noise_scale=1.):
+    """Simulated betas from the position/width model (``MixPositionWidthGaussianPRF``) with
+    known (lam_mu, lam_sigma), Gaussian tuning. Each voxel keeps its real Misaligned
+    preferred value v and its real width in CHF at v; its response is scaled to the
+    variance and mean of its real session-shift prediction; noise as in ``simulate``."""
+    from abstract_values.encoding_models.models import MixPositionWidthGaussianPRF
+    from abstract_values.encoding_models.model_specs import value_quantiles
+    bids = Path(bids_folder)
+    sub = Subject(subject, bids_folder=bids)
+    sessions = sorted(sub.get_sessions())
+    spec = get_spec('session-shift')
+    paradigm = get_value_paradigm(sub, sessions, True, with_run=True)
+    run = paradigm.pop('run').to_numpy()
+    mask = (bids / 'derivatives' / 'masks' / f'sub-{subject}' / 'anat'
+            / f'sub-{subject}_space-T1w_desc-permnullunion_mask.nii.gz')
+    masker = NiftiMasker(mask_img=str(mask)).fit()
+    data = masker.transform(sub.get_single_trial_estimates(
+        sessions, desc='gabor', smoothed=False)).astype(np.float32)
+    real = bids / 'derivatives' / 'encoding_models' / spec.out_subdir / f'sub-{subject}' / 'func'
+    pars = pd.DataFrame({p: masker.transform(str(
+        real / f'sub-{subject}_task-abstractvalue_space-T1w_desc-{p}_pe.nii.gz')).ravel()
+        for p in spec.save_params}).astype(np.float32)
+    model = spec.cls(**spec.cls_kwargs)
+    pred_real = model.predict(parameters=pars, paradigm=paradigm).values
+    resid_sd = (data - pred_real).std(0)
+
+    first = sub.get_mapping(sessions[0])
+    k_cdf = 'mode_1' if first == 'cdf' else 'mode_2'
+    v = np.clip(pars[k_cdf].to_numpy(), hl.LO, hl.HI)
+    kv = np.r_[hl.LO, hl.VALUES['cdf'], hl.HI]
+    kq = 2 + 40 * np.r_[0, (np.arange(23) + .5) / 23, 1]
+    q_v = np.interp(v, kv, kq)
+    slope = np.interp(v, kv, np.gradient(kq, kv))
+    ses = paradigm['session'].to_numpy()
+    mapping = np.array([sub.get_mapping(s) for s in sessions])[ses.astype(int)]
+    par = pd.DataFrame({'x': paradigm['x'].to_numpy(),
+                        'q': 2 + 40 * value_quantiles(paradigm['x'].to_numpy(), ses),
+                        'm': (mapping != 'cdf').astype(float)}).astype(np.float32)
+    truth = pd.DataFrame({'mode': (1 - lam_mu) * v + lam_mu * q_v,
+                          'fwhm': pars['fwhm'].to_numpy() * ((1 - lam_sigma) + lam_sigma * slope),
+                          'amplitude': 1., 'baseline': 0., 'lam_mu': lam_mu,
+                          'lam_sigma': lam_sigma}).astype(np.float32)
+    unit = MixPositionWidthGaussianPRF().predict(parameters=truth, paradigm=par).values
+    sd_u = unit.std(0)
+    amp = np.sign(pars['amplitude'].to_numpy()) * pred_real.std(0) / np.where(sd_u > 0, sd_u, 1)
+    base = pred_real.mean(0) - amp * unit.mean(0)
+    rng = np.random.default_rng([seed, int(''.join(c for c in subject if c.isdigit())), 7])
+    sim = unit * amp + base + rng.standard_normal(unit.shape) * resid_sd * noise_scale
+    return pd.DataFrame(sim.astype(np.float32)), masker
+
+
+def simulated_betas(subject, lam, bids_folder=BIDS_FOLDER, seed=0, noise_scale=1.,
+                    corner=None):
     """The simulated betas as a 4-D image (zeros outside the ROI-union mask), in GLMsingle
-    beta order, as a drop-in for ``Subject.get_single_trial_estimates``."""
-    sim, _, _, masker, _, _ = simulate(subject, lam, bids_folder, seed, noise_scale)
+    beta order, as a drop-in for ``Subject.get_single_trial_estimates``. With ``corner``
+    = (lam_mu, lam_sigma): from ``simulate_corner`` instead (``lam`` ignored)."""
+    if corner is not None:
+        sim, masker = simulate_corner(subject, *corner, bids_folder, seed, noise_scale)
+    else:
+        sim, _, _, masker, _, _ = simulate(subject, lam, bids_folder, seed, noise_scale)
     return masker.inverse_transform(sim.to_numpy())
 
 

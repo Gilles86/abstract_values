@@ -27,7 +27,14 @@ SUB=${SUBS[$(( t % N ))]}
 c=$(( t / N ))
 ARGS=("$SUB" --bids-folder "$BIDS_FOLDER")
 [ -n "${MODEL:-}" ] && ARGS+=(--model "$MODEL")
-if [ $c -gt 0 ]; then
+if [ "${MODEL:-mix}" = "width" ]; then
+    # observed; corners (lam_mu, lam_sigma) (0,0) (1,0) (0,1) (1,1) x noise {1, 2}:
+    #   sbatch --array=1-315 --export=ALL,MODEL=width ...
+    if [ $c -gt 0 ]; then
+        LM=(x 0 1 0 1 0 1 0 1); LS=(x 0 0 1 1 0 0 1 1); NOISE=(x 1 1 1 1 2 2 2 2)
+        ARGS+=(--sim-corner "${LM[$c]}" "${LS[$c]}" --noise-scale "${NOISE[$c]}")
+    fi
+elif [ $c -gt 0 ]; then
     LAMS=(x 0 0 0 1 1 1); NOISE=(x 1 2 3 1 2 3)
     ARGS+=(--sim-lam "${LAMS[$c]}" --noise-scale "${NOISE[$c]}")
 fi

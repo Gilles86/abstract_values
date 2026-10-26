@@ -53,21 +53,6 @@ FIXED_W = ((0., 0.), (1., 0.), (0., 1.), (1., 1.), (.5, .5))
 SHARED = {'mix': ['lam'], 'width': ['lam_mu', 'lam_sigma']}
 
 
-def quantile_slope(values, sessions):
-    """J = dq/dv per trial, q = 2 + 40 F_session(v): slope of the session's quantile
-    function at the trial's value (central differences over the presented values)."""
-    out = np.empty(len(values))
-    for s in np.unique(sessions):
-        i = sessions == s
-        u = np.unique(values[i])
-        F = pd.Series(value_quantiles(values[i], sessions[i])).groupby(values[i]).first()
-        J = np.gradient(2 + 40 * F.loc[u].to_numpy(), u)
-        out[i] = J[np.searchsorted(u, values[i])]
-    return out
-MODES = np.linspace(2, 42, 15).astype(np.float32)
-FWHMS = np.linspace(2, 40, 10).astype(np.float32)
-
-
 def fit(Y, par, n_iter, lam=None, init=None, kind='mix'):
     """lam given (a number, or (lam_mu, lam_sigma) for kind 'width'): fixed fit
     (grid + Adam). Else: the shared mixing parameter(s), from ``init``."""
@@ -106,21 +91,22 @@ def fit_all(Y, par, n_iter, kind='mix'):
 
 
 def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
-         sim_lam=None, noise_scale=1., kind='mix'):
+         sim_lam=None, noise_scale=1., kind='mix', sim_corner=None):
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
     sessions = sorted(sub.get_sessions())
     par_all = get_paradigm(sub, sessions)
-    if sim_lam is None:
+    if sim_lam is None and sim_corner is None:
         betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=False)
     else:
         from abstract_values.encoding_models.simulate_lambda_pipeline import simulated_betas
-        betas = simulated_betas(subject, sim_lam, bids_folder, noise_scale=noise_scale)
+        betas = simulated_betas(subject, sim_lam, bids_folder, noise_scale=noise_scale,
+                                corner=sim_corner)
     v = par_all['value'].to_numpy()
     ses = par_all['session'].to_numpy()
     par = pd.DataFrame({'x': v, 'q': 2 + 40 * value_quantiles(v, ses)})
     if kind == 'width':
-        par['J'] = quantile_slope(v, ses)
+        par['m'] = (par_all['condition'] != 'cdf').astype(float).to_numpy()
     par = par.astype(np.float32)
     shared = SHARED[kind]
     runs = np.sort(par_all['run'].unique())
@@ -171,10 +157,14 @@ def main(subject, bids_folder=BIDS_FOLDER, targets=tuple(TARGETS), n_iter=500,
               + '; cvR2 x1e3 ' + ', '.join(f'{n} {1e3 * row[f"cvr2_{n}"]:+.2f}' for n in names),
               flush=True)
     tag = '' if sim_lam is None else f'_sim-lam{sim_lam:g}-noise{noise_scale:g}'
+    if sim_corner is not None:
+        tag = f'_sim-corner{sim_corner[0]:g}_{sim_corner[1]:g}-noise{noise_scale:g}'
     tag += '_width' if kind == 'width' else ''
     out = bids_folder / 'derivatives' / 'encoding_models' / 'mix_lambda' / f'sub-{subject}'
     out.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).assign(subject=subject, sim_lam=sim_lam, noise_scale=noise_scale).to_csv(
+    pd.DataFrame(rows).assign(subject=subject, sim_lam=sim_lam, noise_scale=noise_scale,
+                              sim_corner=None if sim_corner is None
+                              else f'{sim_corner[0]:g}_{sim_corner[1]:g}').to_csv(
         out / f'sub-{subject}{tag}_mixlambda.tsv', sep='\t', index=False)
     print(f'saved to {out}')
 
@@ -191,5 +181,9 @@ if __name__ == '__main__':
     ap.add_argument('--model', default='mix', choices=['mix', 'width'],
                     help="'mix': one lambda (log-Gaussian on the mix axis); 'width': separate "
                          "lam_mu (position) and lam_sigma (width) (MixPositionWidthGaussianPRF)")
+    ap.add_argument('--sim-corner', type=float, nargs=2, default=None,
+                    metavar=('LAM_MU', 'LAM_SIGMA'),
+                    help='betas simulated from the position/width model with these values')
     a = ap.parse_args()
-    main(a.subject, a.bids_folder, a.targets, a.n_iterations, a.sim_lam, a.noise_scale, a.model)
+    main(a.subject, a.bids_folder, a.targets, a.n_iterations, a.sim_lam, a.noise_scale, a.model,
+         a.sim_corner)

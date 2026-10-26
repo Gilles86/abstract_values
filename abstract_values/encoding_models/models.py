@@ -136,51 +136,71 @@ class MixLambdaLogGaussianPRF(GaussianPRF):
 class MixPositionWidthGaussianPRF(GaussianPRF):
     """Gaussian tuning whose POSITION and WIDTH follow the quantile code separately.
 
-    Two mixing parameters:
-      lam_mu    — where the tuning curve sits: the preferred position lives on the
-                  mix axis x = (1 - lam_mu) v + lam_mu q (q = 2 + 40 F_session(v)),
-                  so lam_mu = 0 keeps the preferred value fixed in CHF and
+    Two mix axes, x_l(v) = (1 - l) v + l q(v), q = 2 + 40 F_mapping(v):
+      lam_mu    — WHERE the curve sits. The voxel's preferred position ``mode`` lives
+                  on x_{lam_mu}: lam_mu = 0 keeps its preferred value fixed in CHF,
                   lam_mu = 1 keeps its quantile.
-      lam_sigma — how wide it is: the local width in CHF scales with
-                  1 / ((1 - lam_sigma) + lam_sigma J), J = dq/dv the local slope of
-                  the session's quantile function (high where values are dense).
-                  lam_sigma = 0: same width in CHF everywhere; lam_sigma = 1: same
-                  width in quantile units (narrow where values are dense).
-    Distance from the preferred position, locally linearised:
-        d = (x - mode) * J_sigma / J_mu,  J_l = (1 - l) + l J,
-    and response = amplitude * exp(-d^2 / (2 sigma^2)) + baseline, sigma from fwhm.
-    lam_mu = lam_sigma = lam is a plain Gaussian on the mix axis.
+      lam_sigma — the axis on which the curve is a Gaussian of fixed width, i.e. HOW
+                  WIDE it is: lam_sigma = 0 same width in CHF everywhere, 1 same width
+                  in quantile units (narrow where values are dense).
+    The response in mapping m is amplitude * exp(-(x_{lam_sigma}(v) - c_m)^2 / 2 sigma^2)
+    + baseline, with c_m = x_{lam_sigma}(v*), v* the value whose x_{lam_mu} equals
+    ``mode`` under mapping m (piecewise-linear through the 23 presented values plus
+    2 and 42 CHF). lam_mu = lam_sigma = lam is a plain Gaussian on the mix axis.
 
     Parameters: mode, fwhm, amplitude, baseline, lam_mu, lam_sigma.
-    Paradigm: DataFrame ``['x', 'q', 'J']`` (value, rescaled quantile, local slope).
+    Paradigm: DataFrame ``['x', 'q', 'm']``: value, rescaled quantile, mapping
+    (0 = cdf / Misaligned, 1 = inverse cdf / Aligned).
     """
 
     parameter_labels = ['mode', 'fwhm', 'amplitude', 'baseline', 'lam_mu', 'lam_sigma']
+    # knots per mapping: presented values (+ 2, 42 CHF) and their rescaled quantiles
+    _V = {'cdf': [5.5, 8, 10, 11, 11.5, 12, 12.5, 13, 14, 16, 18.5, 22, 25.5, 28, 30, 31,
+                  31.5, 32, 32.5, 33, 34, 36, 38.5],
+          'inv': [2.5, 3, 4, 5, 7.5, 11.5, 16, 18.5, 20, 21, 21.5, 22, 22.5, 23, 24, 25.5,
+                  28, 32.5, 36.5, 39, 40, 41, 41.5]}
 
     def __init__(self, allow_neg_amplitudes=True, **kwargs):
         self.transformations = ['softplus', 'softplus',
                                 'identity' if allow_neg_amplitudes else 'softplus',
                                 'identity', 'identity', 'identity']
+        q = 2. + 40. * np.r_[0., (np.arange(23) + .5) / 23, 1.]
+        self._knots_v = np.stack([np.r_[2., self._V[k], 42.] for k in ('cdf', 'inv')]
+                                 ).astype(np.float32)                         # 2, K
+        self._knots_q = np.stack([q, q]).astype(np.float32)
         self._basis_predictions_without_amplitude = self._mixw_predict
         self._basis_predictions_with_amplitude = self._mixw_predict
         GaussianPRF.__init__(self, allow_neg_amplitudes=allow_neg_amplitudes,
                              model_stimulus_amplitude=True, **kwargs)
 
+    @staticmethod
+    def _interp(u, xk, yk):
+        """Piecewise-linear interpolation of u on monotone knots (xk, yk), linear
+        extrapolation clipped to the end segments. u: (..., V); xk, yk: (K, ...)."""
+        dx = ops.maximum(xk[1:] - xk[:-1], 1e-3)
+        w = ops.clip((u[None] - xk[:-1]) / dx, 0., 1.)
+        return yk[0] + ops.sum(w * (yk[1:] - yk[:-1]), axis=0)
+
     def _mixw_predict(self, paradigm, parameters):
-        v = paradigm[..., None, 0]
+        v = paradigm[..., None, 0]                          # (b, T, 1)
         q = paradigm[..., None, 1]
-        J = paradigm[..., None, 2]
-        mode = parameters[:, None, :, 0]
+        m = paradigm[..., None, 2]
+        mode = parameters[:, None, :, 0]                    # (b, 1, V)
         sigma = parameters[:, None, :, 1] * _FWHM_TO_SIGMA_MIX
         amplitude = parameters[:, None, :, 2]
         baseline = parameters[:, None, :, 3]
         lm = parameters[:, None, :, 4]
         ls = parameters[:, None, :, 5]
-        x = (1. - lm) * v + lm * q
-        j_mu = ops.maximum((1. - lm) + lm * J, 0.05)
-        j_sigma = ops.maximum((1. - ls) + ls * J, 0.05)
-        d = (x - mode) * j_sigma / j_mu
-        return amplitude * ops.exp(-.5 * (d / sigma) ** 2) + baseline
+        kv = ops.convert_to_tensor(self._knots_v)[:, :, None, None, None]   # (2, K, 1, 1, 1)
+        kq = ops.convert_to_tensor(self._knots_q)[:, :, None, None, None]
+        centre = []
+        for i in range(2):                                  # mapping: cdf, inv
+            xk_mu = (1. - lm) * kv[i] + lm * kq[i]          # (K, b, 1, V)
+            xk_sg = (1. - ls) * kv[i] + ls * kq[i]
+            centre.append(self._interp(mode, xk_mu, xk_sg))  # (b, 1, V)
+        c = ops.where(m < .5, centre[0], centre[1])         # (b, T, V)
+        x = (1. - ls) * v + ls * q
+        return amplitude * ops.exp(-.5 * ((x - c) / sigma) ** 2) + baseline
 
 
 _FWHM_TO_SIGMA_MIX = 1.0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))
