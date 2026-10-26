@@ -5,9 +5,9 @@ a: what the four corner models predict for one voxel in the two sessions
    lam_sigma = width follows the quantile).
 b: observed, leave-one-run-out cvR^2 of each corner relative to the value code
    (0, 0), per ROI; mean +- s.e.m. across participants, filled = p < .05.
-c: the same contrasts, IPS (mean of IPS0/1-2/3-5) and V1, observed vs betas
-   simulated with a known code (simulate_lambda_pipeline; its lambda = 1 moves
-   only the preferred value, i.e. corner (1, 0)), at noise x1-3.
+c: the same contrasts in IPS (mean of IPS0/1-2/3-5), observed vs betas simulated
+   from each corner (simulate_lambda_pipeline.simulate_corner: real voxel positions,
+   widths and signal levels, noise x1 and x2 the real residual SD).
 d: which corner wins per participant and ROI.
 
 Input: notes/data/mix_lambda_width.tsv (fit_mix_lambda.py --model width, collected).
@@ -111,18 +111,16 @@ def main(out=REPO / "notes/figures/fig_mix_lambda.pdf"):
 
     ax = fig.add_subplot(bot[1])
     ips = d[d.roi.isin(["IPS0", "IPS12", "IPS345"])].groupby(["cond", "subject"])[
-        ["d1_0", "d1_1"]].mean().reset_index()
-    conds = [("observed", "Observed"), ("sim-lam0-noise1", "λ = 0, ×1"),
-             ("sim-lam0-noise2", "λ = 0, ×2"), ("sim-lam0-noise3", "λ = 0, ×3"),
-             ("sim-lam1-noise1", "Position, ×1"), ("sim-lam1-noise2", "Position, ×2"),
-             ("sim-lam1-noise3", "Position, ×3")]
+        ["d1_0", "d0_1", "d1_1"]].mean().reset_index()
+    conds = [("observed", "Observed")] + [
+        (f"sim-corner{k}-noise{n}", f"{CORNERS[k][0]}, ×{n}") for n in (1, 2) for k in CORNERS]
     for i, (c, lab) in enumerate(conds):
-        for j, k in enumerate(("1_0", "1_1")):
+        for j, k in enumerate(("1_0", "0_1", "1_1")):
             x = ips[ips.cond == c][f"d{k}"]
             if len(x) < 3:
                 continue
             m, se = x.mean(), x.std() / np.sqrt(len(x))
-            y = i + (j - .5) * .3
+            y = i + (j - 1) * .25
             col = CORNERS[k][1]
             ax.plot([m - se, m + se], [y, y], color=col, lw=1.2)
             ax.plot(m, y, "o", color=col, ms=3.4, mew=0)
@@ -132,11 +130,9 @@ def main(out=REPO / "notes/figures/fig_mix_lambda.pdf"):
     ax.axvline(0, color=VAL_COL, lw=.7)
     ax.set_yticks(range(len(conds)), [c[1] for c in conds])
     ax.set_ylim(len(conds) - .5, -.6)
-    ax.set_xlim(-6, 4)
+    ax.set_xlim(-25, 8)
     ax.set_xlabel("cvR² relative to the value code (×10⁻³)")
-    ax.set_title("c  IPS: observed vs simulated", loc="left", fontweight="bold")
-    ax.text(.98, .03, "Simulated: betas from each voxel's\nreal fit with a known code",
-            transform=ax.transAxes, fontsize=5.6, ha="right", color="0.4")
+    ax.set_title("c  IPS: observed vs simulated codes", loc="left", fontweight="bold")
 
     ax = fig.add_subplot(bot[2])
     cor = [f"cvr2_fixed{k}" for k in CORNERS]
@@ -144,7 +140,7 @@ def main(out=REPO / "notes/figures/fig_mix_lambda.pdf"):
     w = d.groupby("cond").win.value_counts(normalize=True).unstack().reindex(
         columns=list(CORNERS)).fillna(0)
     for i, (c, lab) in enumerate(conds):
-        if c not in w.index or (d.cond == c).sum() < 30 * 6:
+        if c not in w.index:
             continue
         left = 0
         for k, (_, col) in CORNERS.items():

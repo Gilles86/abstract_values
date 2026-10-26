@@ -51,6 +51,8 @@ FIXED = (0., .5, 1.)
 # --model width: (lam_mu, lam_sigma) fixed corners; shared fit starts from the best
 FIXED_W = ((0., 0.), (1., 0.), (0., 1.), (1., 1.), (.5, .5))
 SHARED = {'mix': ['lam'], 'width': ['lam_mu', 'lam_sigma']}
+MODES = np.linspace(2, 42, 15).astype(np.float32)
+FWHMS = np.linspace(2, 40, 10).astype(np.float32)
 
 
 def fit(Y, par, n_iter, lam=None, init=None, kind='mix'):
