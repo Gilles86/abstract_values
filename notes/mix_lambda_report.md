@@ -1,7 +1,7 @@
 ---
 title: "Value code or quantile code? Fitting the code directly to the voxel data"
 subtitle: "Shared mixing parameters, neural_priors style, with recovery on simulated betas"
-date: 2026-10-26
+date: 2026-10-27
 geometry: margin=1.8cm
 mainfont: Helvetica
 fontsize: 10pt
@@ -105,7 +105,32 @@ code give the opposite sign.
   values (the hierarchical approach) and the conservative but valid cvR² profile
   (`lambda_executive_summary.pdf`).
 
-# 5. Interpretation and caveats
+# 5. Estimating (λ_μ, λ_σ) per participant: the cvR² surface
+
+![](figures/fig_mix_lambda_grid.pdf)
+
+**Method.** For each participant and ROI, every point of a 0.1-step grid over λ_μ and λ_σ
+(0 to 1, 121 points) is fitted as a fixed model and scored leave-one-run-out. The estimate is the
+peak of that surface. Within each fold, a gradient-descent refinement then frees the shared
+(λ_μ, λ_σ), starting from the grid point that fits the training runs best.
+
+- **a. The group surface peaks at the quantile code (1, 1) in every ROI.** Relative to the value
+  code it gains +1.4 (IPS0), +2.4 (IPS1–2), +2.3 (IPS3–5) and +2.2 (V1) × 10⁻³. The surface
+  rises steadily toward that corner, so the true group optimum could lie beyond 1. The (1, 1) grid
+  point reproduces the separate corner fits (r = .996 across participants × ROIs).
+- **b. Individual peaks are noisy.** Median peaks are λ_μ = 0.7–1.0 and λ_σ = 0.5–0.9, but they
+  spread over the whole range: 35–50% of participants peak at λ_μ = 1, and 3–20% at λ_μ = 0.
+  The peak is the maximum of 121 noisy held-out scores, so part of that spread is noise.
+- **c. Freeing the λs overfits.** The refined estimates track the surface peak (Spearman ρ = .84–.95
+  for λ_μ, .68–.88 for λ_σ) and vary across folds (SD 0.16–0.27). On held-out runs the
+  refined model is *worse* than the fixed quantile code in every ROI: −2.2 to −3.5 × 10⁻³,
+  p < .001. The per-voxel parameters re-optimised around the free λs fit the training runs
+  better than they generalise.
+- **So:** the group answer is (1, 1). The per-participant surface peak is the best available
+  individual estimate, but its reliability is unknown until the same procedure is run on the
+  corner simulations (submitted 2026-10-27). Do not use the refined λs.
+
+# 6. Interpretation and caveats
 
 - **The parietal code is not anchored to CHF.** When the mapping changes, IPS tuning keeps its
   orientation rank (= quantile) in both position and width, exactly like V1. These data cannot
@@ -116,8 +141,7 @@ code give the opposite sign.
   included; the comparison is relative.
 - **The noise in the simulations** is independent Gaussian at 1–2× each voxel's residual SD. Real
   noise is structured over runs and sessions.
-- **Pending.** A finer estimate of (λ_μ, λ_σ) per participant and ROI is running: a cvR²
-  surface over a 0.1-step grid, followed by gradient descent from its peak.
 
 *Code:* `abstract_values/encoding_models/{models, fit_mix_lambda, simulate_lambda_pipeline}.py`,
-`visualize/figure_mix_lambda.py`. *Data:* `notes/data/mix_lambda_{mix,width}.tsv`.
+`visualize/figure_{quantile_model_comparison,mix_lambda_grid}.py`. *Data:*
+`notes/data/mix_lambda_{mix,width,grid}.tsv`.
