@@ -148,16 +148,18 @@ def contrasts(cv, binned, decs, idx):
                     if a in d and b in d:
                         rows.append(paired(d[a] - d[b], f'{a} - {b}', roi=roi,
                                            measure=f'decoding {met} {bn}'))
-        d = idx[idx.roi == roi].pivot(index='subject', columns='model', values='index_90')
-        for a, b in [('gvm', 'vm'), ('warp', 'vm'), ('basis_a+0.50', 'basis_a+0.00'),
-                     ('basis_a+0.75', 'basis_a+0.00'), ('basis_a+0.00', 'vm')]:
-            rows.append(paired(d[a] - d[b], f'{a} - {b}', roi=roi,
-                               measure='model-implied index_90'))
-        for m in ('vm', 'gvm', 'warp', 'basis_a+0.00', 'basis_a+0.50'):
-            rows.append(paired(d[m] - 1, m, roi=roi, measure='index_90 - 1'))
+        for val in ('ci_90', 'ratio_90'):
+            d = idx[idx.roi == roi].pivot(index='subject', columns='model', values=val)
+            for a, b in [('gvm', 'vm'), ('warp', 'vm'), ('basis_a+0.50', 'basis_a+0.00'),
+                         ('basis_a+0.75', 'basis_a+0.00'), ('basis_a+0.00', 'vm')]:
+                rows.append(paired(d[a] - d[b], f'{a} - {b}', roi=roi,
+                                   measure=f'model-implied {val}'))
+            ref = 0 if val.startswith('ci') else 1
             d45 = idx[idx.roi == roi].pivot(index='subject', columns='model',
-                                            values='index_45')
-            rows.append(paired(d[m] - d45[m], m, roi=roi, measure='index_90 - index_45'))
+                                            values=val.replace('90', '45'))
+            for m in ('vm', 'gvm', 'warp', 'basis_a+0.00', 'basis_a+0.50'):
+                rows.append(paired(d[m] - ref, m, roi=roi, measure=f'{val} - {ref}'))
+                rows.append(paired(d[m] - d45[m], m, roi=roi, measure=f'{val} - 45 deg'))
     return pd.DataFrame(rows)
 
 
@@ -276,6 +278,25 @@ def fig_decoding(decs, out):
     plt.close(fig)
 
 
+def fig_index(idx, out):
+    mm = [('vm', 'Single vM', C_REF, 'white'), ('gvm', 'Generalized vM', C_GVM, C_GVM),
+          ('warp', 'Warped vM', C_WARP, C_WARP), ('basis_a+0.00', 'Uniform basis', C_REF, C_REF),
+          ('basis_a+0.50', 'Cardinal basis', '#5D8C3F', '#5D8C3F')]
+    fig, ax = plt.subplots(figsize=(4.2, 2.2), constrained_layout=True)
+    ax.axhline(0, color='0.7', lw=.6, ls='--', zorder=0)
+    for k, (m, lab, c, fc) in enumerate(mm):
+        for i, (r, _) in enumerate(ROIS):
+            v = idx[(idx.roi == r) & (idx.model == m)].ci_90
+            dot_ci(ax, i + (k - 2) * .14, v, c, fc, jitter=False)
+        ax.text(1.0, 1 - k * .085, lab, color=c, transform=ax.transAxes, ha='right', va='top')
+    ax.set_xticks(range(len(ROIS)), [l for _, l in ROIS])
+    ax.set_ylabel('Model-implied 90° index')
+    sns.despine(fig=fig, offset=4)
+    for ext in ('pdf', 'png'):
+        fig.savefig(out / f'fig_a4_index.{ext}')
+    plt.close(fig)
+
+
 def main(bids):
     root = Path(bids) / 'derivatives' / 'followup_2026-10' / 'a4_tuning_shape'
     out = HERE / 'results'
@@ -292,6 +313,7 @@ def main(bids):
     fig_cvr2(cv, binned, out)
     fig_params(par, out)
     fig_decoding(decs, out)
+    fig_index(idx, out)
     for f in out.iterdir():
         shutil.copy(f, root / f.name)
     print('wrote', out)
