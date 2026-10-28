@@ -23,6 +23,7 @@ from scipy import stats
 HERE = Path(__file__).parent
 ROIS = [('BensonV1', 'V1'), ('BensonV2', 'V2'), ('BensonV3', 'V3'),
         ('IPS0', 'IPS0'), ('IPS12', 'IPS1–2'), ('IPS345', 'IPS3–5')]
+TICKFS = 6.5
 RL = dict(ROIS)
 WARPS = ['-0.50', '+0.00', '+0.25', '+0.50', '+0.75']
 BINS = ['near0', 'oblique', 'near90']
@@ -176,8 +177,8 @@ def dot_ci(ax, x, vals, color, mfc, marker='o', jitter=True):
 
 
 def fig_cvr2(cv, binned, out):
-    fig, axes = plt.subplots(1, 3, figsize=(7.25, 2.3), constrained_layout=True,
-                             gridspec_kw=dict(width_ratios=[1.15, 1.15, 1]))
+    fig, axes = plt.subplots(1, 3, figsize=(7.25, 2.5), constrained_layout=True,
+                             gridspec_kw=dict(width_ratios=[1.3, 1.1, 1]))
     x = np.arange(len(ROIS))
     # a: single-PRF shape families vs von Mises
     ax = axes[0]
@@ -188,22 +189,27 @@ def fig_cvr2(cv, binned, out):
             c = cv[cv.roi == r]
             dot_ci(ax, i + (k - .5) * .3, 100 * (c[m] - c.vm), col, col)
         ax.text(.02, .97 - k * .09, lab, color=col, transform=ax.transAxes, va='top')
-    ax.set_xticks(x, [l for _, l in ROIS])
+    ax.set_xticks(x, [l for _, l in ROIS], fontsize=TICKFS)
     ax.set_ylabel('ΔcvR² vs single vM (pp)')
     # b: basis warp sweep vs uniform basis
     ax = axes[1]
     ax.axhline(0, color='0.7', lw=.6, ls='--', zorder=0)
     cols = sns.color_palette('mako', as_cmap=True)(np.linspace(.2, .8, len(ROIS)))
     wv = np.array([float(w) for w in WARPS])
+    ends = []
     for i, (r, l) in enumerate(ROIS):
         c = cv[cv.roi == r]
         y = np.array([(100 * (c[f'basis_a{w}'] - c['basis_a+0.00'])).mean() for w in WARPS])
-        se = np.array([(100 * (c[f'basis_a{w}'] - c['basis_a+0.00'])).sem() for w in WARPS])
-        ax.fill_between(wv, y - se, y + se, color=cols[i], alpha=.15, lw=0)
         ax.plot(wv, y, '-o', color=cols[i], ms=3)
-        ax.text(wv[-1] + .04, y[-1], l, color=cols[i], va='center')
+        ends.append([y[-1], l, cols[i]])
+    ends.sort(key=lambda e: e[0])                     # de-collide end labels
+    span = np.ptp([e[0] for e in ends]) or 1
+    for k in range(1, len(ends)):
+        ends[k][0] = max(ends[k][0], ends[k - 1][0] + .09 * max(span, .3))
+    for y, l, col in ends:
+        ax.text(wv[-1] + .05, y, l, color=col, va='center')
     ax.set_xticks([-.5, 0, .25, .5, .75])
-    ax.set_xlabel('Basis warp a (denser at cardinals →)')
+    ax.set_xlabel('Basis warp a (> 0: denser at cardinals)')
     ax.set_ylabel('ΔcvR² vs uniform basis (pp)')
     # c: where does the shape gain sit (binned, V1, error reduction)
     ax = axes[2]
@@ -215,7 +221,13 @@ def fig_cvr2(cv, binned, out):
             bb = b[b.bin == bn]
             dot_ci(ax, i + (k - 1) * .25, 100 * (bb[m] - bb[ref]), col,
                    col if k < 2 else 'white', jitter=False)
-    ax.text(.02, .97, 'Basis a = 0.5', color='0.3', transform=ax.transAxes, va='top')
+    for k, (lab, col, fc) in enumerate((('Generalized vM − vM', C_GVM, C_GVM),
+                                        ('Warped vM − vM', C_WARP, C_WARP),
+                                        ('Basis a = 0.5 − uniform', '0.3', 'white'))):
+        yy = .97 - k * .085
+        ax.plot(.04, yy, 'o', transform=ax.transAxes, color=col, mfc=fc, mec=col, ms=4,
+                mew=1.2, clip_on=False)
+        ax.text(.08, yy, lab, color=col, transform=ax.transAxes, va='center')
     ax.set_xticks(range(3), [BIN_LABEL[bn] for bn in BINS])
     ax.set_ylabel('Δ held-out error removed, V1 (pp)')
     for a, lt in zip(axes, 'abc'):
@@ -233,7 +245,7 @@ def fig_params(par, out):
         ax.axhline(ref, color='0.7', lw=.6, ls='--', zorder=0)
         for i, (r, _) in enumerate(ROIS):
             dot_ci(ax, i, par[par.roi == r][col], c, c)
-        ax.set_xticks(range(len(ROIS)), [l for _, l in ROIS])
+        ax.set_xticks(range(len(ROIS)), [l for _, l in ROIS], fontsize=TICKFS)
         ax.set_ylabel(lab)
     axes[0].text(.02, .03, 'Below 0: pointed peak', transform=axes[0].transAxes, color='0.4')
     axes[1].text(.02, .97, 'Above 0: narrower at cardinals', transform=axes[1].transAxes,
@@ -251,21 +263,25 @@ def fig_decoding(decs, out):
           ('warp', 'Warped vM', C_WARP, C_WARP), ('basis_a+0.00', 'Uniform basis', C_REF, C_REF),
           ('basis_a+0.50', 'Cardinal basis', '#5D8C3F', '#5D8C3F'),
           ('basis_a-0.50', 'Oblique basis', '#8172B2', '#8172B2')]
-    fig, axes = plt.subplots(2, 2, figsize=(7.25, 4.2), constrained_layout=True, sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(7.25, 4.2), constrained_layout=True)
     for col, roi in enumerate(('BensonV1', 'IPS12')):
         for row, (met, lab) in enumerate((('abs_error', 'Absolute error (°)'),
                                           ('cov80', '80% HPD coverage'))):
             ax = axes[row, col]
             if met == 'cov80':
                 ax.axhline(.8, color='0.7', lw=.6, ls='--', zorder=0)
+                ax.set_ylim(0, 1)
+                ax.text(2.45, .82, 'Nominal', color='0.5', ha='right', va='bottom')
             d = decs[decs.roi == roi]
             for k, (dn, dl, c, fc) in enumerate(dd):
                 for i, bn in enumerate(BINS):
                     dot_ci(ax, i + (k - 2.5) * .12, d[(d.decoder == dn) & (d.bin == bn)][met],
                            c, fc, jitter=False)
-                if row == 0 and col == 0:
-                    ax.text(1.0, 1 - k * .08, dl, color=c, transform=ax.transAxes,
-                            ha='right', va='top')
+                if row == 1 and col == 0:               # key in the empty upper band
+                    kx, ky = .05 + (k // 3) * .45, .68 - (k % 3) * .075
+                    ax.plot(kx, ky, 'o', transform=ax.transAxes, color=c, mfc=fc, mec=c,
+                            ms=4.5, mew=1.2, clip_on=False)
+                    ax.text(kx + .03, ky, dl, color=c, transform=ax.transAxes, va='center')
             ax.set_xticks(range(3), [BIN_LABEL[b] for b in BINS])
             ax.set_ylabel(lab)
             if row == 0:
@@ -289,7 +305,7 @@ def fig_index(idx, out):
             v = idx[(idx.roi == r) & (idx.model == m)].ci_90
             dot_ci(ax, i + (k - 2) * .14, v, c, fc, jitter=False)
         ax.text(1.0, 1 - k * .085, lab, color=c, transform=ax.transAxes, ha='right', va='top')
-    ax.set_xticks(range(len(ROIS)), [l for _, l in ROIS])
+    ax.set_xticks(range(len(ROIS)), [l for _, l in ROIS], fontsize=TICKFS)
     ax.set_ylabel('Model-implied 90° index')
     sns.despine(fig=fig, offset=4)
     for ext in ('pdf', 'png'):
