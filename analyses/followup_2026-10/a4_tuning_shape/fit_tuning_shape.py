@@ -38,7 +38,6 @@ from nilearn import image as nimage
 from nilearn.maskers import NiftiMasker
 
 from braincoder.optimize import ParameterFitter, ResidualFitter, WeightFitter
-from braincoder.utils import get_rsq
 
 from abstract_values.encoding_models.fit_aprf_cv import get_paradigm
 from abstract_values.encoding_models.fit_pipeline import fit_one_model
@@ -57,6 +56,14 @@ DECODERS = ('vm', 'gvm', 'warp', 'basis_a+0.00', 'basis_a+0.50', 'basis_a-0.50')
 GRID = np.deg2rad(np.arange(0, 180, 0.5)).astype(np.float32)
 BINS = {'near90': lambda d: np.abs(d - 90) <= 15,
         'near0': lambda d: (d <= 15) | (d >= 165)}
+
+
+def rsq(y, yhat):
+    """Per-voxel R2 = 1 - SS_res / SS_tot (numpy; braincoder's get_rsq wants pandas)."""
+    y, yhat = np.asarray(y, np.float64), np.asarray(yhat, np.float64)
+    ss = ((y - y.mean(0)) ** 2).sum(0)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.where(ss > 0, 1 - ((y - yhat) ** 2).sum(0) / ss, np.nan)
 
 
 def btag(a):
@@ -147,14 +154,24 @@ def decode(name, model_obj, train_d, train_p, test_d, pars=None, weights=None,
 
 def categorical_index(pred, sigma):
     """pred: (23 orientations, V) predicted responses at 7.5..172.5 deg; sigma: (V,).
-    Noise-normalised Euclidean distances between adjacent orientations; index =
-    mean distance of the two pairs touching X deg / mean of all 22 adjacent pairs."""
-    d = np.sqrt((((pred[1:] - pred[:-1]) / sigma) ** 2).sum(1))      # 22 pairs
+    Model-implied distance as in A3 (compute_rdms.model_rdm): D_ij = mean_v
+    ((f_v(i) - f_v(j)) / sigma_v)^2. d90 = mean D of the two adjacent pairs touching
+    90 deg, dadj = mean D of the other 20 adjacent pairs, dall = mean over all 253
+    pairs. ratio = d90 / dadj (A3 'ratio'), CI = (d90 - dadj) / dall (A3 'CI').
+    Same for 45 and 135 deg as oblique controls."""
+    Z = pred / sigma
+    D = ((Z[:, None, :] - Z[None, :, :]) ** 2).mean(-1)
+    adj = np.diag(D, 1)                                   # 22 adjacent pairs
+    i, j = np.triu_indices(len(D), 1)
+    dall = D[i, j].mean()
     ori = np.arange(1, 24) * 7.5
-    out = {'mean_adjacent': d.mean()}
+    out = {'dall': dall, 'mean_adjacent': adj.mean()}
     for x in (90, 45, 135):
         k = np.flatnonzero(ori == x)[0]
-        out[f'index_{x}'] = d[[k - 1, k]].mean() / d.mean()
+        d_x = adj[[k - 1, k]].mean()
+        d_o = np.delete(adj, [k - 1, k]).mean()
+        out[f'ratio_{x}'] = d_x / d_o
+        out[f'ci_{x}'] = (d_x - d_o) / dall
     return out
 
 
@@ -221,14 +238,14 @@ def main(subject, bids_folder=BIDS_FOLDER, n_iterations=1000, n_voxels=100,
         fold_pred.update({k: predict_basis(k, v, te_p) for k, v in bw.items()})
         for m in models:
             pred[m][te] = fold_pred[m]
-            cvr2[m].append(np.asarray(get_rsq(te_d.to_numpy(), fold_pred[m]), np.float32))
+            cvr2[m].append(np.asarray(rsq(te_d.to_numpy(), fold_pred[m]), np.float32))
         print('  mean cvR2 - null: ' + '  '.join(
             f'{m} {np.nanmean(cvr2[m][-1] - cvr2["null"][-1]):+.4f}' for m in models[1:]),
             flush=True)
 
         # ── decoding: same top-N voxels for every decoder ──────────────────
-        r2_vm = np.asarray(get_rsq(tr_d.to_numpy(), predict_prf('vm', prf['vm'], tr_p)))
-        r2_b0 = np.asarray(get_rsq(tr_d.to_numpy(),
+        r2_vm = np.asarray(rsq(tr_d.to_numpy(), predict_prf('vm', prf['vm'], tr_p)))
+        r2_b0 = np.asarray(rsq(tr_d.to_numpy(),
                                    predict_basis(btag(0.), bw[btag(0.)], tr_p)))
         score = np.nan_to_num((r2_vm + r2_b0) / 2, nan=-np.inf)
         true_rad = par.loc[te, 'x'].to_numpy()
@@ -282,7 +299,7 @@ def main(subject, bids_folder=BIDS_FOLDER, n_iterations=1000, n_voxels=100,
     for k, v in prf.items():
         for c in v.columns:
             vox[f'{k}_{c}'] = v[c].to_numpy()
-        vox[f'{k}_r2'] = np.asarray(get_rsq(d_all.to_numpy(), predict_prf(k, v, p_all)))
+        vox[f'{k}_r2'] = np.asarray(rsq(d_all.to_numpy(), predict_prf(k, v, p_all)))
     vox['warp_a'] = 0.95 * np.tanh(vox['warp_warp'])
     vox.to_csv(out_dir / f'{stem}_desc-a4_voxels.tsv.gz', sep='\t', index=False)
 
