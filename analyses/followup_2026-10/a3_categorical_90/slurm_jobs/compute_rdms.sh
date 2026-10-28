@@ -20,5 +20,5 @@ mkdir -p "$TMPDIR"
 export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=4 TF_CPP_MIN_LOG_LEVEL=2
 cd "$HOME/git/abstract_values"
 exec "$HOME/data/conda/envs/abstract_values/bin/python" -u \
-    analyses/followup_2026-10/a3_categorical_90/ "" \
+    analyses/followup_2026-10/a3_categorical_90/${SCRIPT:-compute_rdms.py} "$SUBJ" \
     --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue
