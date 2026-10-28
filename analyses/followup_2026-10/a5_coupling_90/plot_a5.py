@@ -70,8 +70,8 @@ def main(group_dir, out):
     rng = np.random.default_rng(0)
     K = PRIMARY['n_bins']
 
-    fig = plt.figure(figsize=(13.3, 6.2))
-    gs = fig.add_gridspec(2, 3, width_ratios=[1, 1.15, 1.35], hspace=0.55, wspace=0.42)
+    fig = plt.figure(figsize=(14.5, 6.2))
+    gs = fig.add_gridspec(2, 3, width_ratios=[1, 0.95, 0.85], hspace=0.6, wspace=1.25)
     ax_a, ax_b = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 0])
     ax_c = fig.add_subplot(gs[:, 1])
     ax_d = fig.add_subplot(gs[:, 2])
@@ -84,7 +84,7 @@ def main(group_dir, out):
     m = c.groupby('centre')['share'].mean()
     ax_a.plot(range(K), m.values, 'o', color='k', ms=6, zorder=3)
     ax_a.axhline(1 / K, color='0.7', lw=.7, ls='--', zorder=0)
-    ax_a.text(K - .5, 1 / K, 'Uniform', fontsize=9.5, color='0.45', va='bottom', ha='right')
+    ax_a.text(K - .45, 1 / K, 'Uniform', fontsize=9.5, color='0.45', va='center', ha='left', clip_on=False)
     ax_a.set_xticks(range(K), [f'{x:g}' for x in m.index])
     ax_a.set_xlabel('V1 preferred orientation (deg)')
     ax_a.set_ylabel('Share of V1 voxels')
@@ -105,7 +105,7 @@ def main(group_dir, out):
     ax_b.axhline(0, color='0.7', lw=.7, ls='--', zorder=0)
     ax_b.set_xticks(range(K), [f'{x:g}' for x in sorted(b['centre'].unique())])
     ax_b.set_xlabel('V1 preferred orientation (deg)')
-    ax_b.set_ylabel('V1→IPS0–5 coupling\n(z, rel. mean; equal n)')
+    ax_b.set_ylabel('Coupling to IPS0–5\n(z, equal-n bins)')
     ax_b.axvspan(K // 2 - .4, K // 2 + .4, color='0.93', zorder=-1, lw=0)
     letter(ax_b, 'b')
 
@@ -127,6 +127,8 @@ def main(group_dir, out):
         ax_c.text(.03, .98 - j * .055, MAP_L[cond], color=MAP_C[cond], transform=ax_c.transAxes,
                   fontsize=10.5, va='top')
     ax_c.set_ylim(ylim[0], ylim[1] + .25 * (ylim[1] - ylim[0]))
+    ax_c.text(.03, .85, '90° bin couples less, in both mappings', transform=ax_c.transAxes,
+              ha='left', fontsize=10.5, fontweight='bold')
     letter(ax_c, 'c')
 
     # d: robustness forest at IPS0-5
@@ -155,15 +157,13 @@ def main(group_dir, out):
     ax_d.axvline(0, color='0.6', lw=.8, ls='--', zorder=0)
     ax_d.set_yticks(range(len(variants)), [v[0] for v in variants])
     ax_d.invert_yaxis()
-    ax_d.set_xlabel('Effect size dz (IPS0–5), 95% CI')
+    ax_d.set_xlabel('Effect size dz, IPS0–5')
     ax_d.tick_params(axis='y', length=0)
     letter(ax_d, 'd')
 
     for ax in (ax_a, ax_b, ax_c):
         sns.despine(ax=ax, offset=5, trim=False)
     sns.despine(ax=ax_d, offset=5, left=True)
-    fig.suptitle('Exploratory: V1→IPS residual coupling is not specifically stronger '
-                 'for 90°-preferring V1 voxels' if False else '', fontsize=13)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
