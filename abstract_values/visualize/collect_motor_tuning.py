@@ -209,8 +209,12 @@ def main(out_dir):
                                      / f'sub-{s}_task-abstractvalue_space-T1w_desc-cvr2_pe.nii.gz')
                     if not (fn(cvd).exists() and fn(nulld).exists()):
                         continue
-                    a = np.asarray(nib.load(str(fn(cvd))).dataobj, dtype=np.float32)
-                    n = np.asarray(nib.load(str(fn(nulld))).dataobj, dtype=np.float32)
+                    try:   # a fit may still be writing its file
+                        a = np.asarray(nib.load(str(fn(cvd))).dataobj, dtype=np.float32)
+                        n = np.asarray(nib.load(str(fn(nulld))).dataobj, dtype=np.float32)
+                    except Exception as e:  # noqa: BLE001
+                        print(f'  sub-{s} {roi} {model} {d}: unreadable ({e})')
+                        continue
                     mm = m & (a != 0)
                     prf_rows.append(dict(subject=s, epoch=d, roi=roi, model=model,
                                          cvr2=float(a[mm].mean()),
