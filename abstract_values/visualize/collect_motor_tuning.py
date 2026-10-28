@@ -26,7 +26,8 @@ epochs (gabor, response):
    (fit_motor_cv.py), when present.
 4. ``motor_tuning_decoding.tsv``: leave-one-run-out ridge decoding (RidgeCV,
    nested alpha) of bid, value and expected travel from each ROI's voxels;
-   per (subject, epoch, roi, target) Pearson r and RMSE of decoded vs true.
+   per (subject, epoch, roi, target) Pearson r and RMSE of decoded vs true;
+   trial-level decoded bids in ``motor_tuning_decoding_trials.tsv``.
 
 ROIs: M1l, M1r (pycortex fsaverage M1 projected to T1w), their 'hand' subsets
 (the 25 % of ROI voxels with the largest mean response-epoch beta: a movement
@@ -153,7 +154,7 @@ def cv_r2(X, Y, folds):
 
 def main(out_dir):
     out_dir = Path(out_dir)
-    trial_rows, cv_rows, prf_rows, dec_rows = [], [], [], []
+    trial_rows, cv_rows, prf_rows, dec_rows, dec_trials = [], [], [], [], []
     for s in SUBJECTS:
         sub = Subject(s, bids_folder=BIDS)
         try:
@@ -195,6 +196,10 @@ def main(out_dir):
                                          r=float(np.corrcoef(yp, yt)[0, 1]),
                                          rmse=float(np.sqrt(np.mean((yp - yt) ** 2))),
                                          sd_true=float(yt.std()), n_vox=Y.shape[1]))
+                    if target == 'bid':
+                        dec_trials.append(pv[['session', 'run', 'trial_nr', 'value', 'bid',
+                                              'rt', 'mapping']].assign(
+                            subject=s, epoch=d, roi=roi, decoded_bid=yp))
                 root = A1 / ('encoding_models_preSMA' if roi.startswith('preSMA')
                              else 'encoding_models')
                 for model, (cvd, nulld) in PRF_MODELS.items():
@@ -217,6 +222,8 @@ def main(out_dir):
     pd.DataFrame(cv_rows).to_csv(out_dir / 'motor_tuning_linear_cv.tsv', sep='\t', index=False)
     pd.DataFrame(prf_rows).to_csv(out_dir / 'motor_tuning_prf_cv.tsv', sep='\t', index=False)
     pd.DataFrame(dec_rows).to_csv(out_dir / 'motor_tuning_decoding.tsv', sep='\t', index=False)
+    pd.concat(dec_trials).to_csv(out_dir / 'motor_tuning_decoding_trials.tsv', sep='\t',
+                                 index=False)
 
 
 if __name__ == '__main__':
