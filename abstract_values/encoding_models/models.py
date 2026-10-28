@@ -620,3 +620,112 @@ class SessionShiftedAxialVonMisesPRF(AxialVonMisesPRF):
         mu = ops.where(session < 0.5, mu_1, mu_2)
 
         return axial_von_mises_pdf(x, mu, kappa) * amplitude + baseline
+
+
+# ── Tuning-shape variants of the axial von Mises (follow-up A4, 2026-10) ────
+# Both nest AxialVonMisesPRF exactly (shape = 1 / warp = 0) and keep its
+# amplitude convention (amplitude multiplies exp(kappa cos 2d) / (pi I0(kappa))),
+# so a fitted vonmises-prf parameter table is a valid warm start as is.
+
+def _cardinal_warp(x, a):
+    """Orientation warp F_a(x) = x + (a / 4) sin(4x): the (pi-scaled) CDF of the
+    density 1 + a cos(4x), which peaks at the cardinals (0, pi/2) for a > 0 and at
+    the obliques for a < 0. Monotone for |a| < 1, F(x + pi) = F(x) + pi.
+    Channels evenly spaced in F are denser near the cardinals, and a tuning curve
+    of fixed width in F is narrower there by a factor 1 / (1 + a)."""
+    return x + 0.25 * a * ops.sin(4. * x)
+
+
+class GeneralizedAxialVonMisesPRF(AxialVonMisesPRF):
+    """Exponential-power ("generalized") axial von Mises tuning.
+
+        f(x) = amplitude * exp(kappa - kappa * d**shape) / (pi I0(kappa)) + baseline,
+        d = 1 - cos(2 (x - mu)) in [0, 2]
+
+    shape = 1 is AxialVonMisesPRF exactly. shape < 1: a pointed (cusp-like)
+    peak; shape > 1: a flat-topped curve whose tails fall off faster (lighter
+    tails) than a von Mises of the same half-width. One shape parameter cannot
+    give both a sharper peak and lighter tails at a fixed width; the fit says
+    which way the data lean.
+
+    Parameters: mu, kappa, shape, amplitude, baseline.
+    """
+
+    parameter_labels = ['mu', 'kappa', 'shape', 'amplitude', 'baseline']
+
+    def __init__(self, allow_neg_amplitudes=False, **kwargs):
+        self.transformations = ['identity', 'softplus', 'softplus',
+                                'identity' if allow_neg_amplitudes else 'softplus',
+                                'identity']
+        self._basis_predictions_without_amplitude = self._gvm_predict
+        self._basis_predictions_with_amplitude = self._gvm_predict
+        AxialVonMisesPRF.__init__(self, allow_neg_amplitudes=allow_neg_amplitudes,
+                                  **kwargs)
+
+    def _gvm_predict(self, paradigm, parameters):
+        from braincoder.utils.backend import bessel_i0
+        x = paradigm[..., None, 0]
+        mu = parameters[:, None, :, 0]
+        kappa = parameters[:, None, :, 1]
+        shape = parameters[:, None, :, 2]
+        amplitude = parameters[:, None, :, 3]
+        baseline = parameters[:, None, :, 4]
+        d = 1. - ops.cos(2. * (x - mu)) + 1e-6          # eps: finite d(d^s)/ds at d = 0
+        f = ops.exp(kappa - kappa * d ** shape) / (np.float32(np.pi) * bessel_i0(kappa))
+        return f * amplitude + baseline
+
+
+class WarpedAxialVonMisesPRF(AxialVonMisesPRF):
+    """Axial von Mises on a cardinal-warped orientation axis, warp free per voxel.
+
+        f(x) = amplitude * vM_axial(F_a(x); mu, kappa) + baseline,
+        F_a(x) = x + (a/4) sin(4x),  a = 0.95 tanh(warp)
+
+    warp = 0 is AxialVonMisesPRF. a > 0 makes tuning narrower (and the
+    preferred-orientation axis denser) near the cardinals, a < 0 near the
+    obliques. ``mu`` lives on the warped axis (F maps cardinals and obliques to
+    themselves).
+
+    Parameters: mu, kappa, warp, amplitude, baseline.
+    """
+
+    parameter_labels = ['mu', 'kappa', 'warp', 'amplitude', 'baseline']
+
+    def __init__(self, allow_neg_amplitudes=False, **kwargs):
+        self.transformations = ['identity', 'softplus', 'identity',
+                                'identity' if allow_neg_amplitudes else 'softplus',
+                                'identity']
+        self._basis_predictions_without_amplitude = self._warp_predict
+        self._basis_predictions_with_amplitude = self._warp_predict
+        AxialVonMisesPRF.__init__(self, allow_neg_amplitudes=allow_neg_amplitudes,
+                                  **kwargs)
+
+    def _warp_predict(self, paradigm, parameters):
+        x = paradigm[..., None, 0]
+        mu = parameters[:, None, :, 0]
+        kappa = parameters[:, None, :, 1]
+        a = 0.95 * ops.tanh(parameters[:, None, :, 2])
+        amplitude = parameters[:, None, :, 3]
+        baseline = parameters[:, None, :, 4]
+        return axial_von_mises_pdf(_cardinal_warp(x, a), mu, kappa) * amplitude + baseline
+
+
+class CardinalWarpedVonMisesBasis(AxialVonMisesPRF):
+    """Fixed-warp version of AxialVonMisesPRF for basis-set (WeightFitter) models.
+
+    Channels with mu evenly spaced and one kappa on the warped axis F_a (see
+    ``_cardinal_warp``) are denser and narrower near the cardinals for a > 0.
+    ``warp=0`` reproduces the uniform basis of fit_vonmises_cv exactly.
+    """
+
+    def __init__(self, warp=0.0, **kwargs):
+        self.warp = float(warp)
+        AxialVonMisesPRF.__init__(self, **kwargs)
+
+    def _basis_predictions_without_amplitude(self, paradigm, parameters):
+        return axial_von_mises_pdf(_cardinal_warp(paradigm[..., None, 0], self.warp),
+                                   parameters[:, None, :, 0],
+                                   parameters[:, None, :, 1]) * \
+            parameters[:, None, :, 2] + parameters[:, None, :, 3]
+
+    _basis_predictions_with_amplitude = _basis_predictions_without_amplitude
