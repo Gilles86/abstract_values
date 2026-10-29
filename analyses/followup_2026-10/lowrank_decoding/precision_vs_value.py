@@ -10,6 +10,10 @@ computed identically for every source (empirical decoders and simulations):
   bias   mean signed error;  abs  mean |error|
   post   mean posterior SD -- calibrated only for V1-V3 (see README)
 
+Simulations come in two signal-to-noise versions (simulate_ideal_decoding.py
+--noise): 'cvmatched' (primary; prefixes ideal_ / pipe_) and 'insample'
+(the first run, decodes ~3x better than the data; prefixes idealin_ / pipein_).
+
 Sources:
   emp_lowrank     CV-N low-rank + T  (results/nvcv/mapping_profiles_nvoxels-cv_noise-lowrankcv.tsv.gz)
   emp_spherical   spherical, N = 50  (results/mapping_profiles_nvoxels-50_noise-spherical.tsv.gz)
@@ -135,16 +139,19 @@ def load_sources(ideal_scale=1.0):
         if fn.exists():
             src[name] = cells(pd.read_csv(fn, sep='\t', dtype={'subject': str}))
     sd = RES / 'simideal'
-    ideal = None
-    if (sd / 'ideal_all.tsv.gz').exists():
-        ideal = pd.read_csv(sd / 'ideal_all.tsv.gz', sep='\t', dtype={'subject': str})
-        for code, g in ideal[ideal.noise_scale == ideal_scale].groupby('code'):
-            c = cells(g, by=['rep'])
-            src[f'ideal_{code}'] = avg_reps(c)
-    for code in ('vonmises', 'lam0', 'lam1'):
-        fn = sd / f'pipeline_{code}.tsv.gz'
+    ideal = {}
+    for tag, pre in (('_cvmatched', 'ideal'), ('', 'idealin')):
+        fn = sd / f'ideal{tag}_all.tsv.gz'
         if fn.exists():
-            src[f'pipe_{code}'] = cells(pd.read_csv(fn, sep='\t', dtype={'subject': str}))
+            ideal[pre] = pd.read_csv(fn, sep='\t', dtype={'subject': str})
+            d = ideal[pre]
+            for code, g in d[d.noise_scale == ideal_scale].groupby('code'):
+                src[f'{pre}_{code}'] = avg_reps(cells(g, by=['rep']))
+        for code in ('vonmises', 'lam0', 'lam1'):
+            fn = sd / f'pipeline_{code}{tag}.tsv.gz'
+            if fn.exists():
+                src[f'{"pipe" if tag else "pipein"}_{code}'] = cells(
+                    pd.read_csv(fn, sep='\t', dtype={'subject': str}))
     return src, ideal
 
 
@@ -309,14 +316,14 @@ def main(skip_sweep=False):
                    float_format='%.4g')
         print(cls.round(3).to_string(index=False))
 
-    if ideal is not None and not skip_sweep:
-        dg = diagnosis(ideal)
+    if ideal and not skip_sweep:
+        dg = pd.concat([diagnosis(d).assign(snr=k) for k, d in ideal.items()], ignore_index=True)
         dg.to_csv(RES / 'precision_vs_value_noise_sweep.tsv', sep='\t', index=False,
                   float_format='%.4g')
         print(dg[dg.measure == 'post'].pivot_table(
-            index=['code', 'roi', 'space'], columns='noise_scale', values='rms').round(3).to_string())
-        print(dg.drop_duplicates(['code', 'roi', 'noise_scale']).pivot_table(
-            index=['code', 'roi'], columns='noise_scale', values='mae_v').round(2).to_string())
+            index=['snr', 'code', 'roi', 'space'], columns='noise_scale', values='rms').round(3).to_string())
+        print(dg.drop_duplicates(['snr', 'code', 'roi', 'noise_scale']).pivot_table(
+            index=['snr', 'code', 'roi'], columns='noise_scale', values='mae_v').round(2).to_string())
 
     for kind, title in (('pipe', 'Data (CV-N low-rank) vs real pipeline on simulated data'),
                         ('ideal', 'Data (CV-N low-rank) vs ideal observer on simulated data')):
