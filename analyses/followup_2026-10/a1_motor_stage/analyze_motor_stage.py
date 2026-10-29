@@ -119,6 +119,8 @@ def main():
     # ── 3. PRF cvR² (×10⁻³) ────────────────────────────────────────────────
     prf = pd.read_csv(TAB / "motor_tuning_prf_cv.tsv", sep="\t", dtype={"subject": str},
                       keep_default_na=False)
+    # ROIs without PRF fits (V1, IPS) have empty cvr2 cells, read as "" under keep_default_na
+    prf = prf[prf.n_vox > 0].astype({"cvr2": float, "cvr2_null": float})
     prf["gain"] = (prf.cvr2 - prf.cvr2_null) * 1e3
     w = prf.pivot_table(index=["subject", "epoch", "roi"], columns="model", values="gain")
     w["wrapped-unwrapped"] = w["quantile-wrapped"] - w["quantile"]
