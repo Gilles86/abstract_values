@@ -18,10 +18,11 @@ Student-t dof by ML. Simulated data: one draw per REAL trial (same stimuli,
 sessions/mappings, runs), so trial counts per value and mapping are matched.
 
 Signal-to-noise (--noise):
-  'cvmatched' (default) -- each voxel's tuning is shrunk around its mean so the
-      variance it explains equals its CROSS-VALIDATED R² (the in-sample fit of
+  'cvmatched' (default) -- the tuning of all voxels is shrunk around their
+      means by ONE factor per ROI so the code's total explained variance equals
+      the ROI's total CROSS-VALIDATED explained variance (the in-sample fit of
       8 weights / 4 PRF parameters per voxel to all trials overstates the
-      signal), and its noise SD is set to the held-out residual level.
+      signal), and each voxel's noise SD is set to its held-out residual level.
   'insample' -- the code and noise exactly as fitted to all trials. This was
       the first run (trees ideal/ and pipeline_vonmises/) and decodes about 3x
       better than the data, so it overstates every precision effect.
@@ -205,12 +206,14 @@ def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kin
         fac, cvr2 = heldout_factor(sub, masker, Y, Y - mean, code, vpar, opar,
                                    oc if code == 'vonmises' else None)
         nm = LowRankNoise(nm.scale * fac, nm.factors, nm.psi, dof=nm.dof)
-        # shrink each voxel's tuning around its mean so that the variance it
-        # explains equals its cross-validated R² (never inflate)
+        # ONE shrink factor per ROI: the code's total explained variance is set
+        # to the ROI's total cross-validated explained variance. (Per-voxel
+        # shrinkage would zero every voxel whose noisy single-voxel cvR² is <= 0,
+        # although a population decoder pools exactly those weak voxels.)
         mu = mean.mean(0)
         sig_var = mean.var(0)
-        shrink = np.sqrt(np.clip(cvr2, 0, None) * Y.var(0) / np.maximum(sig_var, 1e-12))
-        shrink = np.clip(shrink, 0, 1)
+        s2 = np.sum(cvr2 * Y.var(0)) / max(np.sum(sig_var), 1e-12)
+        shrink = np.full(Y.shape[1], np.sqrt(np.clip(s2, 0, 1)))
         mean = mu + (mean - mu) * shrink
         P_by_ses = {s_: mu + (P - mu) * shrink for s_, P in P_by_ses.items()}
     tag = '' if noise_kind == 'insample' else '_cvmatched'
