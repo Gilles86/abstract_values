@@ -172,7 +172,8 @@ def summarise(logpost, grid, true_idx, true_val, circular, rng):
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
-         out_tree='decoding_lowrankcv', debug=False, check_production=True):
+         out_tree='decoding_lowrankcv', debug=False, check_production=True,
+         select_voxels=False, n_voxels_grid=(25, 50, 100, 200, 400, 800, None)):
     t0 = time.time()
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
@@ -204,7 +205,7 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
     stem = f'sub-{subject}_mask-{roi}'
 
     n_voxels = sorted(int(n) for n in n_voxels)
-    n_max = min(max(n_voxels), data.shape[1])
+    n_max = data.shape[1] if select_voxels else min(max(n_voxels), data.shape[1])
     ses = paradigm.index.get_level_values('session')
     run = paradigm.index.get_level_values('run')
     folds = sorted(set(zip(ses, run)))
@@ -227,7 +228,9 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
         pred_tr = pd.DataFrame(code.predict(theta, par_tr), index=Y_tr.index, columns=Y_tr.columns)
         r2 = get_rsq(Y_tr, pred_tr)
         rank = r2.sort_values(ascending=False).index
-        top = rank[:n_max]
+        # select_voxels: keep the data's own column order (fit_select_voxels
+        # aligns predictions with data columns positionally)
+        top = Y_tr.columns if select_voxels else rank[:n_max]
 
         # inner leave-one-run-out encoding fits (only on the top voxels)
         g_tr = np.array([f'{a}-{b}' for a, b in zip(ses[tr], run[tr])])
@@ -236,6 +239,47 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
             keep = g_tr != g
             inner[g] = code.fit(Y_tr[top].loc[keep], par_tr.loc[keep])
         t_inner = time.time() - tf
+
+        if select_voxels:
+            # N jointly with k and T by nested LORO (braincoder
+            # LowRankNoise.fit_select_voxels); ranking by training-only R²
+            model = code.model if circular else _build_model('loggauss')
+            pars_lr, w_lr = code.lowrank_args(theta)
+            inner_fn = ((lambda d, p, g: (code.basis, inner[g])) if circular
+                        else (lambda d, p, g: inner[g]))
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', RuntimeWarning)
+                lr = LowRankNoise.fit_select_voxels(
+                    model, Y_tr, par_tr, pars_lr, weights=w_lr, stimulus_range=grid,
+                    groups=g_tr, inner_parameters=inner_fn, n_voxels_grid=n_voxels_grid)
+            sel = lr.voxels
+            th_sel = code.subset(theta, sel)
+            lp = log_posterior(lr, Y_te[sel].values.astype(np.float64),
+                               code.predict(th_sel, grid_df))
+            cv = lr.cv_scores_
+            best_by_N = cv.max(axis=1).groupby(level='n_voxels').max()
+            meta_rows.append(dict(
+                session=fs, run=fr, n_voxels='cv', n_selected=lr.n_voxels_selected_,
+                n_roi=data.shape[1], k=lr.k, temperature=lr.temperature, dof_lowrank=lr.dof,
+                cv_best=float(cv.values.max()),
+                **{f'cv_N{int(N)}': float(v) for N, v in best_by_N.items()},
+                n_train=int(tr.sum()), n_test=int(te.sum())))
+            idx = par_te.index
+            sm = summarise(lp, grid, true_idx_all[te], par_te['x'].values, circular, rng)
+            for c, v in (('trial_nr', idx.get_level_values('trial_nr')), ('run', fr),
+                         ('session', fs), ('noise', 'lowrankcv'), ('n_voxels', 'cv')):
+                sm.insert(0, c, v)
+            trial_rows.append(sm)
+            posts.setdefault(('cv', 'lowrankcv'), []).append(pd.DataFrame(
+                np.exp(lp), columns=grid, index=pd.MultiIndex.from_arrays(
+                    [idx.get_level_values('session'), idx.get_level_values('run'),
+                     idx.get_level_values('trial_nr'), par_te['x'].values],
+                    names=['session', 'run', 'trial_nr', code.true_col])))
+            print(f'  ses-{fs} run-{fr}: N={lr.n_voxels_selected_}/{data.shape[1]} k={lr.k} '
+                  f'T={lr.temperature:g} cv {cv.values.max():.3f} | best per N: '
+                  + ' '.join(f'{int(N)}:{v:.3f}' for N, v in best_by_N.items())
+                  + f'  ({time.time() - tf:.0f}s, inner fits {t_inner:.0f}s)', flush=True)
+            continue
 
         for N in n_voxels:
             if N > data.shape[1]:
@@ -376,5 +420,12 @@ if __name__ == '__main__':
     p.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     p.add_argument('--out-tree', default='decoding_lowrankcv')
     p.add_argument('--debug', action='store_true', help='2 folds, 100 iterations')
+    p.add_argument('--select-voxels', action='store_true',
+                   help='choose N (25..800, all) jointly with k, T by nested LORO; '
+                        'low-rank arm only. Default out tree: decoding_lowrankcv_nvcv')
     a = p.parse_args()
-    main(a.subject, a.quantity, a.roi, a.n_voxels, a.bids_folder, a.out_tree, a.debug)
+    out_tree = a.out_tree
+    if a.select_voxels and out_tree == 'decoding_lowrankcv':
+        out_tree = 'decoding_lowrankcv_nvcv'
+    main(a.subject, a.quantity, a.roi, a.n_voxels, a.bids_folder, out_tree, a.debug,
+         select_voxels=a.select_voxels)
