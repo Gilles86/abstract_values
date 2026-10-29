@@ -211,7 +211,7 @@ def figure(gp, gb, sim, label, out):
                     bad = h[(h.cov80 < .7) | (h.cov80 > .9)]
                     ax.plot(bad[xcol], bad[ycol], 'o', ms=2.4, mfc='white', mec=MAP_COL[mp],
                             mew=.7, zorder=4)
-            if sim is not None and dec == 'value' and roi in SIM_ROI:
+            if sim is not None and dec == 'value' and roi in SIM_ROI and j == 0:
                 s = sim[sim.roi == SIM_ROI[roi]]
                 for lam, ls in ((0.0, '--'), (1.0, ':')):
                     for mp, h in s[s.lam == lam].groupby('mapping'):
@@ -228,14 +228,14 @@ def figure(gp, gb, sim, label, out):
     for k, mp in enumerate(MAP_COL):
         a0.text(.02, .92 - .17 * k, MAP_LABEL[mp], color=MAP_COL[mp], fontsize=6,
                 transform=a0.transAxes, va='top')
-    ax = axes[4, 1]
+    ax = axes[4, 0]          # V1 value decoder: empty band between data and model
     for k, (lab, ls) in enumerate((('Model λ = 0 (fixed value)', '--'),
                                    ('Model λ = 1 (quantile)', ':'))):
-        y = .95 - .17 * k
-        ax.plot([.55, .63], [y, y], transform=ax.transAxes, color='.3', lw=.8, ls=ls)
-        ax.text(.65, y, lab, transform=ax.transAxes, fontsize=5.5, va='center', color='.3')
-    ax.plot(.59, .61, 'o', ms=2.4, mfc='white', mec='.3', mew=.7, transform=ax.transAxes)
-    ax.text(.65, .61, '80% coverage off by > .1', transform=ax.transAxes, fontsize=5.5,
+        y = .62 - .13 * k
+        ax.plot([.04, .12], [y, y], transform=ax.transAxes, color='.3', lw=.8, ls=ls)
+        ax.text(.14, y, lab, transform=ax.transAxes, fontsize=5.5, va='center', color='.3')
+    ax.plot(.08, .36, 'o', ms=2.4, mfc='white', mec='.3', mew=.7, transform=ax.transAxes)
+    ax.text(.14, .36, '80% coverage off by > .1', transform=ax.transAxes, fontsize=5.5,
             va='center', color='.3')
     fig.suptitle(label, fontsize=7)
     letter(axes[0, 0], 'a')

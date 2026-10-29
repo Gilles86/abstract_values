@@ -1,0 +1,45 @@
+decoder	roi	measure	mean	lo	hi	n	p
+gabor	BensonV1	beta_v	0.03797	0.01392	0.06202	36	0.002879
+gabor	BensonV1	beta_o	-0.007014	-0.01793	0.003906	36	0.2007
+gabor	BensonV1	r_v	0.2703	0.1707	0.37	36	3.441e-06
+gabor	BensonV1	r_o	0.1472	0.06857	0.2259	36	0.0005545
+gabor	BensonV2	beta_v	0.0551	0.02815	0.08205	36	0.0002015
+gabor	BensonV2	beta_o	-0.009838	-0.02068	0.001001	36	0.07387
+gabor	BensonV2	r_v	0.2452	0.1	0.3903	36	0.001567
+gabor	BensonV2	r_o	0.1502	0.06215	0.2383	36	0.001429
+gabor	BensonV3	beta_v	0.03498	0.01245	0.05751	36	0.003318
+gabor	BensonV3	beta_o	-0.007905	-0.01718	0.001369	36	0.09236
+gabor	BensonV3	r_v	0.392	0.2841	0.5	36	1.265e-08
+gabor	BensonV3	r_o	0.1462	0.06539	0.2271	36	0.000796
+value	BensonV1	beta_v	0.002139	-0.006075	0.01035	36	0.6003
+value	BensonV1	beta_o	-0.01727	-0.02604	-0.008495	36	0.0003156
+value	BensonV1	r_v	0.3663	0.2681	0.4644	36	7.053e-09
+value	BensonV1	r_o	0.3606	0.2558	0.4655	36	4.017e-08
+value	IPS0	beta_v	-0.0008886	-0.003266	0.001489	36	0.453
+value	IPS0	beta_o	-0.0005047	-0.00258	0.001571	36	0.6246
+value	IPS0	r_v	0.2363	0.1243	0.3483	36	0.0001367
+value	IPS0	r_o	0.2808	0.2117	0.3498	36	1.001e-09
+value	IPS12	beta_v	-0.001324	-0.004615	0.001968	36	0.4198
+value	IPS12	beta_o	-0.001315	-0.004123	0.001493	36	0.3483
+value	IPS12	r_v	0.2622	0.1469	0.3776	36	5.122e-05
+value	IPS12	r_o	0.3414	0.2631	0.4197	36	1.857e-10
+value	IPS345	beta_v	-0.002323	-0.004663	1.732e-05	36	0.05163
+value	IPS345	beta_o	-0.00171	-0.003746	0.0003258	36	0.09702
+value	IPS345	r_v	0.1369	0.01378	0.26	36	0.03034
+value	IPS345	r_o	0.2487	0.1715	0.326	36	1.533e-07
+value	NPCr	beta_v	-0.001872	-0.005076	0.001331	36	0.2435
+value	NPCr	beta_o	-0.001851	-0.004932	0.001229	36	0.2306
+value	NPCr	r_v	0.3707	0.2514	0.49	36	3.047e-07
+value	NPCr	r_o	0.4083	0.3308	0.4858	36	1.421e-12
+behaviour	bid	beta_v	0.3931	0.3141	0.4721	36	6.431e-12
+behaviour	bid	beta_o	-0.3833	-0.4435	-0.323	36	6.962e-15
+behaviour	bid	r_v	0.2403	0.1385	0.3421	36	2.989e-05
+behaviour	bid	r_o	0.01772	-0.07909	0.1145	36	0.7124
+contrast	value:IPS0 − value:BensonV1	beta_v	-0.003028	-0.01136	0.005302	36	0.4655
+contrast	value:IPS0 − gabor:BensonV1	beta_v	-0.03886	-0.06318	-0.01453	36	0.002599
+contrast	value:IPS12 − value:BensonV1	beta_v	-0.003463	-0.01204	0.005109	36	0.4177
+contrast	value:IPS12 − gabor:BensonV1	beta_v	-0.03929	-0.06382	-0.01476	36	0.002543
+contrast	value:IPS345 − value:BensonV1	beta_v	-0.004462	-0.01253	0.003604	36	0.2691
+contrast	value:IPS345 − gabor:BensonV1	beta_v	-0.04029	-0.06408	-0.0165	36	0.001529
+contrast	value:NPCr − value:BensonV1	beta_v	-0.004011	-0.01361	0.005583	36	0.4018
+contrast	value:NPCr − gabor:BensonV1	beta_v	-0.03984	-0.06471	-0.01497	36	0.002538

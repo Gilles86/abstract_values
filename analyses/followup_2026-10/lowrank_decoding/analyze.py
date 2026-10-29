@@ -133,7 +133,7 @@ def noise_parameters(per):
 def figure(per, con, bb, tr, nv, out):
     fig, axes = plt.subplots(2, 3, figsize=(7.25, 4.4), constrained_layout=True)
     cells = [(q, r) for q in ROIS for r in ROIS[q]]
-    xt = [f'{ROI_LABEL[r]}\n{"ori" if q == "orientation" else "value"}' for q, r in cells]
+    xt = [f'{ROI_LABEL[r]} {"ori" if q == "orientation" else "val"}' for q, r in cells]
     x = np.arange(len(cells))
     p = per[per.n_voxels == nv]
     off = {'spherical': -.22, 'diagcv': 0, 'lowrankcv': .22}
@@ -149,7 +149,7 @@ def figure(per, con, bb, tr, nv, out):
                 ax.plot(i + off[n], m, 'o', ms=3.4, color=COL[n])
         if ref is not None:
             ax.axhline(ref, color='.7', lw=.6, ls='--', zorder=0)
-        ax.set_xticks(x, xt, fontsize=5.8)
+        ax.set_xticks(x, xt, fontsize=5.8, rotation=45, ha='right', rotation_mode='anchor')
         sns.despine(ax=ax, offset=3)
 
     ax = axes[0, 0]
@@ -183,7 +183,7 @@ def figure(per, con, bb, tr, nv, out):
             ax.plot([i, i], [row.lo, row.hi], color=COL['lowrankcv'], lw=1)
             ax.plot(i, row['mean'], 'o', ms=3.4, color=COL['lowrankcv'])
     ax.axhline(0, color='.7', lw=.6, ls='--', zorder=0)
-    ax.set_xticks(x, xt, fontsize=5.8)
+    ax.set_xticks(x, xt, fontsize=5.8, rotation=45, ha='right', rotation_mode='anchor')
     ax.set_ylabel('Δ accuracy r (low-rank − spherical)')
     sns.despine(ax=ax, offset=3)
     letter(ax, 'd')
@@ -222,6 +222,8 @@ def figure(per, con, bb, tr, nv, out):
     ax.set_ylabel('Partial r (decoded vs bid,\ntrue value removed)')
     sns.despine(ax=ax, offset=3)
     letter(ax, 'f')
+    for ax in (*axes[0], axes[1, 0]):
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
     fig.savefig(out)
     print(f'saved {out}')
 
