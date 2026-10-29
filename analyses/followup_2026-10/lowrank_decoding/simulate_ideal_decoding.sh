@@ -26,13 +26,13 @@ BIDS=/shares/zne.uzh/gdehol/ds-abstractvalue
 sleep $(( (${SLURM_ARRAY_TASK_ID:-0} % 12) * 5 ))
 if [ "$MODE" = "ideal" ]; then
     for r in BensonV1 BensonV2 BensonV3; do
-        $PY -u $SCRIPT "$S" --roi $r --code vonmises --mode ideal --bids-folder $BIDS --noise ${NOISE:-heldout}
+        $PY -u $SCRIPT "$S" --roi $r --code vonmises --mode ideal --bids-folder $BIDS --noise ${NOISE:-cvmatched}
     done
     for r in BensonV1 IPS0 IPS12 IPS345 NPCr; do
         for c in lam0 lam1; do
-            $PY -u $SCRIPT "$S" --roi $r --code $c --mode ideal --bids-folder $BIDS --noise ${NOISE:-heldout}
+            $PY -u $SCRIPT "$S" --roi $r --code $c --mode ideal --bids-folder $BIDS --noise ${NOISE:-cvmatched}
         done
     done
 else
-    exec $PY -u $SCRIPT "$S" --roi "$ROI" --code "$CODE" --mode pipeline --bids-folder $BIDS --noise ${NOISE:-heldout}
+    exec $PY -u $SCRIPT "$S" --roi "$ROI" --code "$CODE" --mode pipeline --bids-folder $BIDS --noise ${NOISE:-cvmatched}
 fi

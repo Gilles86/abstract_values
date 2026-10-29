@@ -17,10 +17,15 @@ the participant's median k chosen by the CV-N decoder (decoding_lowrankcv_nvcv),
 Student-t dof by ML. Simulated data: one draw per REAL trial (same stimuli,
 sessions/mappings, runs), so trial counts per value and mapping are matched.
 
-Noise level (--noise): 'heldout' (default) rescales each voxel's noise SD to
-its held-out residual level (see heldout_factor); 'insample' keeps the in-sample
-residual level (the first run, trees ideal/ and pipeline_<code>/, which decodes
-~3x better than the data). Held-out outputs carry a _heldout suffix.
+Signal-to-noise (--noise):
+  'cvmatched' (default) -- each voxel's tuning is shrunk around its mean so the
+      variance it explains equals its CROSS-VALIDATED R² (the in-sample fit of
+      8 weights / 4 PRF parameters per voxel to all trials overstates the
+      signal), and its noise SD is set to the held-out residual level.
+  'insample' -- the code and noise exactly as fitted to all trials. This was
+      the first run (trees ideal/ and pipeline_vonmises/) and decodes about 3x
+      better than the data, so it overstates every precision effect.
+cvmatched outputs carry a _cvmatched suffix.
 
 Two decoders:
   ideal     true generative tuning + true noise, T = 1, flat prior on the
@@ -100,7 +105,9 @@ def chosen_k(bids, subject, roi, quantity):
 
 
 def heldout_factor(sub, masker, Y, R_in, code, vpar, opar, oc=None):
-    """Per-voxel factor taking the in-sample residual SD to the HELD-OUT one.
+    """Per-voxel (noise factor, cross-validated R²) of the code.
+
+    Noise factor: takes the in-sample residual SD to the HELD-OUT one.
 
     In-sample residuals of a code fitted to all trials understate the noise a
     decoder meets on a held-out run (non-stationarity across runs and sessions,
@@ -112,12 +119,15 @@ def heldout_factor(sub, masker, Y, R_in, code, vpar, opar, oc=None):
     run = vpar.index.get_level_values('run').to_numpy()
     folds = sorted(set(zip(ses, run)))
     ho = np.zeros(Y.shape[1])
+    tot = np.zeros(Y.shape[1])
     if code == 'vonmises':
         Ydf = pd.DataFrame(Y.astype(np.float32), index=opar.index)
         for fs, fr in folds:
             te = (ses == fs) & (run == fr)
             W = oc.fit(Ydf.loc[~te], opar.loc[~te])
             ho += ((Y[te] - oc.predict(W, opar.loc[te])) ** 2).sum(0)
+            tot += ((Y[te] - Y[te].mean(0)) ** 2).sum(0)
+        cvr2 = 1 - ho / np.maximum(tot, 1e-12)
         ho /= len(Y)
     else:
         lam = {'lam0': 0.0, 'lam1': 1.0}[code]
@@ -133,12 +143,14 @@ def heldout_factor(sub, masker, Y, R_in, code, vpar, opar, oc=None):
             te = (ses == fs) & (run == fr)
             cv = np.where(np.isfinite(cv), cv, 0.0)
             ho += (1 - cv) * Y[te].var(0) * te.sum()
+            tot += Y[te].var(0) * te.sum()
             n += te.sum()
         if n == 0:
-            return np.ones(Y.shape[1])
+            return np.ones(Y.shape[1]), np.zeros(Y.shape[1])
+        cvr2 = 1 - ho / np.maximum(tot, 1e-12)
         ho /= n
     f = np.sqrt(ho / np.maximum(R_in.var(0), 1e-12))
-    return np.clip(f, 0.5, 10.0)
+    return np.clip(f, 0.5, 10.0), cvr2
 
 
 def sample_noise(nm, n, rng, scale=1.0):
@@ -188,14 +200,24 @@ def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kin
     k = chosen_k(bids, subject, roi, quantity)
     nm = LowRankNoise.from_residuals(Y - mean, k=k, dof='fit')
     fac = np.ones(Y.shape[1])
-    if noise_kind == 'heldout':
-        fac = heldout_factor(sub, masker, Y, Y - mean, code, vpar, opar,
-                             oc if code == 'vonmises' else None)
+    shrink = np.ones(Y.shape[1])
+    if noise_kind == 'cvmatched':
+        fac, cvr2 = heldout_factor(sub, masker, Y, Y - mean, code, vpar, opar,
+                                   oc if code == 'vonmises' else None)
         nm = LowRankNoise(nm.scale * fac, nm.factors, nm.psi, dof=nm.dof)
-    tag = '' if noise_kind == 'insample' else '_heldout'
-    print(f'sub-{subject} {roi} {code} {mode} [{noise_kind} noise]: {Y.shape[1]} voxels '
-          f'({n_fit} with a fit), k={nm.k}, nu={nm.dof}, held-out/in-sample SD factor '
-          f'median {np.median(fac):.2f}', flush=True)
+        # shrink each voxel's tuning around its mean so that the variance it
+        # explains equals its cross-validated R² (never inflate)
+        mu = mean.mean(0)
+        sig_var = mean.var(0)
+        shrink = np.sqrt(np.clip(cvr2, 0, None) * Y.var(0) / np.maximum(sig_var, 1e-12))
+        shrink = np.clip(shrink, 0, 1)
+        mean = mu + (mean - mu) * shrink
+        P_by_ses = {s_: mu + (P - mu) * shrink for s_, P in P_by_ses.items()}
+    tag = '' if noise_kind == 'insample' else '_cvmatched'
+    print(f'sub-{subject} {roi} {code} {mode} [{noise_kind}]: {Y.shape[1]} voxels '
+          f'({n_fit} with a fit), k={nm.k}, nu={nm.dof}, held-out/in-sample noise SD factor '
+          f'median {np.median(fac):.2f}, signal shrink median {np.median(shrink):.2f} '
+          f'(mean {shrink.mean():.2f})', flush=True)
 
     if mode == 'pipeline':
         Ysim = mean + sample_noise(nm, len(Y), rng)
@@ -227,6 +249,7 @@ def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kin
         print(f'  scale {scale}: {reps} reps', flush=True)
     out = pd.concat(rows)
     for c, val in (('noise_kind', noise_kind), ('heldout_factor', float(np.median(fac))),
+                   ('signal_shrink', float(np.mean(shrink))),
                    ('n_fit', n_fit), ('n_vox', Y.shape[1]), ('k', nm.k),
                    ('decoder', kind), ('code', code), ('roi', roi), ('subject', str(subject))):
         out.insert(0, c, val)
@@ -248,9 +271,10 @@ if __name__ == '__main__':
     ap.add_argument('--mode', default='ideal', choices=['ideal', 'pipeline'])
     ap.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     ap.add_argument('--n-rep', type=int, default=10)
-    ap.add_argument('--noise', default='heldout', choices=['heldout', 'insample'],
-                    help='generative noise SD per voxel at the held-out (default) or the '
-                         'in-sample residual level; outputs of the two never share a path')
+    ap.add_argument('--noise', default='cvmatched', choices=['cvmatched', 'insample'],
+                    help="'cvmatched' (default): signal shrunk to the cross-validated R², "
+                         "noise SD at the held-out residual level; 'insample': the code and "
+                         "noise as fitted to all trials. Outputs never share a path.")
     a = ap.parse_args()
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
