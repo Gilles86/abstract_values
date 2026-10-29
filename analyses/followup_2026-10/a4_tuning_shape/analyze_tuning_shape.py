@@ -69,7 +69,10 @@ def load(root):
                    .assign(subject=s))
         idx.append(pd.read_csv(next(d.glob('*_desc-a4_index.tsv')), sep='\t')
                    .assign(subject=s))
-    return pd.concat(vox), pd.concat(dec), pd.concat(idx)
+    vox = pd.concat(vox)
+    inc = [c for c in vox if c.startswith('in_')]
+    vox[inc] = vox[inc].fillna(False).astype(bool)      # ROI mask missing (sub-36: no Wang IPS)
+    return vox, pd.concat(dec), pd.concat(idx)
 
 
 def summarise_cvr2(vox):
@@ -203,9 +206,9 @@ def fig_cvr2(cv, binned, out):
         ax.plot(wv, y, '-o', color=cols[i], ms=3)
         ends.append([y[-1], l, cols[i]])
     ends.sort(key=lambda e: e[0])                     # de-collide end labels
-    span = np.ptp([e[0] for e in ends]) or 1
+    lo, hi = ax.get_ylim()
     for k in range(1, len(ends)):
-        ends[k][0] = max(ends[k][0], ends[k - 1][0] + .09 * max(span, .3))
+        ends[k][0] = max(ends[k][0], ends[k - 1][0] + .065 * (hi - lo))
     for y, l, col in ends:
         ax.text(wv[-1] + .05, y, l, color=col, va='center')
     ax.set_xticks([-.5, 0, .25, .5, .75])
@@ -298,13 +301,16 @@ def fig_index(idx, out):
     mm = [('vm', 'Single vM', C_REF, 'white'), ('gvm', 'Generalized vM', C_GVM, C_GVM),
           ('warp', 'Warped vM', C_WARP, C_WARP), ('basis_a+0.00', 'Uniform basis', C_REF, C_REF),
           ('basis_a+0.50', 'Cardinal basis', '#5D8C3F', '#5D8C3F')]
-    fig, ax = plt.subplots(figsize=(4.2, 2.2), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(5.4, 2.2), constrained_layout=True)
     ax.axhline(0, color='0.7', lw=.6, ls='--', zorder=0)
     for k, (m, lab, c, fc) in enumerate(mm):
         for i, (r, _) in enumerate(ROIS):
             v = idx[(idx.roi == r) & (idx.model == m)].ci_90
             dot_ci(ax, i + (k - 2) * .14, v, c, fc, jitter=False)
-        ax.text(1.0, 1 - k * .085, lab, color=c, transform=ax.transAxes, ha='right', va='top')
+        yy = .95 - k * .1
+        ax.plot(1.04, yy, 'o', transform=ax.transAxes, color=c, mfc=fc, mec=c, ms=4.5,
+                mew=1.2, clip_on=False)
+        ax.text(1.08, yy, lab, color=c, transform=ax.transAxes, va='center')
     ax.set_xticks(range(len(ROIS)), [l for _, l in ROIS], fontsize=TICKFS)
     ax.set_ylabel('Model-implied 90° index')
     sns.despine(fig=fig, offset=4)
