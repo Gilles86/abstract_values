@@ -20,9 +20,10 @@ sessions/mappings, runs), so trial counts per value and mapping are matched.
 Signal-to-noise (--noise):
   'cvmatched' (default) -- the tuning of all voxels is shrunk around their
       means by ONE factor per ROI so the code's total explained variance equals
-      the ROI's total CROSS-VALIDATED explained variance (the in-sample fit of
-      8 weights / 4 PRF parameters per voxel to all trials overstates the
-      signal), and each voxel's noise SD is set to its held-out residual level.
+      the ROI's estimated TRUE signal variance, (in-sample R² + cvR²) / 2 per
+      voxel (the in-sample fit of 8 weights / 4 PRF parameters per voxel to all
+      trials overstates the signal by ~p/n, cvR² understates it by ~p/n), and
+      each voxel's noise SD is set to its held-out residual level.
   'insample' -- the code and noise exactly as fitted to all trials. This was
       the first run (trees ideal/ and pipeline_vonmises/) and decodes about 3x
       better than the data, so it overstates every precision effect.
@@ -210,9 +211,17 @@ def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kin
         # to the ROI's total cross-validated explained variance. (Per-voxel
         # shrinkage would zero every voxel whose noisy single-voxel cvR² is <= 0,
         # although a population decoder pools exactly those weak voxels.)
+        # True signal variance per voxel: in-sample R² is inflated by about
+        # +p/n by overfitting and cross-validated R² deflated by about -p/n,
+        # so their average is the (approximately) unbiased estimate; pure-noise
+        # voxels then contribute ~0 instead of the -p/n of cvR² alone.
         mu = mean.mean(0)
         sig_var = mean.var(0)
-        s2 = np.sum(cvr2 * Y.var(0)) / max(np.sum(sig_var), 1e-12)
+        r2_in = 1 - (Y - mean).var(0) / np.maximum(Y.var(0), 1e-12)
+        rho2 = 0.5 * (r2_in + cvr2)
+        s2 = np.sum(rho2 * Y.var(0)) / max(np.sum(sig_var), 1e-12)
+        print(f'  in-sample R² {np.mean(r2_in):.4f}, cvR² {np.mean(cvr2):.4f}, '
+              f'signal-variance shrink s² = {s2:.3f}', flush=True)
         shrink = np.full(Y.shape[1], np.sqrt(np.clip(s2, 0, 1)))
         mean = mu + (mean - mu) * shrink
         P_by_ses = {s_: mu + (P - mu) * shrink for s_, P in P_by_ses.items()}
