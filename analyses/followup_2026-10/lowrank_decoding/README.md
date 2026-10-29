@@ -353,3 +353,213 @@ Jobs:
 | Simulations | 7873390–7873424 |
 
 The cancelled numpy-port run was 7871007–7871014.
+
+## 5. Precision as a function of value vs simulate-then-decode (29 Oct 2026, evening)
+
+Code is in `/Users/gdehol/git/abstract_values/analyses/followup_2026-10/lowrank_decoding/`:
+
+- `simulate_ideal_decoding.py` and `.sh` simulate.
+- `collect_simideal.py` collects.
+- `precision_vs_value.py` analyses.
+- The decoder gained a `--fast` mode.
+
+Simulations are in the new tree `derivatives/decoding_simideal/`.
+
+### Metric
+
+Posterior SD fails the calibration gate in IPS/NPCr, so precision here is
+**error-based**. It is the pooled **within-stimulus SD of the decoded posterior means**,
+over the presented stimuli inside 5-CHF value bins and 22.5° orientation bins.
+
+- Using the within-stimulus SD means the spread of bias across stimuli (central pull) is not
+  counted as imprecision.
+- Bias and |error| are kept alongside (`precision_vs_value_group.tsv`).
+- Every source uses the same metric.
+
+### Why the old λ = 0 / λ = 1 simulations coincided
+
+They do not reflect a bug in `simulate_decoding_mix.py`. The cause is the metric plus a
+realistic SNR.
+
+**What shows the codes are implemented correctly.** The ideal observer (true tuning and
+noise, flat prior) separates the mappings exactly as theory says once noise is low:
+
+- **The fitted V1 orientation code (positive control).**
+  - Posterior SD on the value axis flips between mappings.
+  - Misaligned is precise at 12/32 CHF and imprecise at 22. Aligned is the reverse.
+  - Mapping × position interaction (RMS of log SD): value axis 0.83, orientation axis 0.006.
+- **λ = 1 shows the same flipped pattern at moderate noise, and λ = 0 does not.**
+  - At noise scale 0.5, IPS1–2 posterior SD under Misaligned is 0.68 CHF at the 14.5-CHF bin
+    and 1.11 at 19.5.
+  - Under Aligned it is 1.16 and 1.17 at those bins.
+  - Under λ = 0 the two mappings give about the same profile (0.66/0.82 vs 0.61/0.80 CHF).
+- **At every noise scale the λ = 1 value-axis interaction exceeds λ = 0's.** In-sample SNR,
+  IPS1–2: 1.38 vs 1.34 at scale 0.25, and 0.149 vs 0.081 at scale 1.
+  - Caveat: below scale 0.5 the posterior SD approaches the 0.8-CHF grid step. log SD then
+    turns into a discretisation artifact, which inflates λ = 0 there too.
+
+**Why they coincide at the data's SNR:**
+
+- **Posterior width.**
+  - IPS posteriors are 4–6 CHF wide, the width of a mapping's dense region.
+  - Their mean is pulled hard towards the centre of the bounded 2–42 CHF range (bias ±10–18
+    CHF at the extremes).
+  - Mean posterior SD, which the old figure plotted, is then set by the range and the flat
+    prior, not by the code: a U-shape identical for λ = 0 and λ = 1.
+- **Old simulation settings.** They used only the 30–57 IPS voxels beating the null, with k = 40
+  noise.
+
+The local-slope logic (precision ∝ 1/|dv/dθ|) holds only when the posterior is narrow compared
+with the scale on which the mapping's slope changes. In IPS it is not.
+
+### Realistic SNR has to be matched
+
+The first simulations used the code fitted to all trials plus the in-sample residual noise
+(`--noise insample`; trees `ideal/` and `pipeline_vonmises/`).
+
+- They decode about 3× better than the data: the V1 pipeline simulation gives an orientation
+  MAE of 7.9° against the data's 21.5°.
+- The in-sample fit of 8 weights (or 4 PRF parameters) per voxel overstates the signal.
+
+The primary simulations (`--noise cvmatched`) therefore:
+
+- shrink each ROI's tuning, with one factor per ROI, to the estimated true signal variance,
+  (in-sample R² + cvR²)/2 per voxel, summed over the ROI. cvR² comes from leave-one-run-out
+  for the orientation code and from the mix-λ CV fits for λ;
+- keep each voxel's noise at its held-out residual level.
+
+Shrink factors:
+
+| Code | Shrink factor (s) |
+|---|---|
+| V1 orientation code | ~0.8 |
+| IPS λ codes | ~0.35–0.4 |
+
+With these settings the real pipeline run on simulated data reproduces the data's overall
+precision:
+
+| ROI | Simulated |error| | Data |error| |
+|---|---|---|
+| IPS | 8.8–9.4 CHF | 8.5–9.1 CHF |
+| V1–V3 | 5.4–5.5 CHF | 5.9–6.6 CHF |
+
+### Pipelines
+
+- **(a) Ideal observer.** 10 replicates at matched trial counts, plus a noise sweep. Trees
+  `ideal_cvmatched/` and `ideal/`.
+- **(b) The real low-rank decoder on simulated data.** The CV-N decoder needs about 2.5 h per
+  task and the queue made 360 tasks infeasible, so (b) uses `decode_lowrank_cv.py --fast`:
+  - N = all ROI voxels, which is what CV-N picks in 90–95% of folds;
+  - k and T by the same nested CV, with the outer encoding parameters held fixed (no inner
+    refits);
+  - for exact parity it was also run on the real data (`derivatives/decoding_lowrankcv_fast/`,
+    source `emp_fast`);
+  - trees `pipeline_{vonmises,lam0,lam1}_cvmatched_fast/`.
+- The exact CV-N pipeline exists only for the orientation code
+  (`pipeline_vonmises_cvmatched/`).
+- An in-sample λ pipeline run was cancelled part-way; it sits in `pipeline_lam0/` and is not
+  used.
+
+### Results (n = 36, unsmoothed)
+
+Mapping × position interaction of log precision, as RMS of the participant-centred group
+mapping-difference profile: a 95% bootstrap CI, then the p from 5000 sign flips.
+
+| Decoder | Data (fast), value axis | Data (fast), orientation axis | Sim λ = 0, value | Sim λ = 1, value | Sim λ = 0, orientation | Sim λ = 1, orientation |
+|---|---|---|---|---|---|---|
+| V1 orientation | 0.076 [0.061, 0.139], p = .20 | 0.077, p = .05 | (orientation code: 0.215, p < .001) | | (orientation code: 0.042, p = .70) | |
+| V2 orientation | 0.106 [0.086, 0.165], p = .013 | 0.068, p = .12 | (orientation code: 0.255, p < .001) | | (orientation code: 0.045, p = .74) | |
+| V3 orientation | 0.078, p = .12 | 0.065, p = .08 | (orientation code: 0.184, p < .001) | | (orientation code: 0.059, p = .40) | |
+| V1 value | 0.085, p = .03 | 0.069, p = .03 | 0.122, p < .001 | 0.084, p = .007 | 0.076, p = .01 | 0.103, p = .001 |
+| IPS0 | 0.066, p = .017 | 0.036, p = .41 | 0.070, p = .04 | 0.054, p = .18 | 0.021, p = .95 | 0.034, p = .42 |
+| IPS1–2 | 0.100 [0.071, 0.149], p = .001 | 0.054, p = .010 | 0.069, p = .04 | 0.071, p = .05 | 0.015, p = .99 | 0.038, p = .40 |
+| IPS3–5 | 0.095 [0.076, 0.138], p < .001 | 0.028, p = .77 | 0.077, p = .01 | 0.079, p = .004 | 0.035, p = .50 | 0.059, p = .007 |
+| NPCr | 0.053, p = .19 | 0.030, p = .73 | 0.057, p = .16 | 0.092, p = .003 | 0.019, p = .99 | 0.047, p = .20 |
+
+The CV-N decoder on the real data gives the same picture: value axis IPS1–2 0.076 (p = .014),
+IPS3–5 0.082 (p = .007), NPCr 0.070 (p = .03); orientation axis null in every IPS ROI and NPCr.
+
+**Positive control.** The fitted V1 orientation code, run through the real decoder at matched
+SNR, predicts a strong value-axis interaction and none on the orientation axis.
+
+- The data show the same direction: value-axis 0.08–0.11, significant in V2 (and in V1 with
+  the CV-N decoder, p = .009).
+- The data's effect is weaker than predicted (0.08–0.11 vs 0.18–0.26).
+- The data also carry a small orientation-axis term (0.065–0.077) that the code does not
+  predict.
+
+**λ = 0 vs λ = 1 through the real pipeline.** The two codes predict nearly the same
+value-axis interaction (0.05–0.12). The pipeline's own structure dominates both: the flat prior
+on a bounded value grid, the central pull, and the estimation noise.
+
+**Per-participant closeness.** RMS distance between the centred empirical and simulated
+log-precision profiles over mapping × bin; Δ = d(λ0) − d(λ1), > 0 = closer to λ1:
+
+| Comparison | Δ | Participants closer to λ1 | Interpretation |
+|---|---|---|---|
+| Matched pipeline (`pipef` vs `emp_fast`) | −0.018 to +0.017, every CI includes 0 | 11–20 / 36 | No preference in any ROI |
+| Ideal observer, orientation axis | −0.012 to −0.037, CIs exclude 0 in IPS0/1–2/3–5 and NPCr | 9–10 / 36 | Leans λ = 0 |
+| Ideal observer, value axis | – | – | Undecided |
+
+**The design limit.** The distance between the two simulations' own profiles for a given
+participant (0.21–0.32) is about the same as the distance from the data to either simulation
+(0.21–0.35). At this SNR one participant's precision profile cannot tell a quantile code from
+a fixed-value code; neither can the group.
+
+### Bottom line
+
+- **Diagnosis.** The coincidence of λ = 0 and λ = 1 is real at the data's SNR, not a bug: the
+  ideal observer separates the codes once noise drops 2–4×. The positive control (V1
+  orientation code) separates strongly, in the predicted direction.
+- **IPS data.** They do show a mapping × position interaction in value-axis precision (IPS1–2,
+  IPS3–5) and none on the orientation axis. That is the pattern an orientation/quantile code
+  predicts.
+- **But it cannot be attributed to a code.** The matched pipeline simulations of BOTH codes
+  produce interactions of the same size. Through this decoder, no λ preference is detectable,
+  per participant or at group level.
+
+### Not done
+
+- **Jehee decodes.** `decode_jehee_cv.py` (jobs 7881393–7881400) was only 44/138 complete,
+  so it is not included.
+- **Behaviour row.** The bid-SD overlay is in `fig_mapping_profiles_nvcv.pdf` (section 4),
+  not repeated in these figures.
+
+### Files
+
+**Figures** (untracked):
+
+| File | Content |
+|---|---|
+| `results/fig_precision_vs_value_pipef.pdf` | Primary: data (fast decoder) vs the matched pipeline on simulated λ0/λ1/orientation-code data |
+| `results/fig_precision_vs_value_ideal.pdf` | Data vs ideal observer |
+| `results/fig_precision_vs_value_pipe.pdf` | Exact CV-N pipeline, orientation code only |
+
+**Tables:**
+
+| File | Content |
+|---|---|
+| `results/precision_vs_value_group.tsv` | Every source × ROI × space × mapping × bin |
+| `results/precision_vs_value_interaction.tsv` | Mapping × position interaction tests |
+| `results/precision_vs_value_closeness.tsv` | Per-participant closeness, group summary |
+| `results/precision_vs_value_noise_sweep.tsv` | Ideal-observer noise sweep (the diagnosis) |
+
+**Reproduce:**
+
+```bash
+cd ~/git/abstract_values/analyses/followup_2026-10/lowrank_decoding
+sbatch --array=1-36 --export=ALL,MODE=ideal,NOISE=cvmatched simulate_ideal_decoding.sh
+sbatch --array=1-36 --export=ALL,MODE=pipeline,ROI=IPS12,CODE=lam1,NOISE=cvmatched,FAST=1 simulate_ideal_decoding.sh
+# real data, matched decoder:
+sbatch --partition=lowprio --array=1-36 --export=ALL,QUANTITY=value,ROI=IPS12,FAST=1 \
+    ../../../abstract_values/encoding_models/slurm_jobs/decode_lowrank_cv.sh
+python collect_simideal.py --empirical-fast          # cluster
+python precision_vs_value.py                          # local, after rsync to results/{simideal,fast}
+```
+
+| Run | Job IDs |
+|---|---|
+| Ideal | 7882227 (in-sample), 7888369 (cv-matched) |
+| Fast real-data decoder | 7889521–7889528 |
+| Fast pipeline simulations | 7889529–7889541 |
+| Exact CV-N orientation-code pipeline | 7888370–7888372 |
