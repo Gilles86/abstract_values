@@ -49,47 +49,59 @@ def moments(P, x):
     return m, np.sqrt(np.clip(P @ x ** 2 - m ** 2, 0, None))
 
 
+def summarise_posterior(P, grid, kind, true, oris, vals):
+    """Both-axis summary of posteriors P (n x S) on ``grid`` for one session.
+
+    kind 'value': grid in CHF, true values in CHF. kind 'gabor': grid and
+    true orientations in RADIANS. (oris, vals) is the session's 23-pair mapping.
+    """
+    P = np.asarray(P, float)
+    P = P / P.sum(1, keepdims=True)
+    true = np.asarray(true, float)
+    ti = np.abs(true[:, None] - grid[None, :]).argmin(1)
+    if kind == 'value':
+        v_true = true
+        o_true = np.interp(v_true, vals, oris)
+        v_mean, v_sd = moments(P, grid)
+        o_mean, o_sd = moments(P, np.interp(grid, vals, oris))
+        o_err = o_mean - o_true
+    else:
+        o_grid = np.rad2deg(grid)
+        o_true = np.rad2deg(true)
+        v_true = np.interp(o_true, oris, vals)
+        z = P @ np.exp(2j * grid)
+        o_mean = np.rad2deg(np.angle(z) / 2) % 180
+        o_sd = np.rad2deg(np.sqrt(-2 * np.log(np.clip(np.abs(z), 1e-12, 1))) / 2)
+        o_err = (o_mean - o_true + 90) % 180 - 90
+        v_mean, v_sd = moments(P, np.interp(o_grid, oris, vals))
+    pt = P[np.arange(len(P)), ti]
+    hpd = (P * (P > pt[:, None])).sum(1) + 0.5 * (P * (P == pt[:, None])).sum(1)
+    return pd.DataFrame(dict(orientation=np.round(o_true, 2), value=v_true,
+                             v_mean=v_mean, v_sd=v_sd, v_err=v_mean - v_true,
+                             o_mean=o_mean, o_sd=o_sd, o_err=o_err,
+                             logp=np.log(pt + 1e-300) + np.log(len(grid)), hpd=hpd))
+
+
 def summarise_subject(fn, kind, maps, roi, subject):
     post = pd.read_csv(fn, sep='\t', index_col=[0, 1, 2, 3])
     grid = post.columns.astype(float).to_numpy()
     rows = []
     for s, g in post.groupby(level='session'):
         mapping, oris, vals = maps[s]
-        P = g.to_numpy(float)
-        P /= P.sum(1, keepdims=True)
-        true = g.index.get_level_values(3).to_numpy(float)
-        if kind == 'value':
-            v_true = true
-            o_true = np.interp(v_true, vals, oris)
-            v_grid, o_grid = grid, np.interp(grid, vals, oris)
-            ti = np.abs(true[:, None] - grid[None, :]).argmin(1)
-            v_mean, v_sd = moments(P, v_grid)
-            o_mean, o_sd = moments(P, o_grid)
-            o_err = o_mean - o_true
-        else:
-            o_grid = np.rad2deg(grid)
-            o_true = np.rad2deg(true)
-            v_grid = np.interp(o_grid, oris, vals)
-            v_true = np.interp(o_true, oris, vals)
-            ti = np.abs(true[:, None] - grid[None, :]).argmin(1)
-            z = P @ np.exp(2j * grid)
-            o_mean = np.rad2deg(np.angle(z) / 2) % 180
-            o_sd = np.rad2deg(np.sqrt(-2 * np.log(np.clip(np.abs(z), 1e-12, 1))) / 2)
-            o_err = (o_mean - o_true + 90) % 180 - 90
-            v_mean, v_sd = moments(P, v_grid)
-        pt = P[np.arange(len(P)), ti]
-        hpd = (P * (P > pt[:, None])).sum(1) + 0.5 * (P * (P == pt[:, None])).sum(1)
-        rows.append(pd.DataFrame(dict(
-            subject=subject, roi=roi, decoder=kind, session=s, mapping=mapping,
-            run=g.index.get_level_values(1), trial_nr=g.index.get_level_values(2),
-            orientation=np.round(o_true, 2), value=v_true,
-            v_mean=v_mean, v_sd=v_sd, v_err=v_mean - v_true,
-            o_mean=o_mean, o_sd=o_sd, o_err=o_err,
-            logp=np.log(pt + 1e-300) + np.log(len(grid)), hpd=hpd)))
+        d = summarise_posterior(g.to_numpy(float), grid, kind,
+                                g.index.get_level_values(3).to_numpy(float), oris, vals)
+        d.insert(0, 'trial_nr', g.index.get_level_values(2))
+        d.insert(0, 'run', g.index.get_level_values(1))
+        d.insert(0, 'mapping', mapping)
+        d.insert(0, 'session', s)
+        d.insert(0, 'decoder', kind)
+        d.insert(0, 'roi', roi)
+        d.insert(0, 'subject', subject)
+        rows.append(d)
     return pd.concat(rows)
 
 
-def main(bids_folder, tree, n_voxels, noise):
+def main(bids_folder, tree, n_voxels, noise, out_fn=None):
     root = Path(bids_folder) / 'derivatives' / tree
     out = []
     subjects = sorted({p.name[4:] for k in ROIS for p in (root / k).glob('sub-*')})
@@ -104,7 +116,7 @@ def main(bids_folder, tree, n_voxels, noise):
                     out.append(summarise_subject(fn, kind, maps, roi, subject))
         print(f'sub-{subject} done', flush=True)
     out = pd.concat(out, ignore_index=True)
-    fn = root / f'mapping_profiles_nvoxels-{n_voxels}_noise-{noise}.tsv.gz'
+    fn = Path(out_fn) if out_fn else root / f'mapping_profiles_nvoxels-{n_voxels}_noise-{noise}.tsv.gz'
     out.to_csv(fn, sep='\t', index=False, float_format='%.5g')
     print(fn, len(out))
     print(out.groupby(['decoder', 'roi']).subject.nunique().to_string())
@@ -116,5 +128,6 @@ if __name__ == '__main__':
     p.add_argument('--tree', default='decoding_lowrankcv')
     p.add_argument('--n-voxels', default='250')
     p.add_argument('--noise', default='lowrankcv')
+    p.add_argument('--out', default=None, help='output file (default: inside the tree)')
     a = p.parse_args()
-    main(a.bids_folder, a.tree, a.n_voxels, a.noise)
+    main(a.bids_folder, a.tree, a.n_voxels, a.noise, a.out)

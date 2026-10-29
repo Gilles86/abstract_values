@@ -173,7 +173,11 @@ def summarise(logpost, grid, true_idx, true_val, circular, rng):
 
 def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
          out_tree='decoding_lowrankcv', debug=False, check_production=True,
-         select_voxels=False, n_voxels_grid=(25, 50, 100, 200, 400, 800, None)):
+         select_voxels=False, n_voxels_grid=(25, 50, 100, 200, 400, 800, None),
+         data=None):
+    """``data``: optional DataFrame (trials x voxels, indexed like the paradigm)
+    that replaces the ROI betas -- used to run the identical pipeline on
+    simulated data (analyses/followup_2026-10/lowrank_decoding/simulate_ideal_decoding.py)."""
     t0 = time.time()
     bids_folder = Path(bids_folder)
     sub = Subject(subject, bids_folder=bids_folder)
@@ -191,12 +195,16 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
     grid_df = pd.DataFrame({'x': grid})
     true_idx_all = port.nearest_grid_index(paradigm['x'].values, grid)
 
-    betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=False)
-    assert betas.shape[3] == len(paradigm)
-    mask = sub.get_roi_mask(roi, hemi=ROI_HEMI[roi])
-    masker = NiftiMasker(mask_img=mask, target_affine=betas.affine,
-                         target_shape=betas.shape[:3]).fit()
-    data = pd.DataFrame(masker.transform(betas).astype(np.float32), index=paradigm.index)
+    if data is None:
+        betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=False)
+        assert betas.shape[3] == len(paradigm)
+        mask = sub.get_roi_mask(roi, hemi=ROI_HEMI[roi])
+        masker = NiftiMasker(mask_img=mask, target_affine=betas.affine,
+                             target_shape=betas.shape[:3]).fit()
+        data = pd.DataFrame(masker.transform(betas).astype(np.float32), index=paradigm.index)
+    else:
+        assert data.index.equals(paradigm.index), 'data must be indexed like the paradigm'
+        data = data.astype(np.float32)
     print(f'sub-{subject} {quantity} {roi}: {len(paradigm)} trials, {data.shape[1]} voxels, '
           f'grid {len(grid)}', flush=True)
 
