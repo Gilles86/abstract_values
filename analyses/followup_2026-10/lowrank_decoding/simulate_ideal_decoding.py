@@ -161,7 +161,8 @@ def sample_noise(nm, n, rng, scale=1.0):
     return z * nm.scale * scale
 
 
-def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kind='heldout'):
+def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kind='cvmatched',
+         fast=False):
     t0 = time.time()
     bids = Path(bids)
     sub = Subject(subject, bids_folder=bids)
@@ -232,8 +233,8 @@ def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kin
     if mode == 'pipeline':
         Ysim = mean + sample_noise(nm, len(Y), rng)
         decode_main(subject, quantity, roi, bids_folder=bids,
-                    out_tree=f'decoding_simideal/pipeline_{code}{tag}',
-                    check_production=False, select_voxels=True,
+                    out_tree=f'decoding_simideal/pipeline_{code}{tag}{"_fast" if fast else ""}',
+                    check_production=False, select_voxels=not fast, fast=fast,
                     data=pd.DataFrame(Ysim, index=vpar.index))
         print(f'done ({time.time() - t0:.0f}s)')
         return
@@ -285,7 +286,11 @@ if __name__ == '__main__':
                     help="'cvmatched' (default): signal shrunk to the cross-validated R², "
                          "noise SD at the held-out residual level; 'insample': the code and "
                          "noise as fitted to all trials. Outputs never share a path.")
+    ap.add_argument('--fast', action='store_true',
+                    help='pipeline mode: decode_lowrank_cv --fast (all voxels, no inner '
+                         'refits) instead of the CV-N decoder')
     a = ap.parse_args()
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
-        main(a.subject, a.roi, a.code, a.mode, a.bids_folder, a.n_rep, noise_kind=a.noise)
+        main(a.subject, a.roi, a.code, a.mode, a.bids_folder, a.n_rep, noise_kind=a.noise,
+             fast=a.fast)

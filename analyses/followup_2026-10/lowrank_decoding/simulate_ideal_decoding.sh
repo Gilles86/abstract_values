@@ -34,5 +34,5 @@ if [ "$MODE" = "ideal" ]; then
         done
     done
 else
-    exec $PY -u $SCRIPT "$S" --roi "$ROI" --code "$CODE" --mode pipeline --bids-folder $BIDS --noise ${NOISE:-cvmatched}
+    exec $PY -u $SCRIPT "$S" --roi "$ROI" --code "$CODE" --mode pipeline --bids-folder $BIDS --noise ${NOISE:-cvmatched} $([ "${FAST:-0}" = "1" ] && echo --fast)
 fi

@@ -27,8 +27,11 @@ def main(bids):
         # the in-sample lam0/lam1 pipeline runs were cancelled part-way: not collected
         for code in (('vonmises',) if tag == '' else ('vonmises', 'lam0', 'lam1')):
             if (root / f'pipeline_{code}{tag}').exists():
-                collect_profiles(bids, f'decoding_simideal/pipeline_{code}{tag}', 'cv',
-                                 'lowrankcv', root / f'pipeline_{code}{tag}.tsv.gz')
+                try:
+                    collect_profiles(bids, f'decoding_simideal/pipeline_{code}{tag}', 'cv',
+                                     'lowrankcv', root / f'pipeline_{code}{tag}.tsv.gz')
+                except ValueError as e:          # no finished participants yet
+                    print(f'pipeline_{code}{tag}: {e}')
 
 
 if __name__ == '__main__':

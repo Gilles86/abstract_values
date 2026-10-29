@@ -174,8 +174,13 @@ def summarise(logpost, grid, true_idx, true_val, circular, rng):
 def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
          out_tree='decoding_lowrankcv', debug=False, check_production=True,
          select_voxels=False, n_voxels_grid=(25, 50, 100, 200, 400, 800, None),
-         data=None):
-    """``data``: optional DataFrame (trials x voxels, indexed like the paradigm)
+         data=None, fast=False):
+    """``fast``: low-rank arm only, N = all ROI voxels (what CV-N picks in ~90%
+    of folds), k and T by the same nested leave-one-run-out CV but with the
+    outer encoding parameters held fixed inside it (no inner refits: ~15x
+    cheaper). Output label nvoxels-all.
+
+    ``data``: optional DataFrame (trials x voxels, indexed like the paradigm)
     that replaces the ROI betas -- used to run the identical pipeline on
     simulated data (analyses/followup_2026-10/lowrank_decoding/simulate_ideal_decoding.py)."""
     t0 = time.time()
@@ -212,6 +217,8 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f'sub-{subject}_mask-{roi}'
 
+    if fast:
+        n_voxels, check_production, select_voxels = [data.shape[1]], False, False
     n_voxels = sorted(int(n) for n in n_voxels)
     n_max = data.shape[1] if select_voxels else min(max(n_voxels), data.shape[1])
     ses = paradigm.index.get_level_values('session')
@@ -243,7 +250,7 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
         # inner leave-one-run-out encoding fits (only on the top voxels)
         g_tr = np.array([f'{a}-{b}' for a, b in zip(ses[tr], run[tr])])
         inner = {}
-        for g in pd.unique(g_tr):
+        for g in ([] if fast else pd.unique(g_tr)):
             keep = g_tr != g
             inner[g] = code.fit(Y_tr[top].loc[keep], par_tr.loc[keep])
         t_inner = time.time() - tf
@@ -299,20 +306,24 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
             R_all = Ytr_s - code.predict(th_sel, par_tr)
             ti_tr, ti_te = true_idx_all[tr], true_idx_all[te]
 
+            m_sel = None if circular else _build_model('loggauss')
             # --- spherical: production ResidualFitter ---
-            if circular:
+            if fast:
+                lp_sph, dof = None, np.nan
+            elif circular:
                 rf = ResidualFitter(code.model, Y_tr[sel], par_tr, parameters=code.basis,
                                     weights=th_sel, lambd=0.1)
             else:
-                m_sel = _build_model('loggauss')
                 m_sel.init_pseudoWWT(grid, th_sel)
                 rf = ResidualFitter(m_sel, Y_tr[sel], par_tr, parameters=th_sel, lambd=0.1)
-            omega, dof = rf.fit(init_sigma2=0.1, init_dof=10.0, method='t', learning_rate=0.05,
-                                spherical=True, max_n_iterations=code.n_iter_noise)
-            omega = np.asarray(omega, dtype=np.float64)
-            dof = float(np.asarray(dof))
-            sph = LowRankNoise(np.sqrt(np.diag(omega)), np.zeros((N, 0)), np.ones(N), dof=dof)
-            lp_sph = log_posterior(sph, Yte_s, P_outer)
+            if not fast:
+                omega, dof = rf.fit(init_sigma2=0.1, init_dof=10.0, method='t',
+                                    learning_rate=0.05, spherical=True,
+                                    max_n_iterations=code.n_iter_noise)
+                omega = np.asarray(omega, dtype=np.float64)
+                dof = float(np.asarray(dof))
+                sph = LowRankNoise(np.sqrt(np.diag(omega)), np.zeros((N, 0)), np.ones(N), dof=dof)
+                lp_sph = log_posterior(sph, Yte_s, P_outer)
 
             if check_production and (fs, fr) == folds[0]:
                 # numpy likelihood == braincoder get_stimulus_pdf (production path)
@@ -343,7 +354,7 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
                 warnings.simplefilter('ignore', RuntimeWarning)
                 lr = LowRankNoise.fit(model, Y_tr[sel], par_tr, pars_lr, weights=w_lr,
                                       stimulus_range=grid, groups=g_tr,
-                                      inner_parameters=inner_fn)
+                                      inner_parameters=None if fast else inner_fn)
             cv = lr.cv_scores_
             lp_lr = log_posterior(lr, Yte_s, P_outer)
             T0 = float(cv.loc[0].idxmax()) if 0 in cv.index else np.nan
@@ -373,7 +384,8 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
                 assert d1 < 1e-3 and d2 < 1e-3 and d3 < 1e-3
 
             meta_rows.append(dict(
-                session=fs, run=fr, n_voxels=N, k=lr.k, temperature=lr.temperature,
+                session=fs, run=fr, n_voxels='all' if fast else N, k=lr.k,
+                temperature=lr.temperature,
                 dof_lowrank=lr.dof, dof_spherical=dof, temperature_diag=T0, dof_diag=dg.dof,
                 cv_best=float(cv.values.max()),
                 cv_k0_best=float(cv.loc[0].max()) if 0 in cv.index else np.nan,
@@ -383,18 +395,20 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
 
             idx = par_te.index
             for noise, lp in (('spherical', lp_sph), ('lowrankcv', lp_lr), ('diagcv', lp_dg)):
+                if lp is None:
+                    continue
                 s = summarise(lp, grid, ti_te, par_te['x'].values, circular, rng)
                 s.insert(0, 'trial_nr', idx.get_level_values('trial_nr'))
                 s.insert(0, 'run', fr)
                 s.insert(0, 'session', fs)
                 s.insert(0, 'noise', noise)
-                s.insert(0, 'n_voxels', N)
+                s.insert(0, 'n_voxels', 'all' if fast else N)
                 trial_rows.append(s)
                 pdf = pd.DataFrame(np.exp(lp), columns=grid, index=pd.MultiIndex.from_arrays(
                     [idx.get_level_values('session'), idx.get_level_values('run'),
                      idx.get_level_values('trial_nr'), par_te['x'].values],
                     names=['session', 'run', 'trial_nr', code.true_col]))
-                posts.setdefault((N, noise), []).append(pdf)
+                posts.setdefault(('all' if fast else N, noise), []).append(pdf)
             m = meta_rows[-1]
             print(f'  ses-{fs} run-{fr} N={N}: k={m["k"]} T={m["temperature"]:g} '
                   f'nu={m["dof_lowrank"]} | T(k=0)={T0:g} | cv {m["cv_best"]:.3f} '
@@ -428,6 +442,10 @@ if __name__ == '__main__':
     p.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     p.add_argument('--out-tree', default='decoding_lowrankcv')
     p.add_argument('--debug', action='store_true', help='2 folds, 100 iterations')
+    p.add_argument('--fast', action='store_true',
+                   help='low-rank only, N = all ROI voxels, no inner refits (k, T by '
+                        'nested CV with the outer parameters). Default out tree: '
+                        'decoding_lowrankcv_fast')
     p.add_argument('--select-voxels', action='store_true',
                    help='choose N (25..800, all) jointly with k, T by nested LORO; '
                         'low-rank arm only. Default out tree: decoding_lowrankcv_nvcv')
@@ -435,5 +453,7 @@ if __name__ == '__main__':
     out_tree = a.out_tree
     if a.select_voxels and out_tree == 'decoding_lowrankcv':
         out_tree = 'decoding_lowrankcv_nvcv'
+    if a.fast and out_tree == 'decoding_lowrankcv':
+        out_tree = 'decoding_lowrankcv_fast'
     main(a.subject, a.quantity, a.roi, a.n_voxels, a.bids_folder, out_tree, a.debug,
-         select_voxels=a.select_voxels)
+         select_voxels=a.select_voxels, fast=a.fast)
