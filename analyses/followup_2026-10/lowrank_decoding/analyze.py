@@ -22,7 +22,7 @@ from abstract_values.cogmodels.brain_behavior import draws_correlation
 from abstract_values.connective_fields.plot_gates import letter  # sets rcParams
 
 HERE = Path(__file__).resolve().parent
-RES = HERE / 'results'
+RES = Path(__import__('os').environ.get('LOWRANK_RES', HERE / 'results'))
 TRACE = Path('/data/ds-abstractvalue/derivatives/cogmodels/efficient_coding_sequential_trace.nc')
 ROIS = {'orientation': ['BensonV1', 'BensonV2', 'BensonV3'],
         'value': ['BensonV1', 'NPCr', 'IPS0', 'IPS12', 'IPS345']}
@@ -38,9 +38,13 @@ def subject_number(s):
     return int(''.join(c for c in str(s) if c.isdigit()))
 
 
+METRICS = ['r', 'mae', 'logp', 'cov50', 'cov80', 'cov95', 'sd_over_rmse', 'sd_err_rho',
+           'slope', 'pull_extremes', 'pit_sd']
+
+
 def metrics(g, quantity):
     err = g.error.values
-    out = {}
+    out = dict.fromkeys(METRICS, np.nan)
     if quantity == 'orientation':
         out['r'] = np.abs(np.exp(1j * np.deg2rad(2 * err)).mean())   # resultant length
         rms = np.sqrt(np.mean(err ** 2))
@@ -59,7 +63,7 @@ def metrics(g, quantity):
         out[f'cov{int(c * 100)}'] = (g.hpd < c).mean()
     out['sd_over_rmse'] = g.post_sd.mean() / rms
     out['sd_err_rho'] = stats.spearmanr(g.post_sd, np.abs(err)).statistic
-    return pd.Series(out)
+    return pd.Series(out)[METRICS]
 
 
 def tci(x):
@@ -177,7 +181,7 @@ def figure(per, con, bb, tr, nv, out):
         if len(row):
             row = row.iloc[0]
             ax.plot([i, i], [row.lo, row.hi], color=COL['lowrankcv'], lw=1)
-            ax.plot(i, row.mean, 'o', ms=3.4, color=COL['lowrankcv'])
+            ax.plot(i, row['mean'], 'o', ms=3.4, color=COL['lowrankcv'])
     ax.axhline(0, color='.7', lw=.6, ls='--', zorder=0)
     ax.set_xticks(x, xt, fontsize=5.8)
     ax.set_ylabel('Δ accuracy r (low-rank − spherical)')
@@ -222,9 +226,47 @@ def figure(per, con, bb, tr, nv, out):
     print(f'saved {out}')
 
 
+def production_check(tr, deriv=Path('/data/ds-abstractvalue/derivatives/decoding')):
+    """Our 'spherical' arm against the existing production decodes (nv 50, lambda 0.1)."""
+    rows = []
+    for q, sub_dir, roi in (('orientation', 'gabor', 'BensonV1'), ('value', 'value', 'BensonV1'),
+                            ('value', 'value', 'NPCr')):
+        mine = tr[(tr.quantity == q) & (tr.roi == roi) & (tr.n_voxels == 50) &
+                  (tr.noise == 'spherical')]
+        for s, g in mine.groupby('subject'):
+            fn = (deriv / sub_dir / f'sub-{s}' / 'func' /
+                  f'sub-{s}_mask-{roi}_nvoxels-50_noise-spherical_lambda-0.1_pars.tsv')
+            if not fn.exists():
+                continue
+            p = pd.read_csv(fn, sep='\t', index_col=[0, 1, 2, 3])
+            grid = p.columns.astype(float).values
+            P = p.values / p.values.sum(1, keepdims=True)
+            if q == 'orientation':
+                pm = np.rad2deg((np.angle(P @ np.exp(2j * grid)) / 2) % np.pi)
+            else:
+                pm = P @ grid
+            ref = pd.Series(pm, index=p.index.droplevel(3))
+            m = g.set_index(['session', 'run', 'trial_nr']).post_mean
+            ref = ref.reindex(m.index)
+            d = m - ref
+            if q == 'orientation':
+                d = (d + 90) % 180 - 90
+            rows.append(dict(quantity=q, roi=roi, subject=s, n=int(ref.notna().sum()),
+                             max_abs_diff=float(np.nanmax(np.abs(d))),
+                             median_abs_diff=float(np.nanmedian(np.abs(d)))))
+    out = pd.DataFrame(rows)
+    if len(out):
+        out.to_csv(RES / 'lowrank_production_check.tsv', sep='\t', index=False, float_format='%.4g')
+        print('production check (decoded mean, ours vs production file):')
+        print(out.groupby(['quantity', 'roi'])[['max_abs_diff', 'median_abs_diff']]
+              .agg(['median', 'max']).to_string())
+    return out
+
+
 def main(trials_fn, meta_fn, nv_fig):
     tr = pd.read_csv(trials_fn, sep='\t', dtype={'subject': str})
     meta = pd.read_csv(meta_fn, sep='\t', dtype={'subject': str})
+    production_check(tr)
 
     per = (tr.groupby(['quantity', 'roi', 'n_voxels', 'noise', 'subject'])
            .apply(lambda g: metrics(g, g.name[0])).reset_index())
