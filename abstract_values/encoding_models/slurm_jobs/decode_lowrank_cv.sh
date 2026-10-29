@@ -16,6 +16,7 @@
 #   sbatch --array=1-36 --export=ALL,QUANTITY=orientation,ROI=BensonV1 decode_lowrank_cv.sh
 #   sbatch --array=1-35 --export=ALL,QUANTITY=value,ROI=IPS0 decode_lowrank_cv.sh
 #   sbatch --export=ALL,PARTICIPANT_LABEL=36,QUANTITY=value,ROI=IPS12 decode_lowrank_cv.sh
+# SELECT_VOXELS=1: N chosen by nested CV (decoding_lowrankcv_nvcv tree).
 set -eo pipefail
 
 SUBJECTS=(pil01 pil02 $(seq -f "%02g" 3 36))
@@ -45,4 +46,5 @@ exec $HOME/data/conda/envs/abstract_values/bin/python -u \
     $HOME/git/abstract_values/abstract_values/encoding_models/decode_lowrank_cv.py \
     "$PARTICIPANT_LABEL" --quantity "$QUANTITY" --roi "$ROI" \
     --n-voxels ${N_VOXELS:-50 250} \
+    $([ "${SELECT_VOXELS:-0}" = "1" ] && echo --select-voxels) \
     --bids-folder /shares/zne.uzh/gdehol/ds-abstractvalue
