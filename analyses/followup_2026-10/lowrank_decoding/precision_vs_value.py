@@ -135,6 +135,7 @@ def avg_reps(c):
 def load_sources(ideal_scale=1.0):
     src = {}
     for name, fn in (('emp_lowrank', RES / 'nvcv' / 'mapping_profiles_nvoxels-cv_noise-lowrankcv.tsv.gz'),
+                     ('emp_fast', RES / 'fast' / 'mapping_profiles_nvoxels-all_noise-lowrankcv.tsv.gz'),
                      ('emp_spherical', RES / 'mapping_profiles_nvoxels-50_noise-spherical.tsv.gz')):
         if fn.exists():
             src[name] = cells(pd.read_csv(fn, sep='\t', dtype={'subject': str}))
@@ -148,10 +149,12 @@ def load_sources(ideal_scale=1.0):
             for code, g in d[d.noise_scale == ideal_scale].groupby('code'):
                 src[f'{pre}_{code}'] = avg_reps(cells(g, by=['rep']))
         for code in ('vonmises', 'lam0', 'lam1'):
-            fn = sd / f'pipeline_{code}{tag}.tsv.gz'
-            if fn.exists():
-                src[f'{"pipe" if tag else "pipein"}_{code}'] = cells(
-                    pd.read_csv(fn, sep='\t', dtype={'subject': str}))
+            for suffix, pre in (('', 'pipe' if tag else 'pipein'), ('_fast', 'pipef')):
+                if pre == 'pipef' and not tag:
+                    continue
+                fn = sd / f'pipeline_{code}{tag}{suffix}.tsv.gz'
+                if fn.exists():
+                    src[f'{pre}_{code}'] = cells(pd.read_csv(fn, sep='\t', dtype={'subject': str}))
     return src, ideal
 
 
@@ -177,9 +180,11 @@ def profile(c, space='value', col='sd'):
     return out
 
 
-def closeness(src, sim_kind, space='value'):
+def closeness(src, sim_kind, space='value', emp_key='emp_lowrank'):
     rows = []
-    emp = src['emp_lowrank']
+    if emp_key not in src:
+        return pd.DataFrame()
+    emp = src[emp_key]
     for dec, roi, _, family in ROWS:
         if family != 'lam':
             continue
@@ -203,7 +208,7 @@ def closeness(src, sim_kind, space='value'):
                 d0 = np.sqrt(np.mean((E - S0) ** 2))
                 d1 = np.sqrt(np.mean((E - S1) ** 2))
                 d01 = np.sqrt(np.mean((S0 - S1) ** 2))
-                rows.append(dict(sim=sim_kind, space=space, roi=roi, subject=subj, d_lam0=d0, d_lam1=d1,
+                rows.append(dict(sim=sim_kind, emp=emp_key, space=space, roi=roi, subject=subj, d_lam0=d0, d_lam1=d1,
                                  delta=d0 - d1, d_lam0_lam1=d01))
     return pd.DataFrame(rows)
 
@@ -227,10 +232,10 @@ def diagnosis(ideal):
     return out.merge(mae, on=['code', 'roi', 'noise_scale'], how='left')
 
 
-def figure(gsrc, sim_kind, out, title):
+def figure(gsrc, sim_kind, out, title, emp_key='emp_lowrank'):
     fig, axes = plt.subplots(len(ROWS), 2, figsize=(5.6, 1.3 * len(ROWS)),
                              constrained_layout=True, sharex='col')
-    emp = gsrc['emp_lowrank']
+    emp = gsrc[emp_key]
     for i, (dec, roi, label, family) in enumerate(ROWS):
         codes = ['vonmises'] if family == 'vonmises' else ['lam0', 'lam1']
         for j, space in enumerate(('value', 'orientation')):
@@ -299,15 +304,17 @@ def main(skip_sweep=False):
     print(sdi.pivot_table(index=['decoder', 'roi'], columns=['source', 'space'],
                           values='p').round(3).to_string())
 
-    cl = pd.concat([closeness(src, k, sp) for k in ('ideal', 'pipe')
+    cl = pd.concat([closeness(src, k, sp, e) for k, e in (('ideal', 'emp_lowrank'),
+                                                          ('pipe', 'emp_lowrank'),
+                                                          ('pipef', 'emp_fast'))
                     for sp in ('value', 'orientation')], ignore_index=True)
     if len(cl):
         cl.to_csv(RES / 'precision_vs_value_closeness_by_subject.tsv', sep='\t', index=False,
                   float_format='%.4g')
         rows = []
-        for (sim, sp, roi), g in cl.groupby(['sim', 'space', 'roi']):
+        for (sim, emp_k, sp, roi), g in cl.groupby(['sim', 'emp', 'space', 'roi']):
             m, lo, hi, n, p = tci(g.delta)
-            rows.append(dict(sim=sim, space=sp, roi=roi, delta=m, lo=lo, hi=hi, n=n, p=p,
+            rows.append(dict(sim=sim, emp=emp_k, space=sp, roi=roi, delta=m, lo=lo, hi=hi, n=n, p=p,
                              n_closer_lam1=int((g.delta > 0).sum()),
                              d_lam0=g.d_lam0.mean(), d_lam1=g.d_lam1.mean(),
                              sim_lam0_vs_lam1=g.d_lam0_lam1.mean()))
@@ -325,10 +332,12 @@ def main(skip_sweep=False):
         print(dg.drop_duplicates(['snr', 'code', 'roi', 'noise_scale']).pivot_table(
             index=['snr', 'code', 'roi'], columns='noise_scale', values='mae_v').round(2).to_string())
 
-    for kind, title in (('pipe', 'Data (CV-N low-rank) vs real pipeline on simulated data'),
-                        ('ideal', 'Data (CV-N low-rank) vs ideal observer on simulated data')):
-        if any(k.startswith(kind) for k in gsrc):
-            figure(gsrc, kind, RES / f'fig_precision_vs_value_{kind}.pdf', title)
+    for kind, emp_key, title in (
+            ('pipef', 'emp_fast', 'Data vs the same low-rank decoder (all voxels) run on simulated data'),
+            ('pipe', 'emp_lowrank', 'Data (CV-N low-rank) vs the CV-N pipeline on simulated data'),
+            ('ideal', 'emp_lowrank', 'Data (CV-N low-rank) vs ideal observer on simulated data')):
+        if any(k.startswith(kind + '_') for k in gsrc) and emp_key in gsrc:
+            figure(gsrc, kind, RES / f'fig_precision_vs_value_{kind}.pdf', title, emp_key)
 
 
 if __name__ == '__main__':

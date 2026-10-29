@@ -17,9 +17,9 @@ from mapping_profiles_collect import main as collect_profiles  # noqa: E402
 
 def main(bids):
     root = Path(bids) / 'derivatives' / 'decoding_simideal'
-    for tag in ('', '_cvmatched'):
+    for tag in ('', '_cvmatched', '_cvmatched_fast'):
         fs = sorted((root / f'ideal{tag}').glob('sub-*/*_code-*.tsv.gz'))
-        if fs:
+        if fs and not tag.endswith('_fast'):
             d = pd.concat([pd.read_csv(f, sep='\t', dtype={'subject': str}) for f in fs])
             d.to_csv(root / f'ideal{tag}_all.tsv.gz', sep='\t', index=False, float_format='%.5g')
             print(f'ideal{tag}', len(fs), 'files',
@@ -28,7 +28,8 @@ def main(bids):
         for code in (('vonmises',) if tag == '' else ('vonmises', 'lam0', 'lam1')):
             if (root / f'pipeline_{code}{tag}').exists():
                 try:
-                    collect_profiles(bids, f'decoding_simideal/pipeline_{code}{tag}', 'cv',
+                    collect_profiles(bids, f'decoding_simideal/pipeline_{code}{tag}',
+                                     'all' if tag.endswith('_fast') else 'cv',
                                      'lowrankcv', root / f'pipeline_{code}{tag}.tsv.gz')
                 except ValueError as e:          # no finished participants yet
                     print(f'pipeline_{code}{tag}: {e}')
@@ -37,4 +38,9 @@ def main(bids):
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--bids-folder', default='/shares/zne.uzh/gdehol/ds-abstractvalue')
-    main(p.parse_args().bids_folder)
+    p.add_argument('--empirical-fast', action='store_true',
+                   help='also summarise the real-data fast decoder (decoding_lowrankcv_fast)')
+    a = p.parse_args()
+    main(a.bids_folder)
+    if a.empirical_fast:
+        collect_profiles(a.bids_folder, 'decoding_lowrankcv_fast', 'all', 'lowrankcv')
