@@ -17,6 +17,11 @@ the participant's median k chosen by the CV-N decoder (decoding_lowrankcv_nvcv),
 Student-t dof by ML. Simulated data: one draw per REAL trial (same stimuli,
 sessions/mappings, runs), so trial counts per value and mapping are matched.
 
+Noise level (--noise): 'heldout' (default) rescales each voxel's noise SD to
+its held-out residual level (see heldout_factor); 'insample' keeps the in-sample
+residual level (the first run, trees ideal/ and pipeline_<code>/, which decodes
+~3x better than the data). Held-out outputs carry a _heldout suffix.
+
 Two decoders:
   ideal     true generative tuning + true noise, T = 1, flat prior on the
             decoder's grid (value codes: 50 CHF points; orientation code: the 23
@@ -94,6 +99,48 @@ def chosen_k(bids, subject, roi, quantity):
     return int(round(m.k.median())) if len(m) else 5
 
 
+def heldout_factor(sub, masker, Y, R_in, code, vpar, opar, oc=None):
+    """Per-voxel factor taking the in-sample residual SD to the HELD-OUT one.
+
+    In-sample residuals of a code fitted to all trials understate the noise a
+    decoder meets on a held-out run (non-stationarity across runs and sessions,
+    overfitting). vonmises: exact leave-one-run-out residuals of the basis
+    weights. lam0/lam1: the mix-lambda CV fits' per-run cvR²:
+    held-out residual variance = (1 - cvR²_run) * within-run variance.
+    """
+    ses = vpar.index.get_level_values('session').to_numpy()
+    run = vpar.index.get_level_values('run').to_numpy()
+    folds = sorted(set(zip(ses, run)))
+    ho = np.zeros(Y.shape[1])
+    if code == 'vonmises':
+        Ydf = pd.DataFrame(Y.astype(np.float32), index=opar.index)
+        for fs, fr in folds:
+            te = (ses == fs) & (run == fr)
+            W = oc.fit(Ydf.loc[~te], opar.loc[~te])
+            ho += ((Y[te] - oc.predict(W, opar.loc[te])) ** 2).sum(0)
+        ho /= len(Y)
+    else:
+        lam = {'lam0': 0.0, 'lam1': 1.0}[code]
+        d = (sub.bids_folder / 'derivatives' / 'encoding_models' /
+             get_spec(f'mix-{mix_tag(lam)}').cv_out_subdir / f'sub-{sub.subject_id}' / 'func')
+        n = 0
+        for fs, fr in folds:
+            fn = d / (f'sub-{sub.subject_id}_ses-{fs}_task-abstractvalue_space-T1w_run-{fr}'
+                      '_desc-cvr2_pe.nii.gz')
+            if not fn.exists():
+                continue
+            cv = masker.transform(nib.load(str(fn))).ravel()
+            te = (ses == fs) & (run == fr)
+            cv = np.where(np.isfinite(cv), cv, 0.0)
+            ho += (1 - cv) * Y[te].var(0) * te.sum()
+            n += te.sum()
+        if n == 0:
+            return np.ones(Y.shape[1])
+        ho /= n
+    f = np.sqrt(ho / np.maximum(R_in.var(0), 1e-12))
+    return np.clip(f, 0.5, 10.0)
+
+
 def sample_noise(nm, n, rng, scale=1.0):
     z = rng.standard_normal((n, nm.k)) @ nm.factors.T + \
         rng.standard_normal((n, nm.n_voxels)) * np.sqrt(nm.psi)
@@ -102,7 +149,7 @@ def sample_noise(nm, n, rng, scale=1.0):
     return z * nm.scale * scale
 
 
-def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0):
+def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0, noise_kind='heldout'):
     t0 = time.time()
     bids = Path(bids)
     sub = Subject(subject, bids_folder=bids)
@@ -140,13 +187,20 @@ def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0):
 
     k = chosen_k(bids, subject, roi, quantity)
     nm = LowRankNoise.from_residuals(Y - mean, k=k, dof='fit')
-    print(f'sub-{subject} {roi} {code} {mode}: {Y.shape[1]} voxels ({n_fit} with a fit), '
-          f'k={nm.k}, nu={nm.dof}', flush=True)
+    fac = np.ones(Y.shape[1])
+    if noise_kind == 'heldout':
+        fac = heldout_factor(sub, masker, Y, Y - mean, code, vpar, opar,
+                             oc if code == 'vonmises' else None)
+        nm = LowRankNoise(nm.scale * fac, nm.factors, nm.psi, dof=nm.dof)
+    tag = '' if noise_kind == 'insample' else '_heldout'
+    print(f'sub-{subject} {roi} {code} {mode} [{noise_kind} noise]: {Y.shape[1]} voxels '
+          f'({n_fit} with a fit), k={nm.k}, nu={nm.dof}, held-out/in-sample SD factor '
+          f'median {np.median(fac):.2f}', flush=True)
 
     if mode == 'pipeline':
         Ysim = mean + sample_noise(nm, len(Y), rng)
         decode_main(subject, quantity, roi, bids_folder=bids,
-                    out_tree=f'decoding_simideal/pipeline_{code}',
+                    out_tree=f'decoding_simideal/pipeline_{code}{tag}',
                     check_production=False, select_voxels=True,
                     data=pd.DataFrame(Ysim, index=vpar.index))
         print(f'done ({time.time() - t0:.0f}s)')
@@ -172,10 +226,11 @@ def main(subject, roi, code, mode, bids=BIDS_FOLDER, n_rep=10, seed=0):
                 rows.append(d)
         print(f'  scale {scale}: {reps} reps', flush=True)
     out = pd.concat(rows)
-    for c, val in (('n_fit', n_fit), ('n_vox', Y.shape[1]), ('k', nm.k),
+    for c, val in (('noise_kind', noise_kind), ('heldout_factor', float(np.median(fac))),
+                   ('n_fit', n_fit), ('n_vox', Y.shape[1]), ('k', nm.k),
                    ('decoder', kind), ('code', code), ('roi', roi), ('subject', str(subject))):
         out.insert(0, c, val)
-    od = bids / 'derivatives' / 'decoding_simideal' / 'ideal' / f'sub-{subject}'
+    od = bids / 'derivatives' / 'decoding_simideal' / f'ideal{tag}' / f'sub-{subject}'
     od.mkdir(parents=True, exist_ok=True)
     fn = od / f'sub-{subject}_roi-{roi}_code-{code}.tsv.gz'
     out.to_csv(fn, sep='\t', index=False, float_format='%.5g')
@@ -193,7 +248,10 @@ if __name__ == '__main__':
     ap.add_argument('--mode', default='ideal', choices=['ideal', 'pipeline'])
     ap.add_argument('--bids-folder', default=str(BIDS_FOLDER))
     ap.add_argument('--n-rep', type=int, default=10)
+    ap.add_argument('--noise', default='heldout', choices=['heldout', 'insample'],
+                    help='generative noise SD per voxel at the held-out (default) or the '
+                         'in-sample residual level; outputs of the two never share a path')
     a = ap.parse_args()
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
-        main(a.subject, a.roi, a.code, a.mode, a.bids_folder, a.n_rep)
+        main(a.subject, a.roi, a.code, a.mode, a.bids_folder, a.n_rep, noise_kind=a.noise)

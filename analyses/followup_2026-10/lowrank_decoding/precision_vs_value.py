@@ -76,21 +76,22 @@ def cells(d, by=()):
         e = BINS[space]
         # pooled WITHIN-stimulus SD: the spread of bias across the stimuli in a
         # bin (central pull) must not count as imprecision
-        st = (d.groupby(keys + ['orientation'])
-              .agg(x=(x, 'mean'), var=(err, 'var'), m=(err, 'mean'),
-                   a=(err, lambda v: v.abs().mean()), post=(post, 'mean'),
-                   cov80=('hpd', lambda h: (h < .8).mean()), n=(err, 'size')).reset_index())
+        dd = d[list(dict.fromkeys(keys + ['orientation', x, err, post]))].assign(
+            _abs=d[err].abs(), _cov=(d['hpd'] < .8).astype(float))
+        st = (dd.groupby(keys + ['orientation'], sort=False)
+              .agg(x=(x, 'mean'), var=(err, 'var'), m=(err, 'mean'), a=('_abs', 'mean'),
+                   post=(post, 'mean'), cov80=('_cov', 'mean'), n=(err, 'size')).reset_index())
         st['bin'] = pd.cut(st.x, e, labels=(e[:-1] + e[1:]) / 2, include_lowest=True).astype(float)
-        st['ss'] = st['var'] * (st.n - 1)
-        st['w'] = st.n
-        g = st.groupby(keys + ['bin'])
-        c = pd.DataFrame({
-            'sd': np.sqrt(g.ss.sum() / (g.n.sum() - g.n.count())),
-            'bias': g.apply(lambda h: np.average(h.m, weights=h.w)),
-            'abs': g.apply(lambda h: np.average(h.a, weights=h.w)),
-            'post': g.apply(lambda h: np.average(h.post, weights=h.w)),
-            'cov80': g.apply(lambda h: np.average(h.cov80, weights=h.w)),
-            'n': g.n.sum()}).reset_index()
+        st['ss'] = st['var'].fillna(0) * (st.n - 1)
+        for col in ('m', 'a', 'post', 'cov80'):
+            st[col + '_w'] = st[col] * st.n
+        g = st.groupby(keys + ['bin'], sort=False)
+        tot = g[['ss', 'n', 'm_w', 'a_w', 'post_w', 'cov80_w']].sum()
+        cnt = g.n.count()
+        c = pd.DataFrame({'sd': np.sqrt(tot.ss / (tot.n - cnt)),
+                          'bias': tot.m_w / tot.n, 'abs': tot.a_w / tot.n,
+                          'post': tot.post_w / tot.n, 'cov80': tot.cov80_w / tot.n,
+                          'n': tot.n}).reset_index()
         out.append(c[c.n >= MIN_N].assign(space=space))
     return pd.concat(out, ignore_index=True)
 
@@ -266,7 +267,7 @@ def figure(gsrc, sim_kind, out, title):
     print(f'saved {out}')
 
 
-def main():
+def main(skip_sweep=False):
     src, ideal = load_sources()
     print('sources:', {k: v.subject.nunique() for k, v in src.items()})
     gsrc = {k: group(v) for k, v in src.items()}
@@ -308,7 +309,7 @@ def main():
                    float_format='%.4g')
         print(cls.round(3).to_string(index=False))
 
-    if ideal is not None:
+    if ideal is not None and not skip_sweep:
         dg = diagnosis(ideal)
         dg.to_csv(RES / 'precision_vs_value_noise_sweep.tsv', sep='\t', index=False,
                   float_format='%.4g')
@@ -324,5 +325,6 @@ def main():
 
 
 if __name__ == '__main__':
-    argparse.ArgumentParser().parse_args()
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--skip-sweep', action='store_true', help='skip the noise-scale diagnosis')
+    main(ap.parse_args().skip_sweep)
