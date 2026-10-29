@@ -121,15 +121,12 @@ def heldout_factor(sub, masker, Y, R_in, code, vpar, opar, oc=None):
     run = vpar.index.get_level_values('run').to_numpy()
     folds = sorted(set(zip(ses, run)))
     ho = np.zeros(Y.shape[1])
-    tot = np.zeros(Y.shape[1])
     if code == 'vonmises':
         Ydf = pd.DataFrame(Y.astype(np.float32), index=opar.index)
         for fs, fr in folds:
             te = (ses == fs) & (run == fr)
             W = oc.fit(Ydf.loc[~te], opar.loc[~te])
             ho += ((Y[te] - oc.predict(W, opar.loc[te])) ** 2).sum(0)
-            tot += ((Y[te] - Y[te].mean(0)) ** 2).sum(0)
-        cvr2 = 1 - ho / np.maximum(tot, 1e-12)
         ho /= len(Y)
     else:
         lam = {'lam0': 0.0, 'lam1': 1.0}[code]
@@ -145,12 +142,13 @@ def heldout_factor(sub, masker, Y, R_in, code, vpar, opar, oc=None):
             te = (ses == fs) & (run == fr)
             cv = np.where(np.isfinite(cv), cv, 0.0)
             ho += (1 - cv) * Y[te].var(0) * te.sum()
-            tot += Y[te].var(0) * te.sum()
             n += te.sum()
         if n == 0:
             return np.ones(Y.shape[1]), np.zeros(Y.shape[1])
-        cvr2 = 1 - ho / np.maximum(tot, 1e-12)
         ho /= n
+    # cvR² on the same footing as the in-sample R² (relative to the TOTAL
+    # variance over all trials, not the within-run variance)
+    cvr2 = 1 - ho / np.maximum(Y.var(0), 1e-12)
     f = np.sqrt(ho / np.maximum(R_in.var(0), 1e-12))
     return np.clip(f, 0.5, 10.0), cvr2
 
