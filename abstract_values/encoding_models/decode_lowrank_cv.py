@@ -17,15 +17,22 @@ voxels, three noise models decode the held-out run:
   spherical   production: ResidualFitter(spherical=True), Student-t, per-voxel
               tau, 1000 (orientation) / 5000 (value) iterations. (lambd is
               irrelevant on the spherical path.) Posterior = likelihood, T = 1.
-  lowrankcv   Omega = D(FF' + Psi)D with k factors of the residual
-              correlation, Student-t, tempered posterior p(y|s)^(1/T); k and T
-              jointly by leave-one-run-out CV inside the 15 training runs on the
-              held-out log score, inner encoding parameters refit without the
-              inner run (retinonumeral decode_fdr.py --noise_model lowrank_cv
-              --inner_params loro). Port: lowrank_noise.py.
+  lowrankcv   braincoder.noise.LowRankNoise (native; braincoder v0.6.0 +
+              branch lowrank-inner-weights): Omega = D(FF' + Psi)D with k
+              factors of the residual correlation, Student-t, tempered
+              posterior p(y|s)^(1/T); k and T jointly by leave-one-run-out CV
+              inside the 15 training runs on the held-out log score, inner
+              encoding parameters (or, for the von Mises basis, inner WEIGHTS)
+              refit without the inner run (retinonumeral decode_fdr.py
+              --noise_model lowrank_cv --inner_params loro). The numpy port in
+              lowrank_noise.py is run on the first fold as a cross-check.
   diagcv      the k = 0 row of the same CV table at its best T: diagonal
               Student-t + temperature only. Separates "correlations" from
               "temperature".
+
+Needs braincoder >= v0.6.0 with the (parameters, weights) inner-fold support:
+put a checkout of branch lowrank-inner-weights first on PYTHONPATH (the SLURM
+script does this).
 
 Output (new tree; production derivatives are never touched):
 
@@ -40,6 +47,7 @@ Output (new tree; production derivatives are never touched):
 """
 import argparse
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -54,9 +62,11 @@ from abstract_values.encoding_models.decode_gabor import (
     get_gabor_paradigm, make_basis_parameters)
 from abstract_values.encoding_models.decode_value import (
     _build_model, _grid_ranges, get_value_paradigm)
-from abstract_values.encoding_models.lowrank_noise import (
-    LowRankNoise, fit_lowrank_cv, nearest_grid_index)
-from abstract_values.encoding_models.noise_models import _hpd_level, _pit
+from braincoder.noise import LowRankNoise
+from braincoder.utils.calibration import hpd_level, pit
+from scipy.special import logsumexp
+
+from abstract_values.encoding_models import lowrank_noise as port
 from abstract_values.encoding_models.ridge_alpha import DEFAULT_RIDGE_ALPHA
 from abstract_values.utils.data import BIDS_FOLDER, Subject
 
@@ -86,6 +96,10 @@ class OrientationCode:
         bp = np.asarray(self.model.basis_predictions(paradigm, self.basis), dtype=np.float64)
         return bp @ np.asarray(w.values, dtype=np.float64)
 
+    def lowrank_args(self, theta_sel):
+        """(parameters, weights) in LowRankNoise.fit / get_stimulus_pdf terms."""
+        return self.basis, theta_sel
+
     @staticmethod
     def subset(w, cols):
         return w[cols]
@@ -113,9 +127,22 @@ class ValueCode:
     def predict(self, pars, paradigm):
         return np.asarray(_build_model('loggauss').predict(parameters=pars, paradigm=paradigm))
 
+    def lowrank_args(self, theta_sel):
+        return theta_sel, None
+
     @staticmethod
     def subset(pars, cols):
         return pars.loc[cols]
+
+
+def log_posterior(noise, Y, P, temperature=None):
+    """Tempered, normalised log posterior on the grid from a LowRankNoise."""
+    ll = noise.grid_log_likelihood(Y, P)
+    T = noise.temperature if temperature is None else temperature
+    if np.isinf(T):
+        return np.full_like(ll, -np.log(ll.shape[1]))
+    a = ll / T
+    return a - logsumexp(a, axis=1, keepdims=True)
 
 
 # ── posterior summaries ──────────────────────────────────────────────────────
@@ -123,9 +150,9 @@ class ValueCode:
 def summarise(logpost, grid, true_idx, true_val, circular, rng):
     p = np.exp(logpost)
     p /= p.sum(1, keepdims=True)
-    u = rng.uniform(size=(2, len(p)))
+    tg = grid[true_idx]                       # truth snapped to the grid
     out = dict(logp_true=logpost[np.arange(len(p)), true_idx] + np.log(len(grid)),
-               hpd=_hpd_level(p, true_idx, u[0]))
+               hpd=hpd_level(p, tg, grid=grid, rng=rng))
     if circular:
         z = p @ np.exp(2j * grid)
         mean = (np.angle(z) / 2) % np.pi
@@ -137,7 +164,7 @@ def summarise(logpost, grid, true_idx, true_val, circular, rng):
     else:
         mean = p @ grid
         out.update(post_mean=mean, post_sd=np.sqrt(np.clip(p @ grid ** 2 - mean ** 2, 0, None)),
-                   post_map=grid[p.argmax(1)], true=true_val, pit=_pit(p, true_idx, u[1]))
+                   post_map=grid[p.argmax(1)], true=true_val, pit=pit(p, tg, grid=grid, rng=rng))
         out['error'] = out['post_mean'] - out['true']
     return pd.DataFrame(out)
 
@@ -161,7 +188,7 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
         code = ValueCode(vmin, vmax, debug=debug)
         grid = np.linspace(vmin, vmax, 50, dtype=np.float32)
     grid_df = pd.DataFrame({'x': grid})
-    true_idx_all = nearest_grid_index(paradigm['x'].values, grid)
+    true_idx_all = port.nearest_grid_index(paradigm['x'].values, grid)
 
     betas = sub.get_single_trial_estimates(sessions, desc='gabor', smoothed=False)
     assert betas.shape[3] == len(paradigm)
@@ -233,7 +260,7 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
             omega = np.asarray(omega, dtype=np.float64)
             dof = float(np.asarray(dof))
             sph = LowRankNoise(np.sqrt(np.diag(omega)), np.zeros((N, 0)), np.ones(N), dof=dof)
-            lp_sph = sph.log_posterior(Yte_s, P_outer)
+            lp_sph = log_posterior(sph, Yte_s, P_outer)
 
             if check_production and (fs, fr) == folds[0]:
                 # numpy likelihood == braincoder get_stimulus_pdf (production path)
@@ -250,18 +277,45 @@ def main(subject, quantity, roi, n_voxels=(50, 250), bids_folder=BIDS_FOLDER,
                 print(f'    [check] spherical posterior vs get_stimulus_pdf: max |dp| = {diff:.2e}')
                 assert diff < 1e-3, 'numpy spherical likelihood does not match braincoder'
 
-            # --- low-rank, k and T by nested LORO ---
-            def inner_fold(g, sel=sel):
-                keep = g_tr != g
-                th_g = code.subset(inner[g], sel)
-                R_g = Ytr_s[keep] - code.predict(th_g, par_tr.loc[keep])
-                return R_g, code.predict(th_g, grid_df)
-
-            lr, cv = fit_lowrank_cv(Ytr_s, R_all, ti_tr, g_tr, inner_fold)
-            lp_lr = lr.log_posterior(Yte_s, P_outer)
+            # --- low-rank, k and T by nested LORO (native braincoder) ---
+            model = code.model if circular else m_sel
+            pars_lr, w_lr = code.lowrank_args(th_sel)
+            if circular:
+                inner_fn = lambda d, p, g, sel=sel: (code.basis, inner[g][sel])
+            else:
+                inner_fn = lambda d, p, g, sel=sel: inner[g].loc[sel]
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', RuntimeWarning)
+                lr = LowRankNoise.fit(model, Y_tr[sel], par_tr, pars_lr, weights=w_lr,
+                                      stimulus_range=grid, groups=g_tr,
+                                      inner_parameters=inner_fn)
+            cv = lr.cv_scores_
+            lp_lr = log_posterior(lr, Yte_s, P_outer)
             T0 = float(cv.loc[0].idxmax()) if 0 in cv.index else np.nan
             dg = LowRankNoise.from_residuals(R_all, k=0, temperature=T0)
-            lp_dg = dg.log_posterior(Yte_s, P_outer)
+            lp_dg = log_posterior(dg, Yte_s, P_outer)
+
+            if check_production and (fs, fr) == folds[0]:
+                # (1) grid predictions == braincoder's own; (2) our log posterior ==
+                # get_stimulus_pdf(noise_model=...); (3) numpy port == native CV table
+                P_bc = model.predict_stimulus_grid(grid, parameters=pars_lr, weights=w_lr)
+                d1 = np.abs(np.asarray(P_bc) - P_outer).max()
+                pdf = model.get_stimulus_pdf(Y_te[sel], grid, parameters=pars_lr, weights=w_lr,
+                                             noise_model=lr, normalize=False)
+                pb = pdf.values / pdf.values.sum(1, keepdims=True)
+                d2 = np.abs(pb - np.exp(lp_lr)).max()
+
+                def port_inner(g, sel=sel):
+                    keep = g_tr != g
+                    th_g = code.subset(inner[g], sel)
+                    return (Ytr_s[keep] - code.predict(th_g, par_tr.loc[keep]),
+                            code.predict(th_g, grid_df))
+                _, cv_port = port.fit_lowrank_cv(Ytr_s, R_all, ti_tr, g_tr, port_inner)
+                fin = np.isfinite(cv.values)
+                d3 = np.abs(cv.values[fin] - cv_port.values[fin]).max()
+                print(f'    [check] grid pred |d| = {d1:.1e}, pdf |dp| = {d2:.1e}, '
+                      f'port vs native CV |d| = {d3:.1e}')
+                assert d1 < 1e-3 and d2 < 1e-3 and d3 < 1e-3
 
             meta_rows.append(dict(
                 session=fs, run=fr, n_voxels=N, k=lr.k, temperature=lr.temperature,

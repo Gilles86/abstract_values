@@ -12,7 +12,7 @@
 # training R², leave-one-run-out) decoded with spherical AND low-rank (nested
 # LORO k, T) noise on the same voxels. Writes derivatives/decoding_lowrankcv/.
 #
-# Array index -> subject (1..36 = pil01 pil02 03..36). Required: QUANTITY, ROI.
+# CPU only (no GPU needed). Array index -> subject (1..36 = pil01 pil02 03..36). Required: QUANTITY, ROI.
 #   sbatch --array=1-36 --export=ALL,QUANTITY=orientation,ROI=BensonV1 decode_lowrank_cv.sh
 #   sbatch --array=1-35 --export=ALL,QUANTITY=value,ROI=IPS0 decode_lowrank_cv.sh
 #   sbatch --export=ALL,PARTICIPANT_LABEL=36,QUANTITY=value,ROI=IPS12 decode_lowrank_cv.sh
@@ -27,6 +27,11 @@ if [ -z "$QUANTITY" ] || [ -z "$ROI" ]; then
 fi
 
 export KERAS_BACKEND=tensorflow
+# Native braincoder.noise.LowRankNoise: braincoder v0.6.0 + branch
+# lowrank-inner-weights (inner-fold weights for basis-set models), checked out
+# at ~/git/braincoder-lowrank and put ahead of the env's libs/braincoder:
+#   git clone -b lowrank-inner-weights git@github.com:Gilles86/braincoder.git ~/git/braincoder-lowrank
+export PYTHONPATH="${BRAINCODER_PATH:-$HOME/git/braincoder-lowrank}${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 export TMPDIR="/scratch/$USER/tmp/${SLURM_JOB_ID:-manual}_${SLURM_ARRAY_TASK_ID:-0}"
 mkdir -p "$TMPDIR"
