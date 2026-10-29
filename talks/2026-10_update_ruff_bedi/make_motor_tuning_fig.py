@@ -1,14 +1,15 @@
 """Motor-cortex tuning: what left M1 codes about the bid, and how that relates to noise.
 
-Inputs (written on the cluster by abstract_values/visualize/collect_motor_tuning.py):
-    notes/data/motor_tuning_trials.tsv   ROI-mean single-trial betas (gabor / response epoch)
-    notes/data/motor_tuning_prf_cv.tsv   PRF-model cvR² in M1 (fit_motor_cv.py)
-    notes/data/cogmodel_shrink_mtail_subject_params.tsv, notes/data/motion_summary.tsv
+Inputs, written on the cluster by abstract_values/visualize/collect_motor_tuning.py to
+derivatives/followup_2026-10/a1_motor_stage/tables/ (rsynced to the local BIDS root):
+    motor_tuning_trials.tsv   ROI-mean single-trial betas (gabor / response epoch)
+    motor_tuning_prf_cv.tsv   PRF-model cvR² in M1 / pre-SMA (encoding_models/fit_motor_cv.py)
+plus notes/data/cogmodel_shrink_mtail_subject_params.tsv and notes/data/motion_summary.tsv.
 
 Panels
     a  Group tuning curve of the left vs right M1 hand area over the bid (gabor-epoch betas)
-    b  PRF model comparison in left/right M1: value vs quantile codes, unwrapped vs wrapped
-    c  Per-subject regression: expected movement extent, bid ramp, orientation (cos 2θ), RT
+    b  PRF model comparison (gabor epoch): value vs quantile codes, unwrapped vs wrapped, bid
+    c  Per-subject regression: expected slider travel, bid ramp, orientation (cos 2θ), RT
     d  Lateralised extent effect vs total (perceptual + value) noise, partial on mean FD
 
     ~/mambaforge/bin/python make_motor_tuning_fig.py
@@ -27,7 +28,8 @@ from scipy import stats
 warnings.filterwarnings("ignore", category=FutureWarning)
 HERE = Path(__file__).parent
 D = HERE.parents[1] / "notes/data"
-C_L, C_R, C_V1 = "#C44E52", "#8C8C8C", "#3B5BA5"
+TAB = Path("/data/ds-abstractvalue/derivatives/followup_2026-10/a1_motor_stage/tables")
+C_L, C_R, C_V1, C_SMA = "#C44E52", "#8C8C8C", "#3B5BA5", "#5D8C3F"
 C_VAL, C_UNW, C_WR, C_BID = "#8C8C8C", "#8172B2", "#2A9D8F", "#C44E52"
 SLIDER = 42.0                       # fMRI slider range [0, 42]; start uniform on it
 
@@ -46,7 +48,7 @@ def extent(b):
 
 
 def load_trials():
-    t = pd.read_csv(D / "motor_tuning_trials.tsv", sep="\t", dtype={"subject": str})
+    t = pd.read_csv(TAB / "motor_tuning_trials.tsv", sep="\t", dtype={"subject": str})
     t = t[t.bid.notna() & t.rt.notna()].copy()
     t["ext"] = extent(t.bid)
     t["cos"] = np.cos(np.deg2rad(t.orientation) * 2)
@@ -120,17 +122,17 @@ def panel_tuning(ax, t, epoch="gabor"):
 
 
 def panel_prf(ax):
-    fn = D / "motor_tuning_prf_cv.tsv"
+    fn = TAB / "motor_tuning_prf_cv.tsv"
     if fn.stat().st_size < 10:
         ax.text(.5, .5, "PRF fits pending", transform=ax.transAxes, ha="center")
         return None
     d = pd.read_csv(fn, sep="\t", dtype={"subject": str}, keep_default_na=False)
-    d = d[d.roi.isin(["M1l", "M1r"])]
+    d = d[d.roi.isin(["M1lhand", "M1rhand", "preSMA"]) & (d.epoch == "gabor")]
     d["gain"] = (d.cvr2 - d.cvr2_null) * 1e3
     models = [("gaussian", "Value (CHF)", C_VAL), ("quantile", "Quantile, unwrapped", C_UNW),
               ("quantile-wrapped", "Quantile, wrapped", C_WR),
               ("gaussian-bid", "Bid (CHF)", C_BID)]
-    groups = [("gabor", "M1l"), ("gabor", "M1r"), ("response", "M1l"), ("response", "M1r")]
+    groups = [("gabor", "M1lhand"), ("gabor", "M1rhand"), ("gabor", "preSMA")]
     out = {}
     for j, (mod, lab, col) in enumerate(models):
         for i, (ep, roi) in enumerate(groups):
@@ -143,8 +145,7 @@ def panel_prf(ax):
         ax.text(0.99, 0.30 - 0.075 * j, lab, color=col, transform=ax.transAxes, ha="right",
                 fontsize=9.5)
     ax.axhline(0, color="0.6", lw=0.8)
-    ax.set_xticks(range(4), ["Left M1\nGabor", "Right M1\nGabor", "Left M1\nResponse",
-                             "Right M1\nResponse"])
+    ax.set_xticks(range(3), ["Left M1", "Right M1", "Pre-SMA"])
     ax.set_ylabel("cvR² − null (×10⁻³)")
     ax.set_title("No value or quantile tuning in M1", loc="left")
     return out
@@ -152,14 +153,15 @@ def panel_prf(ax):
 
 def panel_coefs(ax, t):
     cols = ["ext", "bid", "cos", "rt"]
-    c = coefs(t, cols, ["M1lhand", "M1rhand", "V1"], "gabor")
+    c = coefs(t, cols, ["M1lhand", "M1rhand", "preSMA", "V1"], "gabor")
     labels = {"ext": "Expected\ntravel", "bid": "Bid\n(ramp)", "cos": "Orientation\n(cos 2θ)",
               "rt": "RT"}
-    rois = [("M1lhand", "Left M1", C_L), ("M1rhand", "Right M1", C_R), ("V1", "V1", C_V1)]
+    rois = [("M1lhand", "Left M1", C_L), ("M1rhand", "Right M1", C_R),
+            ("preSMA", "Pre-SMA", C_SMA), ("V1", "V1", C_V1)]
     for j, (roi, lab, col) in enumerate(rois):
         for i, k in enumerate(cols):
             v = c.loc[c.roi == roi, k]
-            x = i + (j - 1) * 0.24
+            x = i + (j - 1.5) * 0.19
             ax.errorbar(x, v.mean(), yerr=v.sem(), fmt="o", color=col, ms=6, lw=1.8)
             if roi == "M1lhand":
                 ax.text(x, v.mean() + v.sem() + 0.015, stars(stats.ttest_1samp(v, 0).pvalue),
@@ -220,7 +222,7 @@ def main():
     fig.savefig(f"{out}.pdf")
 
     print("gabor-epoch coefficients (mean, t, p):")
-    for roi in ("M1lhand", "M1rhand", "V1"):
+    for roi in ("M1lhand", "M1rhand", "preSMA", "V1"):
         for k in ("ext", "bid", "cos", "rt"):
             v = c.loc[c.roi == roi, k]
             tt = stats.ttest_1samp(v, 0)
