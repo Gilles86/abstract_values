@@ -95,7 +95,7 @@ def betas(c, sd_v='v_sd', sd_o='o_sd'):
     """Per participant: beta_v, beta_o, r_v, r_o (see module docstring)."""
     out = []
     for key, g in c.groupby([k for k in ('decoder', 'roi') if k in c] + ['subject']):
-        g = g[np.isfinite(np.log(g[sd_v])) & (g.slope > 0)]
+        g = g[np.isfinite(np.log(g[sd_v])) & np.isfinite(np.log(g[sd_o])) & (g.slope > 0)]
         if g.mapping.nunique() < 2:
             continue
         X = np.c_[np.ones(len(g)), (g.mapping == 'cdf').astype(float), np.log(g.slope)]
@@ -111,6 +111,54 @@ def betas(c, sd_v='v_sd', sd_o='o_sd'):
         out.append(dict(zip([k for k in ('decoder', 'roi') if k in c] + ['subject'],
                             key if isinstance(key, tuple) else (key,)),
                         beta_v=bv, beta_o=bo, r_v=rv, r_o=ro))
+    return pd.DataFrame(out)
+
+
+def interaction(c, col, space, n_perm=5000, seed=0):
+    """Mapping x position interaction of log(col), per decoder/ROI.
+
+    Per participant: D(p) = log col[cdf](p) - log col[inverse_cdf](p) at matched
+    positions p (value axis: COMMON_V by interpolation; orientation axis: the 23
+    orientations), centred over p (removes the mapping main effect). Statistic
+    = mean over p of (group-mean centred D)^2, i.e. squared RMS of the group
+    interaction profile. Null: sign flips of whole participant profiles.
+    95% CI of the RMS by participant bootstrap.
+    """
+    rng = np.random.default_rng(seed)
+    out = []
+    keys = [k for k in ('decoder', 'roi') if k in c]
+    for key, g in c.groupby(keys):
+        D = []
+        for s, h in g.groupby('subject'):
+            h = h.copy()
+            # floor zero SDs (e.g. identical bids) at 5% of the participant's median
+            h[col] = np.maximum(h[col], 0.05 * np.nanmedian(h[col]))
+            a = h[h.mapping == 'cdf']
+            b = h[h.mapping == 'inverse_cdf']
+            if len(a) < 5 or len(b) < 5:
+                continue
+            if space == 'value':
+                a, b = a.sort_values('value'), b.sort_values('value')
+                da = np.interp(COMMON_V, a.value, np.log(a[col]))
+                db = np.interp(COMMON_V, b.value, np.log(b[col]))
+            else:
+                ab = a.set_index('orientation')[col].align(b.set_index('orientation')[col],
+                                                           join='inner')
+                da, db = np.log(ab[0].values), np.log(ab[1].values)
+            d = da - db
+            if np.all(np.isfinite(d)):
+                D.append(d - d.mean())
+        L = min(len(x) for x in D)
+        D = np.array([x[:L] for x in D])
+        stat = lambda M: np.mean(M.mean(0) ** 2)
+        obs = stat(D)
+        null = np.array([stat(D * rng.choice([-1, 1], size=(len(D), 1))) for _ in range(n_perm)])
+        boot = np.array([np.sqrt(stat(D[rng.integers(0, len(D), len(D))])) for _ in range(2000)])
+        out.append(dict(zip(keys, key if isinstance(key, tuple) else (key,)), space=space,
+                        measure=col, rms=np.sqrt(obs), lo=np.percentile(boot, 2.5),
+                        hi=np.percentile(boot, 97.5),
+                        null_rms=np.sqrt(np.median(null)),
+                        p=(1 + (null >= obs).sum()) / (1 + n_perm), n=len(D)))
     return pd.DataFrame(out)
 
 
@@ -235,6 +283,15 @@ def main(profiles, label, sim_fn, tag):
     tests.to_csv(RES / f'mapping_profiles_tests_{tag}.tsv', sep='\t', index=False,
                  float_format='%.4g')
     print(tests.to_string(index=False, float_format=lambda v: f'{v:.3f}'))
+
+    inter = pd.concat([interaction(c, 'v_sd', 'value'), interaction(c, 'o_sd', 'orientation'),
+                       interaction(c, 'abs_v', 'value'), interaction(c, 'abs_o', 'orientation'),
+                       interaction(bc.assign(decoder='behaviour', roi='bid'), 'v_sd', 'value'),
+                       interaction(bc.assign(decoder='behaviour', roi='bid'), 'o_sd',
+                                   'orientation')])
+    inter.to_csv(RES / f'mapping_profiles_interaction_{tag}.tsv', sep='\t', index=False,
+                 float_format='%.4g')
+    print(inter.to_string(index=False, float_format=lambda v: f'{v:.3f}'))
 
     cov = gp.groupby(['decoder', 'roi', 'mapping'])[['cov50', 'cov80', 'cov95']].agg(['min', 'max'])
     print(cov.round(2).to_string())
