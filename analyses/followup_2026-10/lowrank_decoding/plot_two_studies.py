@@ -9,7 +9,12 @@ leak mass above 25 on narrow trials, which costs r without truncation).
 
 neural_priors voxel sets: 'cvR² > 0' = production selection (voxels with
 cvR² > 0 in the training runs, ~90-570, median ~200); 100 / 200 / 500 =
-top-N by training R². Low-rank exists only for the production set.
+top-N by training R²; 'Whole ROI' = every NPCr voxel (410-1100, median 780).
+500 and Whole ROI come from neural_priors decode.py --noise_model compare
+(all three noise models on the same folds and encoding fits; low-rank there
+uses fixed inner parameters, the cvR² > 0 low-rank cell is the refit study;
+fixed at cvR² > 0 is ~0.02 higher in r). Spherical / Jehee at 100 / 200 are
+production runs. Top-1000 is left out: only 3 participants have > 1000 voxels.
 
     python plot_two_studies.py
 """
@@ -24,7 +29,8 @@ from scipy import stats
 import plot_mean_r as pm
 
 NP = Path('/Users/gdehol/git/neural_priors/notes/data/decoding_nvoxels_by_subject.tsv')
-NP_SETS = [('0', 'cvR² > 0'), ('100', '100'), ('200', '200'), ('500', '500')]
+NP_SETS = [('0', 'cvR² > 0'), ('100', '100'), ('200', '200'), ('500', '500'),
+           ('all', 'Whole\nROI')]
 NP_NOISE = [('spherical', pm.SPH), ('jehee', pm.JEH), ('lowrank', pm.LR)]
 
 
