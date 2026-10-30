@@ -31,7 +31,9 @@ import plot_mean_r as pm
 NP = Path('/Users/gdehol/git/neural_priors/notes/data/decoding_nvoxels_by_subject.tsv')
 NP_SETS = [('0', 'cvR² > 0'), ('100', '100'), ('200', '200'), ('500', '500'),
            ('all', 'Whole\nROI')]
-NP_NOISE = [('spherical', pm.SPH), ('jehee', pm.JEH), ('lowrank', pm.LR)]
+# low-rank: the 'fixed' run on every voxel set (one consistent series; the
+# earlier 'refit' run exists for cvR² > 0 only and sits ~0.01-0.02 lower)
+NP_NOISE = [('spherical', pm.SPH), ('jehee', pm.JEH), ('lowrank_fixed', pm.LR)]
 
 
 def dots(ax, x, v, col, mk, filled, rng):
@@ -100,7 +102,7 @@ def main():
     bx[2].set_ylabel('Mean absolute error (items)')
     for i, (noise, col) in enumerate(NP_NOISE):
         bx[0].text(.98, .96 - i * .075, {'spherical': 'Spherical', 'jehee': 'Jehee',
-                                         'lowrank': 'Low-rank'}[noise],
+                                         'lowrank_fixed': 'Low-rank'}[noise],
                    color=col, transform=bx[0].transAxes, ha='right', va='top', fontsize=6.5)
     bot.suptitle('Neural priors · numerosity estimation, 39 participants', x=.01, ha='left',
                  fontsize=8, fontweight='bold')
