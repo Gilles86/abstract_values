@@ -2,7 +2,10 @@
 """Decoding accuracy with spherical, van Bergen & Jehee and low-rank noise in
 two studies: abstract_values (top: orientation in V1-V3, value in V1/IPS/NPCr;
 plot_mean_r.py) and neural_priors (bottom: numerosity in NPCr, paper
-configuration, truth = response; decoding_nvoxels_collect.py there).
+configuration, truth = response; decoding_nvoxels_collect.py there),
+split by prior range, in the paper's convention (narrow posterior truncated
+at 25: the grid runs to 40 for both ranges, and calibrated low-rank posteriors
+leak mass above 25 on narrow trials, which costs r without truncation).
 
 neural_priors voxel sets: 'cvR² > 0' = production selection (voxels with
 cvR² > 0 in the training runs, ~90-570, median ~200); 100 / 200 / 500 =
@@ -43,12 +46,13 @@ def np_panel(ax, d, metric, rng):
     ax.set_xticks(range(len(NP_SETS)), [lab for _, lab in NP_SETS])
     ax.set_xlim(-.5, len(NP_SETS) - .5)
     ax.set_xlabel('Voxels (NPCr)')
+    ax.tick_params(axis='x', labelsize=6)
 
 
 def main():
     df = pm.load()
     npd = pd.read_csv(NP, sep='\t', dtype={'subject': str, 'n_voxels': str})
-    npd = npd[npd.config == 'responses']
+    npd = npd[npd.config == 'responses']  # range: narrow / wide / both
     rng = np.random.default_rng(0)
 
     fig = plt.figure(figsize=(7.25, 5.6), constrained_layout=True)
@@ -76,14 +80,18 @@ def main():
     top.suptitle('Abstract values · orientation-to-CHF value, 36 participants', x=.01,
                  ha='left', fontsize=8, fontweight='bold')
 
-    bx = bot.subplots(1, 2)
-    np_panel(bx[0], npd, 'r', rng)
+    bx = bot.subplots(1, 4, sharey=False)
+    for j, (rg, lab) in enumerate((('narrow', 'Narrow range (10–25)'),
+                                   ('wide', 'Wide range (10–40)'))):
+        d = npd[npd.range == rg]
+        np_panel(bx[j], d, 'r_paper', rng)
+        bx[j].set_ylim(-.2, .7)
+        bx[j].set_title(lab, loc='left')
+        np_panel(bx[j + 2], d, 'mae_paper', rng)
+        bx[j + 2].set_ylim(2, 12)
+        bx[j + 2].set_title(lab, loc='left')
     bx[0].set_ylabel('r(decoded, response)')
-    bx[0].set_ylim(-.2, .8)
-    bx[0].set_title('Numerosity', loc='left')
-    np_panel(bx[1], npd, 'mae', rng)
-    bx[1].set_ylabel('Mean absolute error (items)')
-    bx[1].set_title('Numerosity error', loc='left')
+    bx[2].set_ylabel('Mean absolute error (items)')
     for i, (noise, col) in enumerate(NP_NOISE):
         bx[0].text(.98, .96 - i * .075, {'spherical': 'Spherical', 'jehee': 'Jehee',
                                          'lowrank': 'Low-rank'}[noise],
