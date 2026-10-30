@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Mean decoding accuracy per ROI: spherical vs van Bergen & Jehee vs low-rank noise,
-at 50 / 250 voxels and at many voxels (whole ROI for spherical and Jehee, the
-cross-validated N for low-rank, which picks ~ the whole ROI).
+at 50 / 250 voxels and on the whole ROI.
 
 Orientation 'r' is the resultant length of the doubled-angle error (analyze.py);
 value 'r' is Pearson r(decoded posterior mean, true value). Mean over
@@ -40,7 +39,7 @@ CELLS = [('spherical', '50', 'Spherical · 50', SPH, 'o', False),
          ('lowrankcv', '250', 'Low-rank · 250', LR, 'o', True),
          ('spherical', 'all', 'Spherical · whole ROI', SPH, 'D', True),
          ('jehee', 'all', 'Jehee · whole ROI', JEH, 'D', True),
-         ('lowrankCVN', 'cv', 'Low-rank · CV voxels', LR, 'D', True)]
+         ('lowrankcv', 'all', 'Low-rank · whole ROI', LR, 'D', True)]
 ROIS = {'orientation': ['BensonV1', 'BensonV2', 'BensonV3'],
         'value': ['BensonV1', 'IPS0', 'IPS12', 'IPS345', 'NPCr']}
 ROI_LAB = {'BensonV1': 'V1', 'BensonV2': 'V2', 'BensonV3': 'V3', 'IPS0': 'IPS0',
@@ -51,9 +50,12 @@ MIN_N = 30          # IPS1–2 at 250 voxels ran for 8 participants only: drop
 def load():
     d = pd.read_csv(RES / 'lowrank_metrics_by_subject.tsv', sep='\t',
                     dtype={'subject': str, 'n_voxels': str})
-    c = pd.read_csv(RES / 'nvcv_metrics_by_subject.tsv', sep='\t',
-                    dtype={'subject': str, 'n_voxels': str})
-    frames = [d, c[c.n_voxels == 'cv'].assign(noise='lowrankCVN')]
+    # low-rank on the whole ROI: decode_lowrank_cv.py --fast (k, T by nested CV),
+    # collect.py --tree decoding_lowrankcv_fast -> fast_metrics_by_subject.tsv;
+    # ~ the same r as the CV-selected N, which picks the whole ROI in 90-95% of folds
+    f = pd.read_csv(RES / 'fast_metrics_by_subject.tsv', sep='\t',
+                    dtype={'subject': str, 'n_voxels': str}).assign(noise='lowrankcv')
+    frames = [d, f]
     j = RES / 'jehee_metrics_by_subject.tsv'      # jehee_metrics.py
     if j.exists():
         j = pd.read_csv(j, sep='\t', dtype={'subject': str, 'n_voxels': str})
