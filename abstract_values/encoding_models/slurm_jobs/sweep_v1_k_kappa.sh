@@ -12,11 +12,11 @@
 # adds a (CPU) noise-model + posterior fit per fold. No GPU requested.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=04 sweep_v1_k_kappa.sh
+#   PARTICIPANT_LABEL=04 sbatch sweep_v1_k_kappa.sh
 #   sbatch --array=3-16 sweep_v1_k_kappa.sh                  # study subjects
-#   sbatch --export=PARTICIPANT_LABEL=04,DECODE=1 sweep_v1_k_kappa.sh
+#   PARTICIPANT_LABEL=04 DECODE=1 sbatch sweep_v1_k_kappa.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   N_BASIS    space-separated basis counts (default: "4 6 8 12 16 20 24")
 #   KAPPA      space-separated kappa values (default: "1 2 4 8")
 #   DECODE     set to "1" to add out-of-sample FDR decoding (slower)

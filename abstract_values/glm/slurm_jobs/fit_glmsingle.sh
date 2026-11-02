@@ -15,9 +15,9 @@
 # case and should be avoided unless there is a specific reason.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=pil02 fit_glmsingle.sh
+#   PARTICIPANT_LABEL=pil02 sbatch fit_glmsingle.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   SESSION         space-separated session numbers; omit to fit all sessions
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to smooth BOLD before fitting (default: off)

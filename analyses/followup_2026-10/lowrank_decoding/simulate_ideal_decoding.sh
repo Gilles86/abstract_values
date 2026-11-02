@@ -10,8 +10,8 @@
 # CPU only. Array index -> participant (1..36 = pil01 pil02 03..36).
 #   MODE=ideal:    all ROI x code combinations for the participant (minutes)
 #   MODE=pipeline: one ROI x CODE through the real CV-N low-rank decoder (hours)
-#   sbatch --array=1-36 --export=ALL,MODE=ideal simulate_ideal_decoding.sh
-#   sbatch --array=1-36 --export=ALL,MODE=pipeline,ROI=IPS12,CODE=lam1 simulate_ideal_decoding.sh
+#   MODE=ideal sbatch --array=1-36 simulate_ideal_decoding.sh
+#   MODE=pipeline ROI=IPS12 CODE=lam1 sbatch --array=1-36 simulate_ideal_decoding.sh
 set -eo pipefail
 SUBJECTS=(pil01 pil02 $(seq -f "%02g" 3 36))
 S=${PARTICIPANT_LABEL:-${SUBJECTS[$((SLURM_ARRAY_TASK_ID - 1))]}}

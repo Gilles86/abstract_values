@@ -13,7 +13,7 @@
 # Creates NPC, NPC1, NPC2 masks (bilateral + per-hemisphere).
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=03 create_npc_masks.sh
+#   PARTICIPANT_LABEL=03 sbatch create_npc_masks.sh
 #   sbatch --array=1-30 create_npc_masks.sh
 #
 # Optional exports:

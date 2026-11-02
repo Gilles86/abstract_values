@@ -35,7 +35,7 @@ ARGS=("$SUB" --bids-folder "$BIDS_FOLDER")
 [ -n "${MODEL:-}" ] && [ "$MODEL" != "grid" ] && ARGS+=(--model "$MODEL")
 if [ "${MODEL:-mix}" = "grid" ]; then
     # (lam_mu, lam_sigma) cvR2 surface; observed + corners at noise 2:
-    #   sbatch -p standard,lowprio --time=12:00:00 --array=1-1050 --export=ALL,MODEL=grid,PER_ROI=1 ...
+    #   MODEL=grid PER_ROI=1 sbatch -p standard,lowprio --time=12:00:00 --array=1-1050 ...
     ARGS+=(--grid)
     if [ $c -gt 0 ]; then
         LM=(x 0 1 0 1); LS=(x 0 0 1 1)
@@ -43,9 +43,9 @@ if [ "${MODEL:-mix}" = "grid" ]; then
     fi
 elif [ "${MODEL:-mix}" = "width" ]; then
     # observed; corners (lam_mu, lam_sigma) (0,0) (1,0) (0,1) (1,1) x noise {1, 2}:
-    #   sbatch --array=1-315 --export=ALL,MODEL=width ...
+    #   MODEL=width sbatch --array=1-315 ...
     #   per ROI (6x the tasks, ~30-60 min each):
-    #   sbatch -p lowprio --array=1-1890 --export=ALL,MODEL=width,PER_ROI=1 ...
+    #   MODEL=width PER_ROI=1 sbatch -p lowprio --array=1-1890 ...
     if [ $c -gt 0 ]; then
         LM=(x 0 1 0 1 0 1 0 1); LS=(x 0 0 1 1 0 0 1 1); NOISE=(x 1 1 1 1 2 2 2 2)
         ARGS+=(--sim-corner "${LM[$c]}" "${LS[$c]}" --noise-scale "${NOISE[$c]}")

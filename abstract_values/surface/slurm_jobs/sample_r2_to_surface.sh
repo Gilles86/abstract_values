@@ -9,7 +9,7 @@
 # Sample one encoding-model (cv)R² volume (T1w space) to fsnative + fsaverage
 # surfaces for one subject. Wraps abstract_values.surface.sample_r2_to_surface.
 #
-# Required environment (set via `--export key=value` from sbatch, or by the
+# Required environment (set as `KEY=value sbatch ...`, or by the
 # Snakemake rule that invokes us):
 #   PARTICIPANT_LABEL  subject label without sub- prefix (e.g. 08)
 #   MODEL_DIR          on-disk encoder dir, e.g. aprf | vonmises | aprf.cv |

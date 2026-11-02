@@ -330,8 +330,8 @@ Error bars and bands are 95% t-CIs across participants.
 ```bash
 # cluster (CPU only); braincoder branch lowrank-inner-weights at ~/git/braincoder-lowrank
 cd ~/git/abstract_values/abstract_values/encoding_models/slurm_jobs
-sbatch --partition=lowprio --array=1-36 --export=ALL,QUANTITY=orientation,ROI=BensonV1 decode_lowrank_cv.sh
-sbatch --partition=lowprio --array=1-36 --export=ALL,QUANTITY=value,ROI=NPCr,SELECT_VOXELS=1 decode_lowrank_cv.sh
+QUANTITY=orientation ROI=BensonV1 sbatch --partition=lowprio --array=1-36 decode_lowrank_cv.sh
+QUANTITY=value ROI=NPCr SELECT_VOXELS=1 sbatch --partition=lowprio --array=1-36 decode_lowrank_cv.sh
 python analyses/followup_2026-10/lowrank_decoding/collect.py [--tree decoding_lowrankcv_nvcv]
 python analyses/followup_2026-10/lowrank_decoding/mapping_profiles_collect.py --tree decoding_lowrankcv_nvcv --n-voxels cv
 # local, after rsyncing the *.tsv.gz to results/ (and results/nvcv/)
@@ -340,7 +340,7 @@ python analyses/followup_2026-10/lowrank_decoding/compare_nvcv.py
 python analyses/followup_2026-10/lowrank_decoding/mapping_profiles.py \
     --profiles results/nvcv/mapping_profiles_nvoxels-cv_noise-lowrankcv.tsv.gz --tag nvcv
 # sub-36 simulations, once its mix-lambda fits exist:
-sbatch --partition=lowprio --export=ALL,PARTICIPANT_LABEL=36 simulate_decoding_mix.sh
+PARTICIPANT_LABEL=36 sbatch --partition=lowprio simulate_decoding_mix.sh
 ```
 
 Jobs:
@@ -548,10 +548,10 @@ a fixed-value code; neither can the group.
 
 ```bash
 cd ~/git/abstract_values/analyses/followup_2026-10/lowrank_decoding
-sbatch --array=1-36 --export=ALL,MODE=ideal,NOISE=cvmatched simulate_ideal_decoding.sh
-sbatch --array=1-36 --export=ALL,MODE=pipeline,ROI=IPS12,CODE=lam1,NOISE=cvmatched,FAST=1 simulate_ideal_decoding.sh
+MODE=ideal NOISE=cvmatched sbatch --array=1-36 simulate_ideal_decoding.sh
+MODE=pipeline ROI=IPS12 CODE=lam1 NOISE=cvmatched FAST=1 sbatch --array=1-36 simulate_ideal_decoding.sh
 # real data, matched decoder:
-sbatch --partition=lowprio --array=1-36 --export=ALL,QUANTITY=value,ROI=IPS12,FAST=1 \
+QUANTITY=value ROI=IPS12 FAST=1 sbatch --partition=lowprio --array=1-36 \
     ../../../abstract_values/encoding_models/slurm_jobs/decode_lowrank_cv.sh
 python collect_simideal.py --empirical-fast          # cluster
 python precision_vs_value.py                          # local, after rsync to results/{simideal,fast}

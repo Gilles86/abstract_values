@@ -10,11 +10,11 @@
 # Several test_coupling.sh variants for one participant in one job (each run is
 # ~1 min, mostly loading betas; one job per variant floods the queue).
 #
-# VARIANTS: ';'-separated list of ','-separated KEY=VALUE settings, each passed
+# VARIANTS: ';'-separated list of space-separated KEY=VALUE settings, each passed
 # to test_coupling.sh on top of the job's environment, e.g.
-#   sbatch --array=3-35 --export=ALL,TARGET_ROI=IPS345,PROJECTION=iem,N_BASIS=24,KAPPA=16,\
-#VARIANTS="TEMPLATE=basis LAGS=0;TEMPLATE=basis LAGS=1" test_coupling_variants.sh
-# (inside one variant, separate settings with spaces: --export splits on commas)
+#   TARGET_ROI=IPS345 PROJECTION=iem N_BASIS=24 KAPPA=16 \
+#   VARIANTS="TEMPLATE=basis LAGS=0;TEMPLATE=basis LAGS=1" \
+#   sbatch --array=3-35 test_coupling_variants.sh
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     export PARTICIPANT_LABEL=$(printf "%02d" $SLURM_ARRAY_TASK_ID)

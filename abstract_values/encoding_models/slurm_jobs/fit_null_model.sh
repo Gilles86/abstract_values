@@ -14,7 +14,7 @@ export KERAS_BACKEND=tensorflow
 # Always fits jointly across all of a subject's MRI sessions.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=03 fit_null_model.sh
+#   PARTICIPANT_LABEL=03 sbatch fit_null_model.sh
 #   sbatch --array=1-30 fit_null_model.sh
 #
 # Optional exports:

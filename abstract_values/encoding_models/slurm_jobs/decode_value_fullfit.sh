@@ -16,9 +16,9 @@ export KERAS_BACKEND=tensorflow
 #
 # Requires MASK and MASK_DESC to be set (no whole-brain default).
 #
-#   sbatch --export=PARTICIPANT_LABEL=pil01,MASK=...,MASK_DESC=BensonV1,MODEL=loggauss decode_value_fullfit.sh
+#   PARTICIPANT_LABEL=pil01 MASK=... MASK_DESC=BensonV1 MODEL=loggauss sbatch decode_value_fullfit.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   SESSION       session number (default: all sessions)
 #   SMOOTHED      set to "1" to use spatially smoothed betas (default: off)
 #   SPHERICAL     set to "1" for spherical (diagonal) noise model (default: full)
@@ -32,7 +32,7 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
 fi
 
 if [ -z "$MASK" ] || [ -z "$MASK_DESC" ]; then
-    echo "ERROR: MASK and MASK_DESC must be set via --export."
+    echo "ERROR: MASK and MASK_DESC must be set (MASK=... MASK_DESC=... sbatch ...)."
     exit 1
 fi
 

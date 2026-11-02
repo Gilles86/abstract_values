@@ -10,8 +10,8 @@
 
 # A3: crossnobis (all/odd/even runs) + model-implied RDMs per subject.
 #   sbatch --array=0-35 compute_rdms.sh      (index into SUBJECTS)
-#   sbatch --export=ALL,PARTICIPANT_LABEL=03 --array=0 compute_rdms.sh
-#   sbatch --export=ALL,SCRIPT=compute_controls.py --array=0-35 compute_rdms.sh   (univariate control)
+#   PARTICIPANT_LABEL=03 sbatch --array=0 compute_rdms.sh
+#   SCRIPT=compute_controls.py sbatch --array=0-35 compute_rdms.sh   (univariate control)
 set -eo pipefail
 SUBJECTS=(pil01 pil02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36)
 SUBJ="${PARTICIPANT_LABEL:-${SUBJECTS[$SLURM_ARRAY_TASK_ID]}}"

@@ -9,7 +9,7 @@
 
 # Fine lambda profile of the mix coding model, bootstrap CI over runs
 # (encoding_models/fit_lambda_profile.py).
-#   sbatch --export=ALL,PARTICIPANT_LABEL=05,SMOOTHED=1 fit_lambda_profile.sh
+#   PARTICIPANT_LABEL=05 SMOOTHED=1 sbatch fit_lambda_profile.sh
 
 set -eo pipefail
 export PYTHONUNBUFFERED=1

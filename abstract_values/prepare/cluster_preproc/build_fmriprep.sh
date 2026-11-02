@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=build_fmriprep
 #SBATCH --output=/home/gdehol/logs/build_fmriprep_%A.log
 #SBATCH --ntasks=1

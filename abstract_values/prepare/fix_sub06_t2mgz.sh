@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=fix_t2mgz
 #SBATCH --output=/home/gdehol/logs/fix_t2mgz_%j.txt
 #SBATCH --ntasks=1

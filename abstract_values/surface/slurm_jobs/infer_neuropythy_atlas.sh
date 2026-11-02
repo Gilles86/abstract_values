@@ -17,7 +17,7 @@
 #
 # Usage:
 #   sbatch --array=0-28 abstract_values/surface/slurm_jobs/infer_neuropythy_atlas.sh
-#   sbatch --export=PARTICIPANT_LABEL=29 abstract_values/surface/slurm_jobs/infer_neuropythy_atlas.sh
+#   PARTICIPANT_LABEL=29 sbatch abstract_values/surface/slurm_jobs/infer_neuropythy_atlas.sh
 
 set -euo pipefail
 

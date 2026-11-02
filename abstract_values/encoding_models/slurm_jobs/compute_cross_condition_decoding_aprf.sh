@@ -17,9 +17,9 @@ export KERAS_BACKEND=tensorflow
 # compute_identical_decoding_aprf.py (one shared model for both conditions).
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=11 compute_cross_condition_decoding_aprf.sh
+#   PARTICIPANT_LABEL=11 sbatch compute_cross_condition_decoding_aprf.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   ROI                 ROI label (default: NPCr)
 #   HEMI                hemisphere: LR, L, R, None (default: None)
 #   N_VOXELS            top voxels by R² (default: 100)

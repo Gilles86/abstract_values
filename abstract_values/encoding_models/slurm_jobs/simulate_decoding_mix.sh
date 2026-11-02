@@ -9,7 +9,7 @@
 
 # Simulated decoding precision of the mix-<lambda> codes (simulate_decoding_mix.py).
 # Needs the mix-<lambda> full fits and CV fits of this participant.
-#   sbatch --export=ALL,PARTICIPANT_LABEL=05,SMOOTHED=1 simulate_decoding_mix.sh
+#   PARTICIPANT_LABEL=05 SMOOTHED=1 sbatch simulate_decoding_mix.sh
 
 set -eo pipefail
 export KERAS_BACKEND=tensorflow PYTHONUNBUFFERED=1

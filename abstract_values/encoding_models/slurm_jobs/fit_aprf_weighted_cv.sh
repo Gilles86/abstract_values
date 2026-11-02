@@ -13,9 +13,9 @@ export KERAS_BACKEND=tensorflow
 # Always fits jointly across all of a subject's MRI sessions.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=pil02 fit_aprf_weighted_cv.sh
+#   PARTICIPANT_LABEL=pil02 sbatch fit_aprf_weighted_cv.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   N_BASIS         number of log-Gaussian basis pRFs (default: 8)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)

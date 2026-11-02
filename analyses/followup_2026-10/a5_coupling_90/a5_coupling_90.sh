@@ -10,7 +10,7 @@
 # A5: V1 -> IPS residual coupling by V1 preferred orientation (see a5_coupling_90.py).
 # Usage (array index -> subject label via SUBJECTS list below):
 #   sbatch --array=0-34 a5_coupling_90.sh
-#   sbatch --export=ALL,PARTICIPANT_LABEL=12 a5_coupling_90.sh
+#   PARTICIPANT_LABEL=12 sbatch a5_coupling_90.sh
 set -eo pipefail
 SUBJECTS=(pil01 pil02 $(seq -f "%02g" 3 35))
 if [ -z "$PARTICIPANT_LABEL" ]; then

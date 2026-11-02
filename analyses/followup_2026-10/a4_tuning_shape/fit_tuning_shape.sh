@@ -8,8 +8,8 @@
 #SBATCH --mem=16G
 #SBATCH --time=05:00:00
 # A4 tuning-shape fits + decoding, one subject per array task.
-#   sbatch --array=0-35 --export=ALL fit_tuning_shape.sh       (index into SUBJECTS)
-#   sbatch --export=ALL,PARTICIPANT_LABEL=05,EXTRA=--debug fit_tuning_shape.sh
+#   sbatch --array=0-35 fit_tuning_shape.sh       (index into SUBJECTS)
+#   PARTICIPANT_LABEL=05 EXTRA=--debug sbatch fit_tuning_shape.sh
 set -eo pipefail
 SUBJECTS=(pil01 pil02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 \
           25 26 27 28 29 30 31 32 33 34 35 36)

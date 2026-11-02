@@ -210,105 +210,90 @@ APRF_DIR="\$REPO/abstract_values/encoding_models/slurm_jobs"
 # 4. fmriprep — full subject (all sessions; reuses nipype cache for prior sessions).
 # BOLD2ANAT_INIT=t1w forces BOLD→T1w coregistration; default (auto) picks T2w
 # which is unreliable for our cross-session T2w. Override via env var when invoking.
-FMRIPREP_JOB=\$(sbatch --parsable \
-    --export=PARTICIPANT_LABEL=${SUBJECT},BOLD2ANAT_INIT=${BOLD2ANAT_INIT:-t1w} \
+FMRIPREP_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} BOLD2ANAT_INIT=${BOLD2ANAT_INIT:-t1w} sbatch --parsable \
     "\$FMRIPREP_DIR/fmriprep.sh")
 echo "fmriprep:\$FMRIPREP_JOB"
 
 # 4b. ROI masks — after fmriprep (needed by encoding models & decoding)
-MASKS_JOB=\$(sbatch --parsable \
+MASKS_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} FMRIPREP_DERIV=${GLMSINGLE_DERIV} sbatch --parsable \
     --dependency=afterok:\$FMRIPREP_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT},FMRIPREP_DERIV=${GLMSINGLE_DERIV} \
     "\$PREPARE_DIR/create_roi_masks.sh")
 echo "create_masks:\$MASKS_JOB"
 
 # 4c. NPC masks — after fmriprep (project NPC group atlas to subject T1w)
-NPC_MASKS_JOB=\$(sbatch --parsable \
+NPC_MASKS_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} FMRIPREP_DERIV=${GLMSINGLE_DERIV} sbatch --parsable \
     --dependency=afterok:\$FMRIPREP_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT},FMRIPREP_DERIV=${GLMSINGLE_DERIV} \
     "\$PREPARE_DIR/create_npc_masks.sh")
 echo "create_npc_masks:\$NPC_MASKS_JOB"
 
 # 5a. GLMsingle — all sessions jointly, unsmoothed
-GLMSINGLE_JOB=\$(sbatch --parsable \
+GLMSINGLE_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} FMRIPREP_DERIV=${GLMSINGLE_DERIV} sbatch --parsable \
     --dependency=afterok:\$FMRIPREP_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT},FMRIPREP_DERIV=${GLMSINGLE_DERIV} \
     "\$GLMSINGLE_DIR/fit_glmsingle.sh")
 echo "glmsingle:\$GLMSINGLE_JOB"
 
 # 5b. GLMsingle — all sessions jointly, smoothed (parallel with 5a)
-GLMSINGLE_S_JOB=\$(sbatch --parsable \
+GLMSINGLE_S_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} FMRIPREP_DERIV=${GLMSINGLE_DERIV} SMOOTHED=1 sbatch --parsable \
     --dependency=afterok:\$FMRIPREP_JOB \
-    --export=PARTICIPANT_LABEL=${SUBJECT},FMRIPREP_DERIV=${GLMSINGLE_DERIV},SMOOTHED=1 \
     "\$GLMSINGLE_DIR/fit_glmsingle.sh")
 echo "glmsingle_smoothed:\$GLMSINGLE_S_JOB"
 
 # Steps 6–17 run twice: unsmoothed (SMOOTHED=0) then smoothed (SMOOTHED=1)
 MASK_BASE="${CLUSTER_BIDS}/derivatives/masks/sub-${SUBJECT}/anat"
 for smoothed in 0 1; do
-    smooth_export=""
     smooth_label=""
     glmsingle_dep="\$GLMSINGLE_JOB"
     if [[ "\$smoothed" = "1" ]]; then
-        smooth_export=",SMOOTHED=1"
         smooth_label="_smoothed"
         glmsingle_dep="\$GLMSINGLE_S_JOB"
     fi
 
     # 6. fit_aprf standard — all sessions
-    APRF_JOB=\$(sbatch --parsable \
+    APRF_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} SMOOTHED=\${smoothed} sbatch --parsable \
         --dependency=afterok:\${glmsingle_dep} \
-        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
         "\$APRF_DIR/fit_aprf.sh")
     echo "fit_aprf\${smooth_label}:\$APRF_JOB"
 
     # 7. fit_aprf_cv
-    APRF_CV_JOB=\$(sbatch --parsable \
+    APRF_CV_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} SMOOTHED=\${smoothed} sbatch --parsable \
         --dependency=afterok:\${glmsingle_dep} \
-        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
         "\$APRF_DIR/fit_aprf_cv.sh")
     echo "fit_aprf_cv\${smooth_label}:\$APRF_CV_JOB"
 
     # 8+9. session-shift model (requires ≥2 sessions)
     if [[ ${SESSION} -ge 2 ]]; then
-        APRF_SHIFT_JOB=\$(sbatch --parsable \
+        APRF_SHIFT_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} MODEL=session-shift SMOOTHED=\${smoothed} sbatch --parsable \
             --dependency=afterok:\${glmsingle_dep} \
-            --export=PARTICIPANT_LABEL=${SUBJECT},MODEL=session-shift\${smooth_export} \
             "\$APRF_DIR/fit_aprf.sh")
         echo "fit_aprf_shift\${smooth_label}:\$APRF_SHIFT_JOB"
 
-        APRF_SHIFT_CV_JOB=\$(sbatch --parsable \
+        APRF_SHIFT_CV_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} MODEL=session-shift SMOOTHED=\${smoothed} sbatch --parsable \
             --dependency=afterok:\${glmsingle_dep} \
-            --export=PARTICIPANT_LABEL=${SUBJECT},MODEL=session-shift\${smooth_export} \
             "\$APRF_DIR/fit_aprf_cv.sh")
         echo "fit_aprf_shift_cv\${smooth_label}:\$APRF_SHIFT_CV_JOB"
     fi
 
     # 10. fit_aprf_weighted
-    APRF_W_JOB=\$(sbatch --parsable \
+    APRF_W_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} SMOOTHED=\${smoothed} sbatch --parsable \
         --dependency=afterok:\${glmsingle_dep} \
-        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
         "\$APRF_DIR/fit_aprf_weighted.sh")
     echo "fit_aprf_weighted\${smooth_label}:\$APRF_W_JOB"
 
     # 11. fit_aprf_weighted_cv
-    APRF_W_CV_JOB=\$(sbatch --parsable \
+    APRF_W_CV_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} SMOOTHED=\${smoothed} sbatch --parsable \
         --dependency=afterok:\${glmsingle_dep} \
-        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
         "\$APRF_DIR/fit_aprf_weighted_cv.sh")
     echo "fit_aprf_weighted_cv\${smooth_label}:\$APRF_W_CV_JOB"
 
     # 12. fit_vonmises
-    VONMISES_JOB=\$(sbatch --parsable \
+    VONMISES_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} SMOOTHED=\${smoothed} sbatch --parsable \
         --dependency=afterok:\${glmsingle_dep} \
-        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
         "\$APRF_DIR/fit_vonmises.sh")
     echo "fit_vonmises\${smooth_label}:\$VONMISES_JOB"
 
     # 13. fit_vonmises_cv
-    VONMISES_CV_JOB=\$(sbatch --parsable \
+    VONMISES_CV_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} SMOOTHED=\${smoothed} sbatch --parsable \
         --dependency=afterok:\${glmsingle_dep} \
-        --export=PARTICIPANT_LABEL=${SUBJECT}\${smooth_export} \
         "\$APRF_DIR/fit_vonmises_cv.sh")
     echo "fit_vonmises_cv\${smooth_label}:\$VONMISES_CV_JOB"
 
@@ -339,15 +324,13 @@ for smoothed in 0 1; do
                     time_value="--time=04:00:00"
                 fi
 
-                DECODE_GABOR_JOB=\$(sbatch --parsable \$time_gabor \
+                DECODE_GABOR_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} MASK=\$mask_file MASK_DESC=\${desc} N_VOXELS=\${nv} LAMBD=\${lam} SMOOTHED=\${smoothed} sbatch --parsable \$time_gabor \
                     --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
-                    --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc},N_VOXELS=\${nv},LAMBD=\${lam}\${smooth_export} \
                     "\$APRF_DIR/decode_gabor.sh")
                 echo "decode_gabor_\${desc}\${nv_label}\${lam_label}\${smooth_label}:\$DECODE_GABOR_JOB"
 
-                DECODE_VALUE_JOB=\$(sbatch --parsable \$time_value \
+                DECODE_VALUE_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} MASK=\$mask_file MASK_DESC=\${desc} N_VOXELS=\${nv} LAMBD=\${lam} SMOOTHED=\${smoothed} sbatch --parsable \$time_value \
                     --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
-                    --export=PARTICIPANT_LABEL=${SUBJECT},MASK=\$mask_file,MASK_DESC=\${desc},N_VOXELS=\${nv},LAMBD=\${lam}\${smooth_export} \
                     "\$APRF_DIR/decode_value.sh")
                 echo "decode_value_\${desc}\${nv_label}\${lam_label}\${smooth_label}:\$DECODE_VALUE_JOB"
             done
@@ -366,17 +349,15 @@ for smoothed in 0 1; do
         fi
 
         # Pooled (all sessions)
-        FI_VONMISES_JOB=\$(sbatch --parsable \
+        FI_VONMISES_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} ROI=\${desc} HEMI=\${hemi} SMOOTHED=\${smoothed} sbatch --parsable \
             --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
-            --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
             "\$APRF_DIR/compute_fisher_information.sh")
         echo "fi_vonmises_\${desc}\${smooth_label}:\$FI_VONMISES_JOB"
 
         # Per-session (fit + FI on each session separately)
         for fi_ses in \$(seq 1 ${SESSION}); do
-            FI_VM_SES_JOB=\$(sbatch --parsable \
+            FI_VM_SES_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} ROI=\${desc} HEMI=\${hemi} SESSION=\${fi_ses} SMOOTHED=\${smoothed} sbatch --parsable \
                 --dependency=afterok:\${glmsingle_dep}:\${mask_dep} \
-                --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi},SESSION=\${fi_ses}\${smooth_export} \
                 "\$APRF_DIR/compute_fisher_information.sh")
             echo "fi_vonmises_\${desc}_ses\${fi_ses}\${smooth_label}:\$FI_VM_SES_JOB"
         done
@@ -393,17 +374,15 @@ for smoothed in 0 1; do
         fi
 
         # Pooled (all sessions)
-        FI_APRF_JOB=\$(sbatch --parsable \
+        FI_APRF_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} ROI=\${desc} HEMI=\${hemi} SMOOTHED=\${smoothed} sbatch --parsable \
             --dependency=afterok:\$APRF_JOB:\${mask_dep} \
-            --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi}\${smooth_export} \
             "\$APRF_DIR/compute_fisher_information_aprf.sh")
         echo "fi_aprf_\${desc}\${smooth_label}:\$FI_APRF_JOB"
 
         # Per-session
         for fi_ses in \$(seq 1 ${SESSION}); do
-            FI_APRF_SES_JOB=\$(sbatch --parsable \
+            FI_APRF_SES_JOB=\$(PARTICIPANT_LABEL=${SUBJECT} ROI=\${desc} HEMI=\${hemi} SESSION=\${fi_ses} SMOOTHED=\${smoothed} sbatch --parsable \
                 --dependency=afterok:\$APRF_JOB:\${mask_dep} \
-                --export=PARTICIPANT_LABEL=${SUBJECT},ROI=\${desc},HEMI=\${hemi},SESSION=\${fi_ses}\${smooth_export} \
                 "\$APRF_DIR/compute_fisher_information_aprf.sh")
             echo "fi_aprf_\${desc}_ses\${fi_ses}\${smooth_label}:\$FI_APRF_SES_JOB"
         done

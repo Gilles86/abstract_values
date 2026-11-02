@@ -11,7 +11,7 @@
 # drives) in T1w space. Needs infer_neuropythy_atlas.sh to have run first.
 #
 # Usage:
-#   sbatch --export=ALL,PARTICIPANT_LABEL=30 abstract_values/surface/slurm_jobs/make_benson_eccen_mask.sh
+#   PARTICIPANT_LABEL=30 sbatch abstract_values/surface/slurm_jobs/make_benson_eccen_mask.sh
 #
 # Optional exports: SESSION (default 1), REPO (default ~/git/abstract_values)
 

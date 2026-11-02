@@ -13,9 +13,9 @@
 # LORO k, T) noise on the same voxels. Writes derivatives/decoding_lowrankcv/.
 #
 # CPU only (no GPU needed). Array index -> subject (1..36 = pil01 pil02 03..36). Required: QUANTITY, ROI.
-#   sbatch --array=1-36 --export=ALL,QUANTITY=orientation,ROI=BensonV1 decode_lowrank_cv.sh
-#   sbatch --array=1-35 --export=ALL,QUANTITY=value,ROI=IPS0 decode_lowrank_cv.sh
-#   sbatch --export=ALL,PARTICIPANT_LABEL=36,QUANTITY=value,ROI=IPS12 decode_lowrank_cv.sh
+#   QUANTITY=orientation ROI=BensonV1 sbatch --array=1-36 decode_lowrank_cv.sh
+#   QUANTITY=value ROI=IPS0 sbatch --array=1-35 decode_lowrank_cv.sh
+#   PARTICIPANT_LABEL=36 QUANTITY=value ROI=IPS12 sbatch decode_lowrank_cv.sh
 # SELECT_VOXELS=1: N chosen by nested CV (decoding_lowrankcv_nvcv tree).
 # FAST=1: low-rank only, all ROI voxels, no inner refits (decoding_lowrankcv_fast tree).
 set -eo pipefail
@@ -25,7 +25,7 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=${SUBJECTS[$((SLURM_ARRAY_TASK_ID - 1))]}
 fi
 if [ -z "$QUANTITY" ] || [ -z "$ROI" ]; then
-    echo "ERROR: QUANTITY and ROI must be set via --export=ALL,..."; exit 1
+    echo "ERROR: QUANTITY and ROI must be set (QUANTITY=... ROI=... sbatch ...)"; exit 1
 fi
 
 export KERAS_BACKEND=tensorflow

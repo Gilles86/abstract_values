@@ -11,16 +11,16 @@
 #
 # Two ways to run:
 #   Array job:  sbatch --array=1-30 fit_aprf.sh
-#   By name:    sbatch --export=PARTICIPANT_LABEL=pil01 fit_aprf.sh
+#   By name:    PARTICIPANT_LABEL=pil01 sbatch fit_aprf.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   SESSION       session number, e.g. SESSION=1 (default: all sessions)
 #   SMOOTHED      set to "1" to fit on spatially smoothed betas (default: off)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   N_ITERATIONS  max gradient descent iterations (default: 1000)
 #
 # Example (pilot, session 1, smoothed):
-#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION=1,SMOOTHED=1 fit_aprf.sh
+#   PARTICIPANT_LABEL=pil01 SESSION=1 SMOOTHED=1 sbatch fit_aprf.sh
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)

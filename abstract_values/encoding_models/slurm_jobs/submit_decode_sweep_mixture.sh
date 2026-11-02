@@ -41,12 +41,11 @@ for SUBJ in "${SUBJECTS[@]}"; do
     # ── decode_value: aprf mixture (already cached) ─────────────────────────
     for CRIT in fdr05 psig95; do
         if [ "$CRIT" = "fdr05" ]; then
-            EXPORT="PARTICIPANT_LABEL=$SUBJ,MASK=$NPCR_MASK,MASK_DESC=NPCr,LAMBD=0.1,FDR_ALPHA=0.05"
+            ENV=("PARTICIPANT_LABEL=$SUBJ" "MASK=$NPCR_MASK" "MASK_DESC=NPCr" "LAMBD=0.1" "FDR_ALPHA=0.05")
         else
-            EXPORT="PARTICIPANT_LABEL=$SUBJ,MASK=$NPCR_MASK,MASK_DESC=NPCr,LAMBD=0.1,P_SIGNAL_THR=0.95"
+            ENV=("PARTICIPANT_LABEL=$SUBJ" "MASK=$NPCR_MASK" "MASK_DESC=NPCr" "LAMBD=0.1" "P_SIGNAL_THR=0.95")
         fi
-        JID=$(sbatch --parsable $SBATCH_OPTS \
-            --export="$EXPORT" \
+        JID=$(env "${ENV[@]}" sbatch --parsable $SBATCH_OPTS \
             $DECODE_DIR/decode_value.sh)
         echo "value/$SUBJ/$CRIT -> $JID"
         JOB_IDS+=("$JID")
@@ -55,13 +54,12 @@ for SUBJ in "${SUBJECTS[@]}"; do
     # ── decode_gabor: vonmises mixture (depends on $VONMISES_JOB) ──────────
     for CRIT in fdr05 psig95; do
         if [ "$CRIT" = "fdr05" ]; then
-            EXPORT="PARTICIPANT_LABEL=$SUBJ,MASK=$V1_MASK,MASK_DESC=BensonV1,LAMBD=0.1,FDR_ALPHA=0.05"
+            ENV=("PARTICIPANT_LABEL=$SUBJ" "MASK=$V1_MASK" "MASK_DESC=BensonV1" "LAMBD=0.1" "FDR_ALPHA=0.05")
         else
-            EXPORT="PARTICIPANT_LABEL=$SUBJ,MASK=$V1_MASK,MASK_DESC=BensonV1,LAMBD=0.1,P_SIGNAL_THR=0.95"
+            ENV=("PARTICIPANT_LABEL=$SUBJ" "MASK=$V1_MASK" "MASK_DESC=BensonV1" "LAMBD=0.1" "P_SIGNAL_THR=0.95")
         fi
-        JID=$(sbatch --parsable $SBATCH_OPTS \
+        JID=$(env "${ENV[@]}" sbatch --parsable $SBATCH_OPTS \
             --dependency=afterok:$VONMISES_JOB \
-            --export="$EXPORT" \
             $DECODE_DIR/decode_gabor.sh)
         echo "gabor/$SUBJ/$CRIT -> $JID  (afterok:$VONMISES_JOB)"
         JOB_IDS+=("$JID")

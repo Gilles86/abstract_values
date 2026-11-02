@@ -25,23 +25,25 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY_RUN="${DRY_RUN:-0}"
 
-submit() {   # echoes the job id
-    if [ "$DRY_RUN" = "1" ]; then echo "DRY:$*" >&2; echo "000000"; return; fi
-    sbatch --parsable "$@"
+submit() {   # submit [VAR=value ...] [sbatch args...]; echoes the job id
+    local envs=()   # leading VAR=value words go into sbatch's environment
+    while [ $# -gt 0 ] && [[ $1 =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do envs+=("$1"); shift; done
+    if [ "$DRY_RUN" = "1" ]; then echo "DRY:${envs[*]:-} $*" >&2; echo "000000"; return; fi
+    env ${envs[@]+"${envs[@]}"} sbatch --parsable "$@"
 }
 
 for S in "$@"; do
     for SM in 0 1; do
         smtag=$([ "$SM" = "1" ] && echo smoothed || echo unsmoothed)
 
-        fit=$(submit --export="PARTICIPANT_LABEL=${S},SESSION_SHIFT=1,SMOOTHED=${SM}" \
+        fit=$(submit "PARTICIPANT_LABEL=${S}" SESSION_SHIFT=1 "SMOOTHED=${SM}" \
                      "$HERE/fit_vonmises.sh")
         echo "sub-${S} ${smtag}: fit=${fit}"
 
         for SEL in "N_VOXELS=100" "FDR_ALPHA=0.05"; do
             for SPH in 1 0; do
-                eu=$(submit --dependency="afterok:${fit}" \
-                     --export="PARTICIPANT_LABEL=${S},SESSION_SHIFT_WEIGHTS=1,SMOOTHED=${SM},SPHERICAL=${SPH},${SEL}" \
+                eu=$(submit "PARTICIPANT_LABEL=${S}" SESSION_SHIFT_WEIGHTS=1 "SMOOTHED=${SM}" \
+                     "SPHERICAL=${SPH}" "${SEL}" --dependency="afterok:${fit}" \
                      "$HERE/compute_expected_decoded_orientation_vonmises.sh")
                 echo "    eu=${eu}  ${SEL}  spherical=${SPH}"
             done

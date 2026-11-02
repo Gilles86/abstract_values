@@ -15,7 +15,7 @@
 # Needs a Kerberos ticket that a compute node can read: Gilles runs `kinit` on
 # the login node, then
 #   cp /tmp/krb5cc_$(id -u) /scratch/gdehol/.krb5cc && chmod 600 /scratch/gdehol/.krb5cc
-#   sbatch --export=GLM=glm_stim1.denoise pull_risk_glm.sh
+#   GLM=glm_stim1.denoise sbatch pull_risk_glm.sh
 
 export KRB5CCNAME=/scratch/gdehol/.krb5cc
 export TMPDIR=/scratch/gdehol/tmp

@@ -24,10 +24,10 @@
 #   sbatch --array=1-30 decode_roi_sweep.sh
 #
 #   # 30 subjects x 3 ROI chunks = 90 tasks
-#   sbatch --array=1-90 --export=N_CHUNKS=3 decode_roi_sweep.sh
+#   N_CHUNKS=3 sbatch --array=1-90 decode_roi_sweep.sh
 #
 #   # pilot: one subject, three ROIs, both decoders
-#   sbatch --export=PARTICIPANT_LABEL=pil01,ROIS="BensonV1 NPCr IPS1" \
+#   PARTICIPANT_LABEL=pil01 ROIS="BensonV1 NPCr IPS1" sbatch \
 #          --time=04:00:00 decode_roi_sweep.sh
 #
 # Optional exports:

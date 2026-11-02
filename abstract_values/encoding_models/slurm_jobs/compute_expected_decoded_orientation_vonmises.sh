@@ -12,7 +12,7 @@ export KERAS_BACKEND=tensorflow
 
 # V1 expected-decoded-orientation simulation via vonmises basis weights.
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   ROI            ROI label (default: BensonV1)
 #   HEMI           hemisphere: LR, L, R, None (default: LR)
 #   N_VOXELS       top voxels by R² (default: 100)

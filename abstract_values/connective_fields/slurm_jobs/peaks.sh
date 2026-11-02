@@ -11,7 +11,7 @@
 #
 # Usage:
 #   sbatch --array=3-30 peaks.sh
-#   sbatch --export=ALL,PARTICIPANT_LABEL=pil01 peaks.sh
+#   PARTICIPANT_LABEL=pil01 sbatch peaks.sh
 #
 # Optional overrides: N_BASIS, KAPPA, LAGS, GAIN (1 = remove per-trial gain),
 #   NPC_CLASS (all | value | orientation), TARGET_ROI (default NPCr; unions with +,

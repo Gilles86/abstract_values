@@ -10,7 +10,7 @@
 
 # Whole-brain lambda cvR^2 profile -> fsaverage, both smoothing variants
 # (surface/sample_lambda_to_surface.py).
-#   sbatch --export=ALL,PARTICIPANT_LABEL=05 sample_lambda_to_surface.sh
+#   PARTICIPANT_LABEL=05 sbatch sample_lambda_to_surface.sh
 
 set -eo pipefail
 export PYTHONUNBUFFERED=1

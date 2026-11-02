@@ -8,7 +8,7 @@
 #SBATCH --account=zne.uzh
 
 # Injection power check for the crossnobis mapping-change test.
-#   sbatch --export=ALL,PARTICIPANT_LABEL=03 power_mapping_change.sh
+#   PARTICIPANT_LABEL=03 sbatch power_mapping_change.sh
 . $HOME/init_conda.sh
 conda activate abstract_values
 PYTHONUNBUFFERED=1 python -u -m abstract_values.geometry.power_mapping_change "$PARTICIPANT_LABEL" \

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=fmriprep_abstractvalue
 #SBATCH --output=/home/gdehol/logs/abstractvalue_fmriprep_%A-%a.txt
 #SBATCH --ntasks=1
@@ -16,7 +16,7 @@
 #     -> labels 001, 002, ..., 030
 #
 #   Any subject by name (single job, overrides array):
-#     sbatch --export=PARTICIPANT_LABEL=pil02 fmriprep.sh
+#     PARTICIPANT_LABEL=pil02 sbatch fmriprep.sh
 #
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)

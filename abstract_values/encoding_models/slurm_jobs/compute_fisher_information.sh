@@ -13,9 +13,9 @@ export KERAS_BACKEND=tensorflow
 # Note: re-fits Von Mises weights internally; does not depend on fit_vonmises output.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=pil02,ROI=BensonV1,HEMI=LR compute_fisher_information.sh
+#   PARTICIPANT_LABEL=pil02 ROI=BensonV1 HEMI=LR sbatch compute_fisher_information.sh
 #
-# Required overrides (--export key=value):
+# Required overrides (set as KEY=value in front of sbatch):
 #   ROI           ROI label, e.g. BensonV1, NPC (default: BensonV1)
 #   HEMI          hemisphere: L, R, LR, or None (default: LR)
 #

@@ -49,14 +49,19 @@ for i in "${!SUBS[@]}"; do [ "${SUBS[$i]}" = "$S" ] && IDX=$i; done
 [ "$IDX" -ge 0 ] || { echo "sub-$S has no aprf-session-shift fit"; exit 1; }
 echo "sub-$S: index $IDX of $N in aprf-session-shift"
 
-# sbatch wrapper: sb <name> [sbatch args...] <script> ; prints the job id
+# sbatch wrapper: sb <name> [VAR=value ...] [sbatch args...] <script> ; prints
+# the job id. Leading VAR=value words are put in sbatch's environment (default
+# --export=ALL hands them to the job); never pass an --export list, it makes
+# slurmd re-fetch the user env and tasks get held ("user env retrieval failed").
 sb () {
     local name=$1; shift
+    local envs=()
+    while [ $# -gt 0 ] && [[ $1 =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do envs+=("$1"); shift; done
     if [ "${DRY_RUN:-0}" = "1" ]; then
-        echo "DRY $name: sbatch $*" >&2; echo "0"; return
+        echo "DRY $name: ${envs[*]} sbatch $*" >&2; echo "0"; return
     fi
     local id
-    id=$(sbatch --parsable -A zne.uzh --partition=standard --exclude=u24-chaihm0-651 \
+    id=$(env "${envs[@]}" sbatch --parsable -A zne.uzh --partition=standard --exclude=u24-chaihm0-651 \
                 --job-name="bf${S}_${name}" "$@")
     id=${id%%;*}
     printf '%s\t%s\n' "$id" "$name" >> "$MANIFEST"
@@ -79,20 +84,19 @@ $PY -m abstract_values.surface.project_fsaverage_rois $S --bids-folder $BIDS
 $PY -m abstract_values.prepare.make_vmpfc_aparc_mask $S --bids-folder $BIDS
 $PY abstract_values/encoding_models/permnull_select.py $S --bids-folder $BIDS --union-mask-only
 ls -la $MASKS")
-NPC3_ID=$(sb npc3 --time=00:40:00 --export=ALL,PARTICIPANT_LABEL=$S,ROIS=NPC3 \
+NPC3_ID=$(sb npc3 PARTICIPANT_LABEL=$S ROIS=NPC3 --time=00:40:00 \
              abstract_values/prepare/slurm_jobs/create_extra_roi_masks.sh)
 DM=$(dep "$MASK_ID")
 DMN=$(dep "$MASK_ID" "$NPC3_ID")
 
 # ── 2. CV fit -> aggregate cvR2 -> fsaverage/fsnative surface ─────────────────
-cv_chain () {   # cv_chain <name> <cv dir> <smoothed> <sbatch args for the fit...>
+cv_chain () {   # cv_chain <name> <cv dir> <smoothed> [VAR=value ...] <sbatch args for the fit...>
     local name=$1 dir=$2 sm=$3; shift 3
     local f a
     f=$(sb "$name" "$@")
-    a=$(sb "agg_${name}" $(dep "$f") --export=ALL,PARTICIPANT_LABEL=$S,MODEL_DIR=$dir,SMOOTHED=$sm \
+    a=$(sb "agg_${name}" PARTICIPANT_LABEL=$S MODEL_DIR=$dir SMOOTHED=$sm $(dep "$f") \
            $EM/aggregate_cvr2.sh)
-    sb "surf_${name}" -c2 --mem=8G -t 30 $(dep "$a") \
-       --export=ALL,PARTICIPANT_LABEL=$S,MODEL_DIR=$dir,DESC=cvr2,SMOOTHED=$sm \
+    sb "surf_${name}" PARTICIPANT_LABEL=$S MODEL_DIR=$dir DESC=cvr2 SMOOTHED=$sm -c2 --mem=8G -t 30 $(dep "$a") \
        abstract_values/surface/slurm_jobs/sample_r2_to_surface.sh > /dev/null
 }
 # reported-value twins (smoothed betas only, as for the cohort)
@@ -102,17 +106,17 @@ for m in standard-bid:aprf-bid.cv standard-bidmatched:aprf-bidmatched.cv \
          session-shift-bid:aprf-session-shift-bid.cv \
          session-shift-bidmatched:aprf-session-shift-bidmatched.cv \
          vonmises-prf-bidmatched:vonmises-prf-bidmatched.cv; do
-    cv_chain "cv_${m%%:*}" "${m#*:}" 1 --export=ALL,PARTICIPANT_LABEL=$S,MODEL=${m%%:*},SMOOTHED=1 $EM/fit_aprf_cv.sh
+    cv_chain "cv_${m%%:*}" "${m#*:}" 1 PARTICIPANT_LABEL=$S MODEL=${m%%:*} SMOOTHED=1 $EM/fit_aprf_cv.sh
 done
 for sp in bid bidmatched; do
-    cv_chain "cvw_$sp" "aprf-weighted-$sp.cv" 1 --export=ALL,PARTICIPANT_LABEL=$S,SPACE=$sp,SMOOTHED=1 \
+    cv_chain "cvw_$sp" "aprf-weighted-$sp.cv" 1 PARTICIPANT_LABEL=$S SPACE=$sp SMOOTHED=1 \
         $EM/fit_aprf_weighted_cv.sh
 done
 for sm in 0 1; do
-    cv_chain "cv_vmprf_$sm" vonmises-prf.cv $sm --export=ALL,PARTICIPANT_LABEL=$S,MODEL=vonmises-prf,SMOOTHED=$sm \
+    cv_chain "cv_vmprf_$sm" vonmises-prf.cv $sm PARTICIPANT_LABEL=$S MODEL=vonmises-prf SMOOTHED=$sm \
         $EM/fit_aprf_cv.sh
 done
-sb fit_vmprf --export=ALL,PARTICIPANT_LABEL=$S,MODEL=vonmises-prf $EM/fit_aprf.sh > /dev/null
+sb fit_vmprf PARTICIPANT_LABEL=$S MODEL=vonmises-prf $EM/fit_aprf.sh > /dev/null
 
 # vonmises preferred orientation (cos/sin) + missing surface samples
 sb prefori_surf -c2 --mem=16G --time=01:30:00 -o "$HOME/logs/bf${S}_prefori_surf_%j.txt" --wrap "
@@ -125,24 +129,24 @@ for sm in 0 1; do
 done" > /dev/null
 
 # tSNR / mean-EPI QA maps (derivatives/qa/tsnr)
-sb tsnr --export=ALL,PARTICIPANT_LABEL=$S abstract_values/visualize/slurm_jobs/collect_vmpfc_dropout.sh > /dev/null
+sb tsnr PARTICIPANT_LABEL=$S abstract_values/visualize/slurm_jobs/collect_vmpfc_dropout.sh > /dev/null
 
 # ── 3. ROI-restricted encoding models (need the permnull union mask) ─────────
 for sm in 0 1; do
-    sb "pn_ss_$sm" $DM --time=03:00:00 --export=ALL,PARTICIPANT_LABEL=$S,MODEL=session-shift,SMOOTHED=$sm $EM/permnull_select.sh > /dev/null
+    sb "pn_ss_$sm" PARTICIPANT_LABEL=$S MODEL=session-shift SMOOTHED=$sm $DM --time=03:00:00 $EM/permnull_select.sh > /dev/null
     for m in gaussian gauss-session-shift quantile quantile-wrapped; do
-        sb "pn_${m}_$sm" $DM --time=02:00:00 --export=ALL,PARTICIPANT_LABEL=$S,MODEL=$m,SMOOTHED=$sm $EM/permnull_select.sh > /dev/null
+        sb "pn_${m}_$sm" PARTICIPANT_LABEL=$S MODEL=$m SMOOTHED=$sm $DM --time=02:00:00 $EM/permnull_select.sh > /dev/null
     done
-    sb "pn_linear_$sm" $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S,MODEL=linear,SMOOTHED=$sm $EM/permnull_select.sh > /dev/null
+    sb "pn_linear_$sm" PARTICIPANT_LABEL=$S MODEL=linear SMOOTHED=$sm $DM --time=00:30:00 $EM/permnull_select.sh > /dev/null
     for m in quantile quantile-wrapped; do
-        sb "cv_${m}_$sm" $DM --time=02:00:00 --mem=16G \
-           --export=ALL,PARTICIPANT_LABEL=$S,MODEL=$m,SMOOTHED=$sm,MASK=$UNION $EM/fit_aprf_cv.sh > /dev/null
+        sb "cv_${m}_$sm" PARTICIPANT_LABEL=$S MODEL=$m SMOOTHED=$sm MASK=$UNION $DM --time=02:00:00 --mem=16G \
+           $EM/fit_aprf_cv.sh > /dev/null
     done
     for t in m050 m025 p000 p025 p050 p075 p100 p125 p150; do
-        sb "mxfit_${t}_$sm" $DM --time=00:30:00 \
-           --export=ALL,PARTICIPANT_LABEL=$S,MODEL=mix-$t,SMOOTHED=$sm,MASK=$UNION $EM/fit_aprf.sh > /dev/null
-        sb "mxcv_${t}_$sm" $DM --time=01:30:00 \
-           --export=ALL,PARTICIPANT_LABEL=$S,MODEL=mix-$t,SMOOTHED=$sm,MASK=$UNION $EM/fit_aprf_cv.sh > /dev/null
+        sb "mxfit_${t}_$sm" PARTICIPANT_LABEL=$S MODEL=mix-$t SMOOTHED=$sm MASK=$UNION $DM --time=00:30:00 \
+           $EM/fit_aprf.sh > /dev/null
+        sb "mxcv_${t}_$sm" PARTICIPANT_LABEL=$S MODEL=mix-$t SMOOTHED=$sm MASK=$UNION $DM --time=01:30:00 \
+           $EM/fit_aprf_cv.sh > /dev/null
     done
 done
 # session-shift on odd / even runs (array task 2i+1 = odd, 2i+2 = even)
@@ -152,11 +156,11 @@ sb runsplit $DM --time=00:30:00 --array=$((2 * IDX + 1)),$((2 * IDX + 2)) $EM/fi
 ARR=(); for c in 0 1 2 3 4 5 6; do ARR+=($((c * N + IDX + 1))); done
 sb mixlam $DM --time=03:00:00 --array=$(IFS=,; echo "${ARR[*]}") $EM/fit_mix_lambda.sh > /dev/null
 ARR=(); for c in $(seq 0 8); do for r in 0 1 2 3 4 5; do ARR+=($(((c * N + IDX) * 6 + r + 1))); done; done
-sb mixlam_width $DM --time=03:00:00 --array=$(IFS=,; echo "${ARR[*]}") \
-   --export=ALL,MODEL=width,PER_ROI=1 $EM/fit_mix_lambda.sh > /dev/null
+sb mixlam_width MODEL=width PER_ROI=1 $DM --time=03:00:00 --array=$(IFS=,; echo "${ARR[*]}") \
+   $EM/fit_mix_lambda.sh > /dev/null
 ARR=(); for c in 0 1 2 3 4; do for r in 0 1 2 3 4 5; do ARR+=($(((c * N + IDX) * 6 + r + 1))); done; done
-sb mixlam_grid $DM --time=10:00:00 --array=$(IFS=,; echo "${ARR[*]}") \
-   --export=ALL,MODEL=grid,PER_ROI=1 $EM/fit_mix_lambda.sh > /dev/null
+sb mixlam_grid MODEL=grid PER_ROI=1 $DM --time=10:00:00 --array=$(IFS=,; echo "${ARR[*]}") \
+   $EM/fit_mix_lambda.sh > /dev/null
 # end-to-end lambda recovery sims (8 conditions) and their cvR2 profiles (6)
 ARR=(); for c in $(seq 0 7); do ARR+=($((c * N + IDX + 1))); done
 sb sim_lambda $DM --time=00:30:00 --array=$(IFS=,; echo "${ARR[*]}") $EM/simulate_lambda_pipeline.sh > /dev/null
@@ -165,12 +169,12 @@ sb lamprof_sim $DM --time=00:30:00 --array=$(IFS=,; echo "${ARR[*]}") $EM/fit_la
 # lambda profiles (ROI, bid axes, power axis, whole brain) -> fsaverage
 LB=()
 for sm in 0 1; do
-    sb "lamprof_$sm" $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S,SMOOTHED=$sm $EM/fit_lambda_profile.sh > /dev/null
-    sb "lamprof_bid_$sm" $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S,SMOOTHED=$sm,BIDS=1 $EM/fit_lambda_profile.sh > /dev/null
-    sb "gamprof_$sm" $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S,SMOOTHED=$sm,POWER=1 $EM/fit_lambda_profile.sh > /dev/null
-    LB+=($(sb "lambrain_$sm" $DM --mem=32G --time=02:00:00 --export=ALL,PARTICIPANT_LABEL=$S,SMOOTHED=$sm,WHOLE_BRAIN=1 $EM/fit_lambda_profile.sh))
+    sb "lamprof_$sm" PARTICIPANT_LABEL=$S SMOOTHED=$sm $DM --time=00:30:00 $EM/fit_lambda_profile.sh > /dev/null
+    sb "lamprof_bid_$sm" PARTICIPANT_LABEL=$S SMOOTHED=$sm BIDS=1 $DM --time=00:30:00 $EM/fit_lambda_profile.sh > /dev/null
+    sb "gamprof_$sm" PARTICIPANT_LABEL=$S SMOOTHED=$sm POWER=1 $DM --time=00:30:00 $EM/fit_lambda_profile.sh > /dev/null
+    LB+=($(sb "lambrain_$sm" PARTICIPANT_LABEL=$S SMOOTHED=$sm WHOLE_BRAIN=1 $DM --mem=32G --time=02:00:00 $EM/fit_lambda_profile.sh))
 done
-sb lamsurf $(dep "${LB[@]}") --export=ALL,PARTICIPANT_LABEL=$S abstract_values/surface/slurm_jobs/sample_lambda_to_surface.sh > /dev/null
+sb lamsurf PARTICIPANT_LABEL=$S $(dep "${LB[@]}") abstract_values/surface/slurm_jobs/sample_lambda_to_surface.sh > /dev/null
 
 # ── 4. decoding / expected decoded values per ROI ──────────────────────────────
 roi_mask () {   # roi_mask <desc> -> path (Benson masks carry hemi-LR)
@@ -179,46 +183,45 @@ roi_mask () {   # roi_mask <desc> -> path (Benson masks carry hemi-LR)
 }
 for r in BensonV2 BensonV3 IPS0 IPS12 IPS345 V3ab M1l; do
     for sp in 0 1; do
-        sb "dec_${r}_$sp" $DM --time=02:00:00 \
-           --export=ALL,PARTICIPANT_LABEL=$S,MASK=$(roi_mask $r),MASK_DESC=$r,SPHERICAL=$sp,N_VOXELS=100 \
+        sb "dec_${r}_$sp" PARTICIPANT_LABEL=$S MASK=$(roi_mask $r) MASK_DESC=$r SPHERICAL=$sp N_VOXELS=100 \
+           $DM --time=02:00:00 \
            $EM/decode_value.sh > /dev/null
     done
 done
-sb dec_vmPFC $DM --time=02:00:00 \
-   --export=ALL,PARTICIPANT_LABEL=$S,MASK=$(roi_mask vmPFCOFCaparc),MASK_DESC=vmPFCOFCaparc,SPHERICAL=1,N_VOXELS=100 \
+sb dec_vmPFC PARTICIPANT_LABEL=$S MASK=$(roi_mask vmPFCOFCaparc) MASK_DESC=vmPFCOFCaparc SPHERICAL=1 N_VOXELS=100 \
+   $DM --time=02:00:00 \
    $EM/decode_value.sh > /dev/null
 for r in BensonV1 IPS0 IPS12 IPS345 vmPFCOFCaparc; do
-    sb "declin_$r" $DM --time=02:00:00 \
-       --export=ALL,PARTICIPANT_LABEL=$S,MASK=$(roi_mask $r),MASK_DESC=$r,SPHERICAL=1,N_VOXELS=100,MODEL=linear \
+    sb "declin_$r" PARTICIPANT_LABEL=$S MASK=$(roi_mask $r) MASK_DESC=$r SPHERICAL=1 N_VOXELS=100 MODEL=linear \
+       $DM --time=02:00:00 \
        $EM/decode_value.sh > /dev/null
 done
 # expected decoded value (weighted basis, per-session weights) and orientation
 for rh in BensonV1:LR BensonV2:LR BensonV3:LR hV4:None IPS0:None IPS12:None LO:None \
           NPCl:None NPCr:None TO:None V3ab:None; do
     for p in presented flat mapping; do
-        sb "euw_${rh%%:*}_$p" $DM --time=00:30:00 \
-           --export=ALL,PARTICIPANT_LABEL=$S,ROI=${rh%%:*},HEMI=${rh#*:},PER_SESSION=1,DECODE_PRIOR=$p \
+        sb "euw_${rh%%:*}_$p" PARTICIPANT_LABEL=$S ROI=${rh%%:*} HEMI=${rh#*:} PER_SESSION=1 DECODE_PRIOR=$p $DM --time=00:30:00 \
            $EM/compute_expected_decoded_value_weighted.sh > /dev/null
     done
-    sb "euvm_${rh%%:*}" $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S,ROI=${rh%%:*},HEMI=${rh#*:} \
+    sb "euvm_${rh%%:*}" PARTICIPANT_LABEL=$S ROI=${rh%%:*} HEMI=${rh#*:} $DM --time=00:30:00 \
        $EM/compute_expected_decoded_orientation_vonmises.sh > /dev/null
 done
 for r in IPS345 M1l; do
-    sb "euw_${r}_presented" $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S,ROI=$r,HEMI=None,PER_SESSION=1 \
+    sb "euw_${r}_presented" PARTICIPANT_LABEL=$S ROI=$r HEMI=None PER_SESSION=1 $DM --time=00:30:00 \
        $EM/compute_expected_decoded_value_weighted.sh > /dev/null
 done
 
 # ── 5. geometry, follow-ups ───────────────────────────────────────────────────
-sb crossnobis $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S abstract_values/geometry/slurm_jobs/crossnobis.sh > /dev/null
-sb cn_power $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S abstract_values/geometry/slurm_jobs/power_mapping_change.sh > /dev/null
+sb crossnobis PARTICIPANT_LABEL=$S $DM --time=00:30:00 abstract_values/geometry/slurm_jobs/crossnobis.sh > /dev/null
+sb cn_power PARTICIPANT_LABEL=$S $DM --time=00:30:00 abstract_values/geometry/slurm_jobs/power_mapping_change.sh > /dev/null
 A3=analyses/followup_2026-10/a3_categorical_90/slurm_jobs/compute_rdms.sh
-sb a3_rdms $DM --export=ALL,PARTICIPANT_LABEL=$S $A3 > /dev/null
-sb a3_controls $DM --export=ALL,PARTICIPANT_LABEL=$S,SCRIPT=compute_controls.py $A3 > /dev/null
-sb a4 $DM --time=10:00:00 --export=ALL,PARTICIPANT_LABEL=$S analyses/followup_2026-10/a4_tuning_shape/fit_tuning_shape.sh > /dev/null
-sb a5 $DM --time=00:30:00 --export=ALL,PARTICIPANT_LABEL=$S analyses/followup_2026-10/a5_coupling_90/a5_coupling_90.sh > /dev/null
+sb a3_rdms PARTICIPANT_LABEL=$S $DM $A3 > /dev/null
+sb a3_controls PARTICIPANT_LABEL=$S SCRIPT=compute_controls.py $DM $A3 > /dev/null
+sb a4 PARTICIPANT_LABEL=$S $DM --time=10:00:00 analyses/followup_2026-10/a4_tuning_shape/fit_tuning_shape.sh > /dev/null
+sb a5 PARTICIPANT_LABEL=$S $DM --time=00:30:00 analyses/followup_2026-10/a5_coupling_90/a5_coupling_90.sh > /dev/null
 for desc in gabor response; do
-    sb "a1_M1_$desc" $DM --time=04:00:00 --export=ALL,SUBJECT=$S,DESC=$desc $EM/fit_motor_cv.sh > /dev/null
-    sb "a1_preSMA_$desc" --time=04:00:00 --export=ALL,SUBJECT=$S,DESC=$desc,ROI_SET=preSMA $EM/fit_motor_cv.sh > /dev/null
+    sb "a1_M1_$desc" SUBJECT=$S DESC=$desc $DM --time=04:00:00 $EM/fit_motor_cv.sh > /dev/null
+    sb "a1_preSMA_$desc" SUBJECT=$S DESC=$desc ROI_SET=preSMA --time=04:00:00 $EM/fit_motor_cv.sh > /dev/null
 done
 
 # ── 6. connective fields (clean clone, see project memory) ────────────────────
@@ -248,9 +251,9 @@ done
 for t in NPC1 NPC2 NPC3 NPC1+NPC2+NPC3; do for l in 0 1; do VN+=("$I24 TARGET_ROI=$t LAGS=$l"); done; done
 export VARIANTS
 VARIANTS=$(IFS=';'; echo "${V[*]}")
-sb cf_coupling $DM --time=03:00:00 --export=ALL,PARTICIPANT_LABEL=$S,REPO=$CF_REPO $CFJ/test_coupling_variants.sh > /dev/null
+sb cf_coupling PARTICIPANT_LABEL=$S REPO=$CF_REPO $DM --time=03:00:00 $CFJ/test_coupling_variants.sh > /dev/null
 VARIANTS=$(IFS=';'; echo "${VN[*]}")
-sb cf_coupling_npc $DMN --time=03:00:00 --export=ALL,PARTICIPANT_LABEL=$S,REPO=$CF_REPO $CFJ/test_coupling_variants.sh > /dev/null
+sb cf_coupling_npc PARTICIPANT_LABEL=$S REPO=$CF_REPO $DMN --time=03:00:00 $CFJ/test_coupling_variants.sh > /dev/null
 unset VARIANTS
 P=("TARGET_ROI=IPS0" "TARGET_ROI=IPS12" "TARGET_ROI=IPS345")
 for l in 0 1 2; do P+=("TARGET_ROI=IPS0+IPS12+IPS345 LAGS=$l"); done
@@ -260,13 +263,13 @@ P+=("TARGET_ROI=NPC1" "TARGET_ROI=NPC2" "TARGET_ROI=NPC3"
     "TARGET_ROI=NPC1+NPC2+NPC3 LAGS=0" "TARGET_ROI=NPC1+NPC2+NPC3 LAGS=1")
 export PEAKS
 PEAKS=$(IFS=';'; echo "${P[*]}")
-sb cf_peaks $DMN --time=04:00:00 -c4 --mem=16G -o "$HOME/logs/bf${S}_cf_peaks_%j.txt" \
-   --export=ALL,PARTICIPANT_LABEL=$S,REPO=$CF_REPO --wrap "
+sb cf_peaks PARTICIPANT_LABEL=$S REPO=$CF_REPO $DMN --time=04:00:00 -c4 --mem=16G -o "$HOME/logs/bf${S}_cf_peaks_%j.txt" \
+   --wrap "
 fail=0; IFS=';' read -ra PS <<< \"\$PEAKS\"
 for p in \"\${PS[@]}\"; do echo \"=== \$p\"; env \$p bash $CFJ/peaks.sh || fail=1; done; exit \$fail" > /dev/null
 unset PEAKS
 for sm in 0 1; do
-    sb "tuncon_$sm" $DM --export=ALL,PARTICIPANT_LABEL=$S,SMOOTHED=$sm,REPO=$CF_REPO \
+    sb "tuncon_$sm" PARTICIPANT_LABEL=$S SMOOTHED=$sm REPO=$CF_REPO $DM \
        abstract_values/connective_fields/slurm_jobs/fit_tuning_connectivity.sh > /dev/null
 done
 

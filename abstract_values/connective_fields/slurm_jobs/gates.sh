@@ -11,9 +11,9 @@
 #
 # Usage:
 #   sbatch --array=3-30 gates.sh                        # sub-03 .. sub-30
-#   sbatch --export=ALL,PARTICIPANT_LABEL=pil01 gates.sh
+#   PARTICIPANT_LABEL=pil01 sbatch gates.sh
 #
-# Optional overrides (--export ALL,KEY=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   V1_VOXELS   selected (default) | all  -- V1 voxels feeding the channels
 #   N_PERM      injection permutations (default 50)
 #   AMPLITUDES  space-separated injected couplings (default "0 0.05 0.1 0.2")

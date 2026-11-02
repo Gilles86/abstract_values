@@ -11,7 +11,7 @@
 # fdr05 selection, spherical noise.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=04 v1_basis_sweep.sh
+#   PARTICIPANT_LABEL=04 sbatch v1_basis_sweep.sh
 #
 # Optional overrides:
 #   SMOOTHED        set to "1" for smoothed betas (default: off)

@@ -12,9 +12,9 @@
 #
 # Usage:
 #   sbatch --array=3-30 test_coupling.sh
-#   sbatch --export=ALL,PARTICIPANT_LABEL=pil01 test_coupling.sh
+#   PARTICIPANT_LABEL=pil01 sbatch test_coupling.sh
 #
-# Optional overrides (--export ALL,KEY=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   N_SHUFFLE   label permutations (default 200)
 #   LAGS        also remove neighbouring trials' orientations, +-LAGS (default 0)
 #   PROJECTION  bins (default) | iem

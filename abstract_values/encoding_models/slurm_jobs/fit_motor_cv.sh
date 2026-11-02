@@ -12,9 +12,9 @@
 # (fit_motor_cv.py), one subject x epoch per array task.
 # Task index i -> subject SUBJECTS[i % 35], epoch DESCS[i / 35].
 #
-#   sbatch --array=0-69 --export=ALL fit_motor_cv.sh
-#   sbatch --array=0-34 --export=ALL,DESC=response fit_motor_cv.sh   # one epoch
-#   sbatch --array=0-69 --export=ALL,ROI_SET=preSMA fit_motor_cv.sh  # pre-SMA control
+#   sbatch --array=0-69 fit_motor_cv.sh
+#   DESC=response sbatch --array=0-34 fit_motor_cv.sh   # one epoch
+#   ROI_SET=preSMA sbatch --array=0-69 fit_motor_cv.sh  # pre-SMA control
 set -eo pipefail
 
 SUBJECTS=(pil01 pil02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 \

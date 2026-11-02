@@ -13,10 +13,10 @@ export KERAS_BACKEND=tensorflow
 # Requires fit_aprf (or fit_aprf with MODEL=session-shift) to have completed.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=pil02 compute_fisher_information_aprf.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil02,MODEL=session-shift compute_fisher_information_aprf.sh
+#   PARTICIPANT_LABEL=pil02 sbatch compute_fisher_information_aprf.sh
+#   PARTICIPANT_LABEL=pil02 MODEL=session-shift sbatch compute_fisher_information_aprf.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   SESSION       space-separated session numbers (default: all sessions)
 #   MODEL         standard or session-shift (default: standard)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)

@@ -14,7 +14,7 @@
 # in CHF), fwhm, amplitude, baseline, plus the von Mises R² as `gabor-r2` —
 # comes from here.
 #
-# Required environment (set via `--export key=value`, or by the Snakemake rule):
+# Required environment (set as `KEY=value sbatch ...`, or by the Snakemake rule):
 #   PARTICIPANT_LABEL  subject label without sub- prefix (e.g. 08)
 #
 # Optional:

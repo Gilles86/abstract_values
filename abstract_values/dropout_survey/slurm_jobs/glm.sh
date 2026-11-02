@@ -10,8 +10,8 @@
 # GLMsingle R2 / single-trial-beta detectability per survey ROI for one
 # (dataset, subject) (dropout_survey/glm.py).  Subjects = those already in the
 # dropout survey (/scratch/gdehol/dropout_survey/<DATASET>/sub-*), sorted.
-#   sbatch --array=1-30%10 --export=DATASET=numrisk glm.sh
-#   sbatch --export=DATASET=numrisk,PARTICIPANT_LABEL=10 glm.sh
+#   DATASET=numrisk sbatch --array=1-30%10 glm.sh
+#   DATASET=numrisk PARTICIPANT_LABEL=10 sbatch glm.sh
 OUT=/scratch/gdehol/dropout_survey
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(ls -d $OUT/$DATASET/sub-* | sed 's|.*/sub-||' | sort | sed -n "${SLURM_ARRAY_TASK_ID}p")

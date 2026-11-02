@@ -18,7 +18,7 @@
 
 # Hierarchical MCMC fit of the Bedi et al. efficient-coding models.
 #
-#   sbatch --export=MODEL=sequential fit_efficient_coding.sh
+#   MODEL=sequential sbatch fit_efficient_coding.sh
 #
 # Optional overrides: DRAWS, TUNE, CHAINS, GRID, TARGET_ACCEPT.
 # The paradigm TSV is built once beforehand with --write-paradigm (that step

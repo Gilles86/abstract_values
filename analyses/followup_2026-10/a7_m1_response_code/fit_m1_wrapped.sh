@@ -11,7 +11,7 @@
 # Wrapped value/bid PRF in M1 with parameters kept (fit_m1_wrapped.py).
 # Task i -> subject SUBJECTS[i % 36], epoch EPOCHS[i / 36].
 #
-#   sbatch --array=0-71 --export=ALL fit_m1_wrapped.sh
+#   sbatch --array=0-71 fit_m1_wrapped.sh
 set -eo pipefail
 
 SUBJECTS=(pil01 pil02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 \

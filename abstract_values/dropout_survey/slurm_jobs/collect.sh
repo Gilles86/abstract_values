@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=dropout_survey
 #SBATCH --output=/home/gdehol/logs/dropout_survey_%A-%a.txt
 #SBATCH --ntasks=1
@@ -11,8 +11,8 @@
 # (dropout_survey/collect.py), then warps the maps to MNI152NLin2009cAsym 2 mm
 # with ANTs from the fmriprep container.  Subjects are read from
 #   /scratch/gdehol/dropout_survey/subjects_<DATASET>.txt   (written by inventory)
-#   sbatch --array=1-30%15 --export=DATASET=numrisk collect.sh
-#   sbatch --export=DATASET=numrisk,PARTICIPANT_LABEL=10 collect.sh
+#   DATASET=numrisk sbatch --array=1-30%15 collect.sh
+#   DATASET=numrisk PARTICIPANT_LABEL=10 sbatch collect.sh
 # Read-only on all dataset folders; writes only to /scratch/gdehol/dropout_survey.
 
 OUT=/scratch/gdehol/dropout_survey

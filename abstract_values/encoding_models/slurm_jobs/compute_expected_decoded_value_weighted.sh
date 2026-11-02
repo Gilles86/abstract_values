@@ -14,9 +14,9 @@ export KERAS_BACKEND=tensorflow
 # The value-space twin of compute_expected_decoded_orientation_vonmises.sh.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=03 compute_expected_decoded_value_weighted.sh
+#   PARTICIPANT_LABEL=03 sbatch compute_expected_decoded_value_weighted.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   ROI             ROI label (default: NPCr)
 #   HEMI            hemisphere: LR, L, R, None (default: None)
 #   N_VOXELS        top voxels by joint R² (default: 100)

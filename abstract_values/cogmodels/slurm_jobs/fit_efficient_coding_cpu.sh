@@ -12,7 +12,7 @@
 # have only one or two free parameters, so waiting for a GPU costs more wall
 # clock than just running on cores.  numpyro runs one chain per core.
 #
-#   sbatch --export=MODEL=sequential fit_efficient_coding_cpu.sh
+#   MODEL=sequential sbatch fit_efficient_coding_cpu.sh
 
 MODEL="${MODEL:-sequential}"
 DRAWS="${DRAWS:-1500}"

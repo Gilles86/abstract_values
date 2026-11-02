@@ -21,7 +21,7 @@
 #
 # Usage:
 #   sbatch --array=3-14 sweep_npc_value.sh
-#   sbatch --export=PARTICIPANT_LABEL=03 sweep_npc_value.sh
+#   PARTICIPANT_LABEL=03 sbatch sweep_npc_value.sh
 #
 # Optional overrides:
 #   N_BASIS  basis counts (default "4 6 8 12 16 20")

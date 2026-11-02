@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=benchmark_backends
 #SBATCH --output=/home/gdehol/logs/benchmark_backends_%j.txt
 #SBATCH --ntasks=1
@@ -16,7 +16,7 @@
 # Usage:
 #   sbatch benchmark_backends.sh
 #
-# Optional overrides via --export key=value:
+# Optional overrides (set as KEY=value in front of sbatch):
 #   PARTICIPANT_LABEL  subject label (default: pil01)
 #   SESSION            session number (default: 1)
 #   N_ITERATIONS       gradient descent iterations (default: 500)
@@ -24,8 +24,8 @@
 #
 # Examples:
 #   sbatch benchmark_backends.sh
-#   sbatch --export=N_ITERATIONS=1000 benchmark_backends.sh
-#   sbatch --export=BACKENDS="tensorflow jax" benchmark_backends.sh
+#   N_ITERATIONS=1000 sbatch benchmark_backends.sh
+#   BACKENDS="tensorflow jax" sbatch benchmark_backends.sh
 
 PARTICIPANT_LABEL="${PARTICIPANT_LABEL:-pil01}"
 SESSION="${SESSION:-1}"

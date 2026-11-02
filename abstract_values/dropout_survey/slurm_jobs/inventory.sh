@@ -10,7 +10,7 @@
 # File inventory of every dataset (dropout_survey/datasets.py) and one subject
 # list per dataset with usable inputs.
 #   sbatch inventory.sh                       # all datasets
-#   sbatch --export=DATASETS="risk3t risk7t" inventory.sh
+#   DATASETS="risk3t risk7t" sbatch inventory.sh
 OUT=/scratch/gdehol/dropout_survey
 export TMPDIR=/scratch/gdehol/tmp
 mkdir -p $TMPDIR $OUT

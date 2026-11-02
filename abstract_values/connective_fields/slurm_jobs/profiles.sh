@@ -11,7 +11,7 @@
 #
 # Usage:
 #   sbatch --array=3-30 profiles.sh
-#   sbatch --export=ALL,PARTICIPANT_LABEL=pil01,PROJECTION=iem profiles.sh
+#   PARTICIPANT_LABEL=pil01 PROJECTION=iem sbatch profiles.sh
 #
 # Optional overrides: PROJECTION (bins | iem), N_CHANNELS, N_BASIS, KAPPA, REPO (default ~/git/abstract_values)
 

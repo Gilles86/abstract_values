@@ -22,11 +22,11 @@ export KERAS_BACKEND=tensorflow
 # Always fits jointly across all of a subject's MRI sessions.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=pil01 fit_aprf_cv.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=session-shift fit_aprf_cv.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil01,MODEL=gaussian fit_aprf_cv.sh
+#   PARTICIPANT_LABEL=pil01 sbatch fit_aprf_cv.sh
+#   PARTICIPANT_LABEL=pil01 MODEL=session-shift sbatch fit_aprf_cv.sh
+#   PARTICIPANT_LABEL=pil01 MODEL=gaussian sbatch fit_aprf_cv.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 #   N_ITERATIONS    max gradient descent iterations per fold (default: 1000)

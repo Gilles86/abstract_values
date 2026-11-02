@@ -89,8 +89,10 @@ chain_next () {
              "Re-run by hand once the blocking rules are fixed."
         return
     fi
+    SNAKE_DRIVER_GENERATION=$((GENERATION + 1)) \
+    SNAKE_DRIVER_MAX_GENERATIONS="${MAX_GENERATIONS}" \
+    SNAKE_DRIVER_PREV_REMAINING="${REMAINING}" \
     sbatch --dependency="afterany:${SLURM_JOB_ID}" \
-           --export="ALL,SNAKE_DRIVER_GENERATION=$((GENERATION + 1)),SNAKE_DRIVER_MAX_GENERATIONS=${MAX_GENERATIONS},SNAKE_DRIVER_PREV_REMAINING=${REMAINING}" \
            abstract_values/snakemake/run_driver.sh \
         || echo "[driver] WARNING: could not queue a successor — the chain ends here."
 }

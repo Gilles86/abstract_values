@@ -15,9 +15,9 @@ export KERAS_BACKEND=tensorflow
 #
 # Two ways to run:
 #   Array job:  sbatch --array=1-30 decode_value.sh
-#   By name:    sbatch --export=PARTICIPANT_LABEL=pil01,MASK=...,MASK_DESC=BensonV1 decode_value.sh
+#   By name:    PARTICIPANT_LABEL=pil01 MASK=... MASK_DESC=BensonV1 sbatch decode_value.sh
 #
-# Required overrides (--export key=value):
+# Required overrides (set as KEY=value in front of sbatch):
 #   MASK          full path to brain mask NIfTI
 #   MASK_DESC     short label, e.g. BensonV1 (used in output filename)
 #
@@ -40,15 +40,15 @@ export KERAS_BACKEND=tensorflow
 #
 # Example — V1 bilateral, full noise model, pilot ses-1:
 #   MASK=/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/masks/sub-pil01/ses-1/anat/sub-pil01_ses-1_space-T1w_hemi-LR_desc-BensonV1_mask.nii.gz
-#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION=1,MASK=$MASK,MASK_DESC=BensonV1 decode_value.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION=1,MASK=$MASK,MASK_DESC=BensonV1,SPHERICAL=1 decode_value.sh
+#   PARTICIPANT_LABEL=pil01 SESSION=1 MASK=$MASK MASK_DESC=BensonV1 sbatch decode_value.sh
+#   PARTICIPANT_LABEL=pil01 SESSION=1 MASK=$MASK MASK_DESC=BensonV1 SPHERICAL=1 sbatch decode_value.sh
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)
 fi
 
 if [ -z "$MASK" ] || [ -z "$MASK_DESC" ]; then
-    echo "ERROR: MASK and MASK_DESC must be set via --export."
+    echo "ERROR: MASK and MASK_DESC must be set (MASK=... MASK_DESC=... sbatch ...)."
     exit 1
 fi
 

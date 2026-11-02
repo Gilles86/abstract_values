@@ -10,8 +10,8 @@
 # Create volumetric ROI masks (exvivo, vpnl, benson) from fmriprep FreeSurfer output.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=03 create_roi_masks.sh
-#   sbatch --export=PARTICIPANT_LABEL=pil01 create_roi_masks.sh
+#   PARTICIPANT_LABEL=03 sbatch create_roi_masks.sh
+#   PARTICIPANT_LABEL=pil01 sbatch create_roi_masks.sh
 #   sbatch --array=1-30 create_roi_masks.sh
 #
 # Optional exports:

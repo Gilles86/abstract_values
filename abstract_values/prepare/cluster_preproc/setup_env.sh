@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=setup_env
 #SBATCH --output=/home/gdehol/logs/setup_env_%j.txt
 #SBATCH --ntasks=1

@@ -19,7 +19,7 @@
 # hemi-LR convention used by the Benson/exvivo masks from create_roi_masks.py.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=pil01 create_extra_roi_masks.sh
+#   PARTICIPANT_LABEL=pil01 sbatch create_extra_roi_masks.sh
 #   sbatch --array=1-30 create_extra_roi_masks.sh     # whole cohort
 #
 # Optional exports:

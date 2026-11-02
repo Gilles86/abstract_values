@@ -13,9 +13,9 @@ export KERAS_BACKEND=tensorflow
 # betas using the objective CHF value of each gabor stimulus as the paradigm.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=pil02 fit_aprf.sh
+#   PARTICIPANT_LABEL=pil02 sbatch fit_aprf.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
 #   SMOOTHED        set to "1" to use smoothed betas (default: off)
 #   MODEL           standard | session-shift | fwhm-only-shift | fwhm-shift |

@@ -10,9 +10,9 @@
 #
 # Two ways to run:
 #   Array job:  sbatch --array=1-30 fit_vonmises.sh
-#   By name:    sbatch --export=PARTICIPANT_LABEL=pil01 fit_vonmises.sh
+#   By name:    PARTICIPANT_LABEL=pil01 sbatch fit_vonmises.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   SESSION       session number, e.g. SESSION=1 (default: all sessions)
 #   SMOOTHED      set to "1" to fit on spatially smoothed betas (default: off)
 #   FMRIPREP_DERIV  fmriprep derivative label (default: fmriprep)
@@ -20,9 +20,9 @@
 #   KAPPA         Von Mises concentration parameter (default: 2.0)
 #
 # Example (pilot, session 1):
-#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION=1 fit_vonmises.sh
+#   PARTICIPANT_LABEL=pil01 SESSION=1 sbatch fit_vonmises.sh
 # Smoothed:
-#   sbatch --export=PARTICIPANT_LABEL=pil01,SESSION=1,SMOOTHED=1 fit_vonmises.sh
+#   PARTICIPANT_LABEL=pil01 SESSION=1 SMOOTHED=1 sbatch fit_vonmises.sh
 
 if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=$(printf "%03d" $SLURM_ARRAY_TASK_ID)

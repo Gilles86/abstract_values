@@ -33,15 +33,15 @@ for MASK_DESC in BensonV1 BensonV2 BensonV3 NPCl NPCr; do
             for SMOOTHED in 0 1; do
                 for LAMBD in 0.0 0.1; do
 
-                    EXPORT="PARTICIPANT_LABEL=pil01,SESSION=1"
-                    EXPORT+=",MASK=$MASK,MASK_DESC=$MASK_DESC"
-                    EXPORT+=",N_VOXELS=$NVOX"
-                    EXPORT+=",SPHERICAL=$SPHERICAL"
-                    EXPORT+=",SMOOTHED=$SMOOTHED"
-                    EXPORT+=",LAMBD=$LAMBD"
+                    ENV=("PARTICIPANT_LABEL=pil01" "SESSION=1")
+                    ENV+=("MASK=$MASK" "MASK_DESC=$MASK_DESC")
+                    ENV+=("N_VOXELS=$NVOX")
+                    ENV+=("SPHERICAL=$SPHERICAL")
+                    ENV+=("SMOOTHED=$SMOOTHED")
+                    ENV+=("LAMBD=$LAMBD")
 
-                    sbatch --export="$EXPORT" "$SCRIPT_DIR/decode_gabor.sh"
-                    sbatch --export="$EXPORT" "$SCRIPT_DIR/decode_value.sh"
+                    env "${ENV[@]}" sbatch "$SCRIPT_DIR/decode_gabor.sh"
+                    env "${ENV[@]}" sbatch "$SCRIPT_DIR/decode_value.sh"
                     N_JOBS=$((N_JOBS + 2))
 
                 done

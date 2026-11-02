@@ -9,7 +9,7 @@
 
 # Coding / connectivity / joint models of IPS voxels with linearly inverted V1
 # input (fit_tuning_connectivity.py).
-#   sbatch --export=ALL,PARTICIPANT_LABEL=05,SMOOTHED=1 fit_tuning_connectivity.sh
+#   PARTICIPANT_LABEL=05 SMOOTHED=1 sbatch fit_tuning_connectivity.sh
 
 set -eo pipefail
 export PYTHONUNBUFFERED=1

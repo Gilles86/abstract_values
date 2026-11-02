@@ -8,7 +8,7 @@
 #SBATCH --account=zne.uzh
 
 # Crossnobis RDMs (23 orientations x session) for all dorsal ROIs of one subject.
-#   sbatch --export=ALL,PARTICIPANT_LABEL=03 crossnobis.sh
+#   PARTICIPANT_LABEL=03 sbatch crossnobis.sh
 # Optional: SMOOTHED=1
 
 SMOOTHED="${SMOOTHED:-0}"

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=vmpfc_dropout
 #SBATCH --output=/home/gdehol/logs/vmpfc_dropout_%A-%a.txt
 #SBATCH --ntasks=1
@@ -12,7 +12,7 @@
 # mPFC label volume to MNI152NLin2009cAsym (2 mm) with ANTs from the fmriprep
 # container, for the group dropout map.
 #   sbatch --array=1-35 collect_vmpfc_dropout.sh          # index into glmsingle subjects
-#   sbatch --export=PARTICIPANT_LABEL=03 collect_vmpfc_dropout.sh
+#   PARTICIPANT_LABEL=03 sbatch collect_vmpfc_dropout.sh
 
 BIDS=/shares/zne.uzh/gdehol/ds-abstractvalue
 OUT=/scratch/gdehol/vmpfc_dropout

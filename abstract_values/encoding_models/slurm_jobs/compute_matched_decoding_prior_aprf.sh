@@ -16,9 +16,9 @@ export KERAS_BACKEND=tensorflow
 # of two conditions' tuning curves.
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=11 compute_matched_decoding_prior_aprf.sh
+#   PARTICIPANT_LABEL=11 sbatch compute_matched_decoding_prior_aprf.sh
 #
-# Optional overrides (--export key=value):
+# Optional overrides (set as KEY=value in front of sbatch):
 #   ROI                 ROI label (default: NPCr)
 #   HEMI                hemisphere: LR, L, R, None (default: None)
 #   N_VOXELS            top voxels by R² (default: 100)

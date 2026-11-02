@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=mriqc_group_abstractvalue
 #SBATCH --output=/home/gdehol/logs/abstractvalue_mriqc_group_%j.txt
 #SBATCH --ntasks=1

@@ -11,8 +11,8 @@
 # summary TSVs / NPZ (combine.py) into the cluster clone's notes/data, to be
 # rsynced back for plotting.
 #   sbatch combine.sh
-#   sbatch --export=SKIP_ACQ=1 combine.sh
-#   sbatch --export=SKIP_ACQ=1,GLM_ONLY=1 combine.sh     # only the GLM detectability tables
+#   SKIP_ACQ=1 sbatch combine.sh
+#   SKIP_ACQ=1 GLM_ONLY=1 sbatch combine.sh     # only the GLM detectability tables
 OUT=/scratch/gdehol/dropout_survey
 export TMPDIR=/scratch/gdehol/tmp
 mkdir -p $TMPDIR

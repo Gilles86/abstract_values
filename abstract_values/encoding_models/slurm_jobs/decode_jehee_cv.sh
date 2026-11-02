@@ -14,7 +14,7 @@
 # Writes derivatives/decoding_jeheecv/.
 #
 # CPU only. Array index -> subject (1..36 = pil01 pil02 03..36). Required: QUANTITY, ROI.
-#   sbatch --array=1-36 --export=ALL,QUANTITY=orientation,ROI=BensonV1 decode_jehee_cv.sh
+#   QUANTITY=orientation ROI=BensonV1 sbatch --array=1-36 decode_jehee_cv.sh
 set -eo pipefail
 
 SUBJECTS=(pil01 pil02 $(seq -f "%02g" 3 36))
@@ -22,7 +22,7 @@ if [ -z "$PARTICIPANT_LABEL" ]; then
     PARTICIPANT_LABEL=${SUBJECTS[$((SLURM_ARRAY_TASK_ID - 1))]}
 fi
 if [ -z "$QUANTITY" ] || [ -z "$ROI" ]; then
-    echo "ERROR: QUANTITY and ROI must be set via --export=ALL,..."; exit 1
+    echo "ERROR: QUANTITY and ROI must be set (QUANTITY=... ROI=... sbatch ...)"; exit 1
 fi
 
 export KERAS_BACKEND=tensorflow

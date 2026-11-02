@@ -12,8 +12,8 @@
 # stacked into one fit; pooled p and BH q per ROI.
 #
 # Usage:
-#   sbatch --export=ALL,PARTICIPANT_LABEL=05 permnull_select.sh
-#   sbatch --export=ALL,PARTICIPANT_LABEL=05,MODEL=standard,SMOOTHED=1,N_PERM=20 permnull_select.sh
+#   PARTICIPANT_LABEL=05 sbatch permnull_select.sh
+#   PARTICIPANT_LABEL=05 MODEL=standard SMOOTHED=1 N_PERM=20 sbatch permnull_select.sh
 
 export KERAS_BACKEND=tensorflow
 export TMPDIR=/scratch/gdehol

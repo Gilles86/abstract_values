@@ -13,7 +13,7 @@ export KERAS_BACKEND=tensorflow
 # volume with proper float32 dtype (works around the fmriprep-mask
 # quantisation trap; see abstract_values/encoding_models/aggregate_cvr2.py).
 #
-# Required (via --export):
+# Required (set as KEY=value in front of sbatch):
 #   PARTICIPANT_LABEL  subject label without sub-
 #   MODEL_DIR          on-disk CV dir name, e.g.
 #                        aprf.cv | aprf-shift.cv | aprf-weighted.cv | vonmises.cv

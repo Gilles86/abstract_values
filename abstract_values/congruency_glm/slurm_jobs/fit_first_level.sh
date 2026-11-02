@@ -10,8 +10,8 @@
 # Congruent/incongruent value-mapping first-level GLM (nilearn).
 #
 # Usage:
-#   sbatch --export=PARTICIPANT_LABEL=06,MODEL=congruent fit_first_level.sh
-#   sbatch --array=3-26 --export=MODEL=all fit_first_level.sh   # PARTICIPANT_LABEL from array index
+#   PARTICIPANT_LABEL=06 MODEL=congruent sbatch fit_first_level.sh
+#   MODEL=all sbatch --array=3-26 fit_first_level.sh   # PARTICIPANT_LABEL from array index
 #
 # MODEL: congruent | incongruent | both | all  (default: all)
 # SMOOTHING_FWHM: spatial smoothing kernel in mm (default: 6)
