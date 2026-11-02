@@ -28,6 +28,13 @@ Practical consequences:
   that keys on the numeric id alone silently drops them; that is why
   `brain_behavior_subject_summary.tsv` has 26 rows rather than 28.
 
+## Data collection status
+
+**Data collection finished on 2026-10-27: 36 study participants (`sub-01` … `sub-36`).**
+Fits, tables and figures made before that date used fewer (cogmodel fits: 34 participants,
+`notes/data/efficient_coding_paradigm.tsv`; older motor-noise fits: 29) and have to be redone
+on all 36 (regenerate the paradigm TSV with `--write-paradigm`, then refit on the cluster).
+
 ## Data access — `Subject` classes
 
 There are **two `Subject` classes**, in different modules, with overlapping method names. Pick by what you need:
@@ -116,7 +123,7 @@ Scripts in `abstract_values/prepare/cluster_preproc/`:
 sbatch --array=1-30 fmriprep.sh
 
 # submit a pilot by name
-sbatch --export=ALL,PARTICIPANT_LABEL=pil02 fmriprep.sh
+PARTICIPANT_LABEL=pil02 sbatch fmriprep.sh
 ```
 
 Sync fmriprep results back to local (T1w-space only):
@@ -178,10 +185,10 @@ Resources: 8 CPUs, 32 GB RAM, 2 h wall time.
 
 ```bash
 # standard model, single subject
-sbatch --export=ALL,PARTICIPANT_LABEL=pil01 fit_aprf.sh
+PARTICIPANT_LABEL=pil01 sbatch fit_aprf.sh
 
 # session-shift model
-sbatch --export=ALL,PARTICIPANT_LABEL=pil01,MODEL=session-shift fit_aprf.sh
+PARTICIPANT_LABEL=pil01 MODEL=session-shift sbatch fit_aprf.sh
 
 # study participants as array
 sbatch --array=1-30 fit_aprf.sh
@@ -338,11 +345,11 @@ debugging conversation, so load them explicitly):
 - **scientific-figures** — before writing any plotting code, including a PPC
   panel. `notes/figures/*.pdf` is the house output format.
 - **sciencecluster** — before submitting any SLURM job and before diagnosing a
-  held/failed/pending one. Submit with `--export=ALL,VAR=...`, never a
-  bare `--export=VAR=...` list: without `ALL`, SLURM retrieves the login
-  environment on the compute node, and that retrieval timing out is what causes
-  `user env retrieval failed requeued held` (re-tested 2026-10-19; the earlier
-  "never ALL" rule here had it backwards).
+  held/failed/pending one. Pass variables in front of the command
+  (`VAR=x sbatch ...`) and never give `--export` a list: on this cluster any
+  `--export` value other than plain `ALL` (also `--export=ALL,VAR=x`) makes
+  slurmd retrieve the login environment on the compute node, and that
+  retrieval failing is what causes `user env retrieval failed requeued held`.
 
 ## Cluster
 
