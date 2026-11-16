@@ -30,12 +30,13 @@ info = np.load(d / 'glmsingle.exactgrid' / f'sub-{a.subject}' / 'func' / 'DESIGN
 
 # within-run onset time (s) of every trial, in GLMsingle's trial order (run by run, by onset)
 tr_up = float(info['tr'])
-times = []
+n_trials = np.asarray(info['designSINGLE'][0]).shape[1]   # columns = all trials, all runs
+times = np.full(n_trials, np.nan)
 for dm in info['designSINGLE']:
     dm = np.asarray(dm)
-    onset_rows = [np.flatnonzero(dm[:, j])[0] for j in range(dm.shape[1])]
-    times.append(np.sort(np.array(onset_rows) * tr_up))
-times = np.concatenate(times)
+    for j in np.flatnonzero(dm.any(0)):                    # this run's trials
+        times[j] = np.flatnonzero(dm[:, j])[0] * tr_up
+assert np.isfinite(times).all()
 
 be = ex['betasmd'].reshape(-1, ex['betasmd'].shape[-1])
 bo = old['betasmd'].reshape(-1, old['betasmd'].shape[-1])
