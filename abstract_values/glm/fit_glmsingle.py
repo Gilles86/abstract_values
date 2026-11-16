@@ -69,16 +69,27 @@ TR_UP = 0.5      # 2x upsample — sub-TR precision below HRF timescale, but
 STIM_DUR = 1.5   # gabor presentation duration (seconds)
 
 
-def upsample_bold(bold_4d, factor):
-    """Linearly upsample a (x,y,z,t) array along the time axis by `factor`."""
+def upsample_bold(bold_4d, factor, grid='exact'):
+    """Linearly upsample a (x,y,z,t) array along the time axis by `factor`, as float32.
+
+    grid='exact': new sample k sits at k / factor original TRs, so the upsampled TR is exactly
+    TR / factor, the TR the design is built at (the last sample is extrapolated).
+    grid='linspace': the original grid, np.linspace(0, t - 1, n_new). Its step is
+    (t - 1) / (n_new - 1) TRs, not 1 / factor, so the data drift against the design by up to
+    ~0.46 s at the end of a run here. Kept only to reproduce fits made before 2026-11-16.
+    Grids are float32: interp1d returns float64 for a float64 grid, doubling memory.
+    """
     x, y, z, t = bold_4d.shape
-    t_orig = np.arange(t, dtype=np.float64)
     n_new = int(round(t * factor))
-    t_new = np.linspace(0, t - 1, n_new)
-    flat = bold_4d.reshape(-1, t).astype(np.float32)
-    up = interp1d(t_orig, flat, axis=1, kind='linear',
-                  fill_value='extrapolate', assume_sorted=True)(t_new)
-    return up.reshape(x, y, z, n_new)
+    t_orig = np.arange(t, dtype=np.float32)
+    if grid == 'exact':
+        t_new = np.arange(n_new, dtype=np.float32) / np.float32(factor)
+    else:
+        t_new = np.linspace(0, t - 1, n_new, dtype=np.float32)
+    flat = bold_4d.reshape(-1, t).astype(np.float32, copy=False)
+    up = interp1d(t_orig, flat, axis=1, kind='linear', fill_value='extrapolate',
+                  assume_sorted=True, copy=False)(t_new)
+    return up.astype(np.float32, copy=False).reshape(x, y, z, n_new)
 
 
 def make_condition_label(row):
@@ -143,7 +154,7 @@ def build_design_matrix(events_run, n_vols, condition_to_idx, tr=TR):
 
 
 def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmriprep-flair',
-         debug=False, smoothed=False, allow_incomplete=False):
+         debug=False, smoothed=False, allow_incomplete=False, grid='exact', out_suffix=''):
     sub = Subject(subject, bids_folder=bids_folder, fmriprep_deriv=fmriprep_deriv)
 
     if not allow_incomplete:
@@ -192,11 +203,11 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
                 ref_bold = bold_path
             img = image.smooth_img(str(bold_path), fwhm=5.0) if smoothed \
                 else image.load_img(str(bold_path))
-            bold_data = img.get_fdata()
+            bold_data = img.get_fdata(dtype=np.float32)
             n_vols = bold_data.shape[3]
 
             upsample_factor = TR / TR_UP
-            bold_data = upsample_bold(bold_data, upsample_factor)
+            bold_data = upsample_bold(bold_data, upsample_factor, grid=grid)
             n_vols_up = bold_data.shape[3]
 
             dm, trial_order = build_design_matrix(events.loc[run], n_vols_up,
@@ -218,7 +229,7 @@ def main(subject, sessions=None, bids_folder=BIDS_FOLDER, fmriprep_deriv='fmripr
     )
 
     from pathlib import Path
-    glmsingle_deriv = 'glmsingle.smoothed' if smoothed else 'glmsingle'
+    glmsingle_deriv = ('glmsingle.smoothed' if smoothed else 'glmsingle') + out_suffix
     sub_dir = Path(bids_folder) / 'derivatives' / glmsingle_deriv / f'sub-{subject}'
     out_dir = sub_dir / (f'ses-{sessions[0]}' if is_single_session else '') / 'func'
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -261,6 +272,10 @@ if __name__ == '__main__':
     parser.add_argument('--smoothed', action='store_true',
                         help='Spatially smooth BOLD data with a 5 mm FWHM Gaussian kernel '
                              'before fitting. Outputs go to derivatives/glmsingle.smoothed/.')
+    parser.add_argument('--grid', choices=['exact', 'linspace'], default='exact',
+                        help="upsampling time grid; 'linspace' reproduces fits made before 2026-11-16")
+    parser.add_argument('--out-suffix', default='',
+                        help="appended to the derivative name, e.g. '.exactgrid' -> derivatives/glmsingle.exactgrid")
     parser.add_argument('--allow-incomplete', action='store_true',
                         help='Skip the "all expected MRI sessions present" check. '
                              'Use only for debug runs — downstream encoding scripts '
@@ -272,4 +287,5 @@ if __name__ == '__main__':
          fmriprep_deriv=args.fmriprep_deriv,
          debug=args.debug,
          smoothed=args.smoothed,
-         allow_incomplete=args.allow_incomplete)
+         allow_incomplete=args.allow_incomplete,
+         grid=args.grid, out_suffix=args.out_suffix)
