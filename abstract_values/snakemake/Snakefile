@@ -407,7 +407,7 @@ rule fmriprep:
         # 3T 2-session subjects finish well under 24h; if a job hits the cap,
         # something's wrong — let it die rather than slipping into a 48h slot.
         # 22h leaves margin under standard partition's default qos=normal (1-day cap).
-        cpus_per_task=16, mem_mb=64_000, runtime=22*60,
+        cpus_per_task=8, mem_mb=64_000, runtime=22*60,  # 8 CPUs: measured ~1.07x slower than 16 at ~half the CPU cost (fmriprep skill)
     params:
         bold2anat_init=config.get("bold2anat_init", "auto"),
         # Subjects whose head pose false-positives FreeSurfer's talairach_afd

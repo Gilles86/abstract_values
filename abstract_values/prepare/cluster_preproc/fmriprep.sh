@@ -1,10 +1,13 @@
 #!/bin/bash -l
 #SBATCH --job-name=fmriprep_abstractvalue
 #SBATCH --output=/home/gdehol/logs/abstractvalue_fmriprep_%A-%a.txt
+#SBATCH --account=zne.uzh
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
+# 8 CPUs: measured ~1.07x slower than 16 at about half the CPU cost; memory sized from real
+# (anon) use, not sacct MaxRSS. See the fmriprep skill, references/resources.md.
 
 # Main fmriprep pipeline — T1w + T2w (T2-pial surface correction).
 # Output: derivatives/fmriprep
@@ -66,6 +69,12 @@ cat > "$FILTER_FILE" << 'EOF'
 }
 EOF
 
+# Tell fMRIPrep its allocation (otherwise nipype plans with the whole node's RAM and cores).
+NCPU=${SLURM_CPUS_PER_TASK:-8}
+MEM_MB=$(( ${SLURM_MEM_PER_NODE:-65536} - 8000 ))
+STDOUT_COPY="/scratch/$USER/fmriprep_stdout_sub-${PARTICIPANT_LABEL}_${SLURM_JOB_ID:-manual}.log"
+
+set -o pipefail
 apptainer run \
   -B /shares/zne.uzh/containers/templateflow:/opt/templateflow \
   -B /shares/zne.uzh/gdehol/ds-abstractvalue:/data \
@@ -79,29 +88,23 @@ apptainer run \
   --output-spaces T1w fsnative \
   --skip_bids_validation \
   -w /workflow \
-  --nthreads 16 \
-  --omp-nthreads 16 \
+  --nthreads "$NCPU" \
+  --omp-nthreads "$NCPU" \
+  --mem-mb "$MEM_MB" \
   --low-mem \
   --no-submm-recon \
-  $EXTRA_ARGS
-APPTAINER_RC=$?
+  $EXTRA_ARGS 2>&1 | tee "$STDOUT_COPY"
+RC=${PIPESTATUS[0]}
 
-# Treat the apptainer exit code as the primary signal, but tolerate
-# spurious exit-1 from apptainer ≥ 1.4 on otherwise-clean runs. The naive
-# "if exit-nonzero and html exists, treat as clean" version got bitten by
-# fmriprep writing a *failure-report* HTML on real failures (sub-12 /
-# 3573299 on 2026-05-29: ZRAN_READ_FAIL, `fMRIPrep failed: 15 raised`,
-# apptainer exit 1, *html written anyway*). The discriminator below
-# adds a late-stage output check that's only written after the freesurfer
-# autorecon completes — present on truly-finished runs, absent on early
-# failures like ZRAN.
-APARCASEG="/shares/zne.uzh/gdehol/ds-abstractvalue/derivatives/fmriprep/sub-${PARTICIPANT_LABEL}/ses-1/anat/sub-${PARTICIPANT_LABEL}_ses-1_desc-aparcaseg_dseg.nii.gz"
-if [[ $APPTAINER_RC -ne 0 ]]; then
-    if [[ -f "$APARCASEG" ]]; then
-        echo "apptainer exited $APPTAINER_RC but late-stage anat output exists ($APARCASEG) — treating as spurious exit, clean run."
+# apptainer >= 1.4 can exit 1 after a clean run (value_capture, 2026-11-14: all 12 subjects),
+# and fMRIPrep writes an html on failures too, so neither is proof of success. fMRIPrep's own
+# last line, printed only after a successful run, is. See the fmriprep skill.
+if [[ $RC -ne 0 ]]; then
+    if grep -q "fMRIPrep finished successfully" "$STDOUT_COPY"; then
+        echo "apptainer exited $RC but fMRIPrep reported success: treating as a clean run."
     else
-        echo "apptainer exited $APPTAINER_RC and late-stage anat output missing ($APARCASEG) — fmriprep failed."
-        exit $APPTAINER_RC
+        echo "apptainer exited $RC and fMRIPrep did not report success: failed."
+        exit $RC
     fi
 fi
 
